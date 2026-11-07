@@ -21,6 +21,16 @@ These checks exercise **scripted sensor frames**, measured local soil fusion, si
 
 **Scope cap:** about 3–6 planting sites, two simple rovers, a few synthetic local soil/stand readings, one physical drop, and one mid-run changed obstacle/site. No full farm, crop growth, flood mitigation or robot rescue.
 
+## MuJoCo Rapid-Prototyping SimulationPort & Isaac Sim Translation Protocol
+
+For rapid local prototyping on 8 GB VRAM laptops before translating to a teammate's ≥16 GB VRAM Isaac Sim workstation, see [MUJOCO-PROTOTYPE-AND-ISAAC-TRANSLATION](MUJOCO-PROTOTYPE-AND-ISAAC-TRANSLATION.md) and [`src/ricebot/mujoco_sim/README.md`](../src/ricebot/mujoco_sim/README.md):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --viewer-seconds 12
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --headless
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
 ## Foundation checks — actually available
 
 ```bash
