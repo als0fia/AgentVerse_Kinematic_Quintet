@@ -29,7 +29,9 @@ from ..contracts import (
     Decision,
     ObservationFrame,
     RobotCapability,
+    RobotCommand,
     SensorKind,
+    TaskIntent,
     TaskMode,
 )
 from ..control import ControlLimits, LocalController
@@ -165,6 +167,10 @@ class LiveSwarmDashboardApp:
         self.mass_kg_var = tk.DoubleVar(value=4.2)
         self.wheel_radius_mm_var = tk.DoubleVar(value=58.0)
         self.wheel_width_mm_var = tk.DoubleVar(value=40.0)
+        self.human_control_var = tk.BooleanVar(value=False)
+        self.manual_lin_m_s: float = 0.0
+        self.manual_ang_rad_s: float = 0.0
+        self.show_details_var = tk.BooleanVar(value=False)
 
         self.playing = False
         self.after_id: str | None = None
@@ -179,6 +185,7 @@ class LiveSwarmDashboardApp:
         self.trajectories: dict[str, list[tuple[float, float]]] = {"planter": [], "scout": []}
         self._init_simulation()
         self._build_ui()
+        self._bind_teleop_keys()
         self._refresh_all_views()
 
     def _init_simulation(self) -> None:
@@ -334,6 +341,18 @@ class LiveSwarmDashboardApp:
             pady=2,
         ).pack(side=tk.LEFT, padx=2, pady=4)
 
+        self.human_ctrl_btn = tk.Button(
+            toolbar,
+            text="🛑 Emergency Human Control: OFF",
+            command=self.toggle_emergency_human_control,
+            bg="#4c1d95",
+            fg="#f3e8ff",
+            font=("Segoe UI", 8, "bold"),
+            padx=8,
+            pady=2,
+        )
+        self.human_ctrl_btn.pack(side=tk.LEFT, padx=4, pady=4)
+
         # Multi-Seed Selector (Seeds 1..5 + 7 from sim/benchmark_harness.py)
         tk.Label(toolbar, text="| Seed:", bg="#111d2c", fg="#fbbf24", font=("Segoe UI", 9, "bold")).pack(
             side=tk.LEFT, padx=(6, 2)
@@ -456,6 +475,54 @@ class LiveSwarmDashboardApp:
             pady=1,
         ).pack(side=tk.RIGHT, padx=6, pady=2)
 
+        tk.Checkbutton(
+            bench_bar,
+            text="Show Inspector & Sliders",
+            variable=self.show_details_var,
+            command=self._toggle_details_drawer,
+            bg="#0d1826",
+            fg="#cbd5e1",
+            selectcolor="#0284c7",
+            activebackground="#0d1826",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side=tk.RIGHT, padx=6, pady=2)
+
+        # Row 2B: Compact Multi-Robot Color-Coded Status, Plan Summary & Emergency Teleop Bar
+        plan_bar = tk.Frame(self.root, bg="#09131f", highlightthickness=1, highlightbackground="#1f3247")
+        plan_bar.pack(fill=tk.X, padx=8, pady=(0, 3))
+
+        self.robot_plans_lbl = tk.Label(
+            plan_bar,
+            text="Robot Status & Plans: initializing...",
+            bg="#09131f",
+            fg="#f8fafc",
+            font=("Consolas", 9, "bold"),
+            anchor="w",
+            padx=8,
+            pady=3,
+        )
+        self.robot_plans_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.teleop_pad_frame = tk.Frame(plan_bar, bg="#09131f")
+        self.teleop_pad_frame.pack(side=tk.RIGHT, padx=6, pady=2)
+        for btn_lbl, lin_v, ang_v in (
+            ("▲ Fwd (W)", 0.34, 0.0),
+            ("▼ Rev (S)", -0.24, 0.0),
+            ("◀ Left (A)", 0.14, 0.95),
+            ("▶ Right (D)", 0.14, -0.95),
+            ("■ E-Stop (Space)", 0.0, 0.0),
+        ):
+            tk.Button(
+                self.teleop_pad_frame,
+                text=btn_lbl,
+                command=lambda l=lin_v, a=ang_v: self.issue_manual_teleop(l, a),
+                bg="#3b0764" if btn_lbl != "■ E-Stop (Space)" else "#991b1b",
+                fg="#f3e8ff",
+                font=("Segoe UI", 8, "bold"),
+                padx=5,
+                pady=1,
+            ).pack(side=tk.LEFT, padx=1)
+
         # Row 3: BIG Middle Split Pane (Left = 840x560+ 3D MuJoCo View, Right = 660x560+ 2D Top-Down Belief Map + Inspector)
         mid_frame = tk.Frame(self.root, bg="#0b131e")
         mid_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=2)
@@ -482,6 +549,7 @@ class LiveSwarmDashboardApp:
             ("wheel_closeup", "Low Mud/Wheel Close-Up"),
             ("planter_follow_cam", "Follow Planter"),
             ("scout_follow_cam", "Follow Scout"),
+            ("planter_ego_cam", "Ego Optical Cam"),
             ("top_overview", "Top 3D"),
         ):
             tk.Radiobutton(
@@ -613,14 +681,15 @@ class LiveSwarmDashboardApp:
         self.canvas_2d.bind("<Button-1>", self._on_2d_canvas_click)
         self.canvas_2d.bind("<Configure>", self._on_2d_canvas_configure)
 
-        inspector_frame = tk.Frame(
+        self.inspector_frame = tk.Frame(
             map_and_inspector, bg="#0d1724", width=310, highlightthickness=1, highlightbackground="#1f3247"
         )
-        inspector_frame.pack(side=tk.RIGHT, fill=tk.Y, expand=False)
-        inspector_frame.pack_propagate(False)
+        if self.show_details_var.get():
+            self.inspector_frame.pack(side=tk.RIGHT, fill=tk.Y, expand=False)
+            self.inspector_frame.pack_propagate(False)
 
         self.inspector_title_lbl = tk.Label(
-            inspector_frame,
+            self.inspector_frame,
             text="SELECTED ROBOT BELIEF INSPECTOR",
             bg="#16263b",
             fg="#38bdf8",
@@ -630,7 +699,7 @@ class LiveSwarmDashboardApp:
         self.inspector_title_lbl.pack(fill=tk.X)
 
         self.inspector_text = tk.Text(
-            inspector_frame,
+            self.inspector_frame,
             bg="#0d1724",
             fg="#e2e8f0",
             font=("Consolas", 8),
@@ -642,11 +711,12 @@ class LiveSwarmDashboardApp:
         self.inspector_text.pack(fill=tk.BOTH, expand=True)
 
         # Row 4: Compact Bottom Dock (Bekker-Wong Sliders + Per-Robot Sinkage Cards + UWB Gossip Log)
-        bottom_frame = tk.Frame(self.root, bg="#0b131e")
-        bottom_frame.pack(fill=tk.X, expand=False, padx=8, pady=(2, 5))
+        self.bottom_frame = tk.Frame(self.root, bg="#0b131e")
+        if self.show_details_var.get():
+            self.bottom_frame.pack(fill=tk.X, expand=False, padx=8, pady=(2, 5))
 
         sizing_frame = tk.LabelFrame(
-            bottom_frame,
+            self.bottom_frame,
             text=" Live 3D Bekker-Wong Mud Sinkage, Wheel Slip & Vehicle Sizing Controls ",
             bg="#111d2c",
             fg="#38bdf8",
@@ -696,7 +766,7 @@ class LiveSwarmDashboardApp:
         self.terramech_cards_lbl.pack(fill=tk.X, pady=(2, 0))
 
         gossip_frame = tk.LabelFrame(
-            bottom_frame,
+            self.bottom_frame,
             text=" Peer-to-Peer UWB / Wi-Fi HaLow Mycelial Gossip & Task Negotiation Log ",
             bg="#111d2c",
             fg="#38bdf8",
@@ -825,6 +895,98 @@ class LiveSwarmDashboardApp:
         self._apply_vehicle_sizing_to_sim()
         self._refresh_all_views()
 
+    def _toggle_details_drawer(self) -> None:
+        """Show or hide the secondary inspector and bottom sliders so 3D and 2D viewports stay maximized."""
+        if self.show_details_var.get():
+            self.inspector_frame.pack(side=tk.RIGHT, fill=tk.Y, expand=False)
+            self.inspector_frame.pack_propagate(False)
+            self.bottom_frame.pack(fill=tk.X, expand=False, padx=8, pady=(2, 5))
+        else:
+            self.inspector_frame.pack_forget()
+            self.bottom_frame.pack_forget()
+        self._refresh_all_views()
+
+    def _bind_teleop_keys(self) -> None:
+        """Bind WASD and Space keys for Emergency Human Control teleoperation."""
+        self.root.bind("<KeyPress-w>", lambda _e: self.issue_manual_teleop(0.34, 0.0))
+        self.root.bind("<KeyPress-s>", lambda _e: self.issue_manual_teleop(-0.24, 0.0))
+        self.root.bind("<KeyPress-a>", lambda _e: self.issue_manual_teleop(0.14, 0.95))
+        self.root.bind("<KeyPress-d>", lambda _e: self.issue_manual_teleop(0.14, -0.95))
+        self.root.bind("<space>", lambda _e: self.issue_manual_teleop(0.0, 0.0))
+
+    def toggle_emergency_human_control(self) -> None:
+        """Toggle Emergency Human Control override on the selected robot."""
+        active = not self.human_control_var.get()
+        self.human_control_var.set(active)
+        self.manual_lin_m_s = 0.0
+        self.manual_ang_rad_s = 0.0
+        if active:
+            sel = self.selected_robot_var.get().upper()
+            self.human_ctrl_btn.configure(
+                text=f"🛑 HUMAN CONTROL ACTIVE ({sel})",
+                bg="#9333ea",
+                fg="#ffffff",
+            )
+        else:
+            self.human_ctrl_btn.configure(
+                text="🛑 Emergency Human Control: OFF",
+                bg="#4c1d95",
+                fg="#f3e8ff",
+            )
+        self._refresh_all_views()
+
+    def issue_manual_teleop(self, lin_m_s: float, ang_rad_s: float) -> None:
+        """Engage Emergency Human Control and apply manual velocity command to the selected rover."""
+        if not self.human_control_var.get():
+            self.toggle_emergency_human_control()
+        self.manual_lin_m_s = float(lin_m_s)
+        self.manual_ang_rad_s = float(ang_rad_s)
+        if not self.playing:
+            self.step_once()
+        else:
+            self._refresh_all_views()
+
+    def _format_robot_plan_sentence(self, rid: str) -> tuple[str, str, str]:
+        """Return (status_label, hex_color, human_readable_plan) for a robot."""
+        sink = self.sim.latest_terramechanics.get(rid)
+        bellied = bool(sink and sink.bellied_out)
+        if self.human_control_var.get() and rid == self.selected_robot_var.get():
+            return (
+                "HUMAN CONTROL",
+                "#a855f7",
+                f"{rid.upper()} is under Emergency Human Control (v={self.manual_lin_m_s:+.2f}m/s, ω={self.manual_ang_rad_s:+.2f}r/s)",
+            )
+        if bellied:
+            peer = "SCOUT" if rid == "planter" else "PLANTER"
+            return (
+                "IMMOBILIZED (S1)",
+                "#ef4444",
+                f"{rid.upper()} is bellied out in deep mud -> {peer} assigned to assist/retrieve",
+            )
+        other_rid = "planter" if rid == "scout" else "scout"
+        other_sink = self.sim.latest_terramechanics.get(other_rid)
+        if other_sink and other_sink.bellied_out:
+            return (
+                "RETRIEVING PEER",
+                "#f59e0b",
+                f"{rid.upper()} is going to retrieve immobilized {other_rid.upper()}",
+            )
+        intents_by_id = {i.robot_id: i for i in self.decision.intents}
+        intent = intents_by_id.get(rid)
+        if intent is None or intent.mode == TaskMode.HOLD:
+            return ("HOLD / STANDBY", "#94a3b8", f"{rid.upper()} is holding position on standby")
+        if intent.mode == TaskMode.PLANT:
+            return (
+                "PLANTING",
+                "#38bdf8",
+                f"{rid.upper()} is going to plant seed at {intent.target_site_id or 'site'}",
+            )
+        return (
+            "SAMPLING",
+            "#22c55e",
+            f"{rid.upper()} is going to sample soil at {intent.target_site_id or 'site'}",
+        )
+
     def _launch_optional_gl_viewer(self) -> None:
         try:
             import mujoco.viewer
@@ -901,7 +1063,22 @@ class LiveSwarmDashboardApp:
     def step_once(self) -> None:
         t0 = time.perf_counter()
         self._apply_vehicle_sizing_to_sim()
-        self.frame = self.sim.step(self.decision.commands)
+        cmds_to_run = list(self.decision.commands)
+        if self.human_control_var.get():
+            sel_rid = self.selected_robot_var.get()
+            t_now = self.frame.time_s
+            override_cmd = RobotCommand(
+                robot_id=sel_rid,
+                issued_at_s=t_now,
+                expires_at_s=t_now + 0.5,
+                task_id=f"human-teleop-{self.step_count}",
+                linear_m_s=self.manual_lin_m_s,
+                angular_rad_s=self.manual_ang_rad_s,
+                release_seed=False,
+                target_site_id=None,
+            )
+            cmds_to_run = [c for c in cmds_to_run if c.robot_id != sel_rid] + [override_cmd]
+        self.frame = self.sim.step(tuple(cmds_to_run))
         if self._central_core is not None:
             # Update local belief maps in passive mirror mode while executing Centralised/Single-Rover commands
             self.runtime.decide(self.frame)
@@ -1034,6 +1211,11 @@ class LiveSwarmDashboardApp:
                 f"D-0010 Comm: {bm['actual_wire_bytes']} B vs {bm['stream_10hz_bytes']} B 10Hz ({bm['saved_pct']:+.1f}% Saved)  |  "
                 f"Planted: {planted_sites or 'none'}"
             )
+        )
+        p_stat, _p_col, p_plan = self._format_robot_plan_sentence("planter")
+        s_stat, _s_col, s_plan = self._format_robot_plan_sentence("scout")
+        self.robot_plans_lbl.configure(
+            text=f"● {p_plan}   |   ● {s_plan}"
         )
         self._render_3d_view()
         self._render_2d_belief_map()
@@ -1420,20 +1602,31 @@ class LiveSwarmDashboardApp:
                     rx - 20, ry - 20, rx + 20, ry + 20, outline="#fef08a", width=3
                 )
 
-            fill_col = "#ef4444" if bellied else ("#0284c7" if rid == "planter" else "#16a34a")
+            status_tag, fill_col, plan_sentence = self._format_robot_plan_sentence(rid)
             c.create_oval(rx - 12, ry - 12, rx + 12, ry + 12, fill=fill_col, outline="#ffffff", width=2)
             hx = rx + 18 * cos(r_obs.pose.yaw_rad)
             hy = ry - 18 * sin(r_obs.pose.yaw_rad)
             c.create_line(rx, ry, hx, hy, fill="#fef08a", width=2)
 
             intent = intents_by_rid.get(rid)
-            mode_tag = "STUCK(S1)" if bellied else (intent.mode.value.upper() if intent else "IDLE")
+            if intent and intent.target_site_id and intent.target_site_id in self.sim.sites:
+                tsite = self.sim.sites[intent.target_site_id]
+                tx_c, ty_c = self._world_to_canvas(tsite.center.x_m, tsite.center.y_m)
+                c.create_line(rx, ry, tx_c, ty_c, fill=fill_col, width=2, dash=(4, 3))
+
             c.create_text(
                 rx,
                 ry + 22,
-                text=f"{rid.upper()} [{mode_tag}]",
+                text=f"{rid.upper()} [{status_tag}]",
                 fill="#fef08a" if is_selected else "#f8fafc",
                 font=("Segoe UI", 9, "bold"),
+            )
+            c.create_text(
+                rx,
+                ry + 35,
+                text=plan_sentence,
+                fill="#cbd5e1",
+                font=("Consolas", 8),
             )
 
         c.create_rectangle(6, 4, self.MAP_W - 6, 23, fill="#0b131e", outline="#1f3247")

@@ -1,13 +1,30 @@
 /**
  * @file src/components/FieldMapCanvas.tsx
- * @description Clean, User-Friendly Interactive Field Map for the Antenna Multi-Robot Dashboard.
+ * @description Interactive 2D Top-Down Belief & Rice-Fitness Visualiser for the Antenna Multi-Robot Dashboard.
  *
- * Displays:
- * - Color-coded robot dots (`R1`–`R5`) showing where each robot is and its status at a glance.
- * - Dashed plan lines showing where each robot is heading (e.g., Robot 1 retrieving Robot 3).
- * - Crop gap sites (`C-01`–`C-08`) and mud hazard zones.
- * - A single streamlined toolbar with Play/Pause, Step, `+ Obstacle`, Reset, and a compact
- *   dropdown for optional heatmap overlays (so the user isn't overwhelmed by dozens of buttons).
+ * Mirrors the Right Pane ("BIG Interactive 2D Top-Down Belief & Rice-Fitness Visualiser") from
+ * `src/ricebot/viewer/live_app.py` (`LiveSwarmDashboardApp`):
+ * - Supports switching the inspected world model across:
+ *   - `planter` ("Planter Local Belief")
+ *   - `scout` ("Scout Local Belief")
+ *   - `divergence` ("|Planter - Scout| Belief Gap")
+ *   - `truth` ("Hidden Ground Truth f(x,y)")
+ * - Supports all 8 continuous 2D spatial layers from `live_app.py` (`LAYER_META`):
+ *   - `planting_fitness` ("Rice Fitness Φ(x,y)" — default)
+ *   - `moisture` ("Soil Moisture M(x,y)")
+ *   - `firmness` ("Cone Firmness F(x,y)")
+ *   - `stand_gap` ("Canopy Stand Gap G(x,y)")
+ *   - `plant_density` ("Plant Density ρ(x,y)")
+ *   - `uncertainty` ("Epistemic Uncertainty σ(x,y)")
+ *   - `traversability_risk` ("Mud / SLAM Risk R(x,y)")
+ *   - `elevation_m` ("Micro-Topography z(x,y)")
+ * - Renders color-coded robot dots (`ANT-01`–`ANT-05`), heading vectors, dashed plan paths,
+ *   explicit plain-English robot plans, and UWB+HaLow P2P gossip beams.
+ *
+ * Use Cases:
+ * 1. Observing where each robot is, its color-coded status, and its active plan on the 2D belief map.
+ * 2. Comparing Planter vs. Scout local belief maps and inspecting the Rice Planting Fitness Index Φ(x,y).
+ * 3. Clicking any robot dot to inspect/control it, or clicking any crop-gap site to dispatch the selected robot.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -47,36 +64,77 @@ interface FieldMapCanvasProps {
 
 type HeatmapSelectorOption = ContinuousHeatmapLayer | 'none';
 
-/**
- * Maps a normalized [0, 1] heatmap intensity and layer type to an RGBA fill color.
- */
-function getHeatmapCellColor(layer: HeatmapSelectorOption, value: number): string {
-  if (layer === 'none') return 'transparent';
-  const norm =
-    layer === 'firmness'
-      ? Math.max(0, Math.min(1, value / 45))
-      : Math.max(0, Math.min(1, value));
+const BELIEF_VIEW_OPTIONS: { id: BeliefPerspective; label: string }[] = [
+  { id: 'planter', label: 'Planter Local Belief' },
+  { id: 'scout', label: 'Scout Local Belief' },
+  { id: 'divergence', label: '|Planter − Scout| Gap' },
+  { id: 'truth', label: 'Hidden Ground Truth f(x,y)' },
+];
 
-  if (layer === 'traversability_risk' || layer === 'stand_gap') {
-    const r = Math.round(60 + 195 * norm);
-    const g = Math.round(140 * (1 - norm));
-    const b = Math.round(90 * (1 - norm));
-    return `rgba(${r}, ${g}, ${b}, ${0.1 + norm * 0.28})`;
+const LAYER_OPTIONS: { id: HeatmapSelectorOption; shortLabel: string; fullTitle: string }[] = [
+  { id: 'planting_fitness', shortLabel: 'Rice Fitness Φ', fullTitle: 'Rice Planting Fitness Φ(x,y)' },
+  { id: 'moisture', shortLabel: 'Moisture M', fullTitle: 'Soil Moisture M(x,y)' },
+  { id: 'firmness', shortLabel: 'Firmness F', fullTitle: 'Cone Firmness F(x,y)' },
+  { id: 'stand_gap', shortLabel: 'Stand Gap G', fullTitle: 'Canopy Stand Gap G(x,y)' },
+  { id: 'plant_density', shortLabel: 'Plant Density ρ', fullTitle: 'Plant Density ρ(x,y)' },
+  { id: 'uncertainty', shortLabel: 'Uncertainty σ', fullTitle: 'Epistemic Uncertainty σ(x,y)' },
+  { id: 'traversability_risk', shortLabel: 'Mud/SLAM Risk R', fullTitle: 'Mud / SLAM Risk R(x,y)' },
+  { id: 'elevation_m', shortLabel: 'Micro-Topo z', fullTitle: 'Micro-Topography z(x,y)' },
+];
+
+/**
+ * Maps a normalized [0, 1] value to the exact RGB palette formulas from `_grid_to_rgb_ppm` in `src/ricebot/viewer/live_app.py`.
+ * @param layer - Active heatmap layer.
+ * @param value - Normalized scalar value in [0, 1].
+ * @returns CSS rgba color string.
+ */
+function getLiveAppHeatmapColor(layer: HeatmapSelectorOption, value: number): string {
+  if (layer === 'none') return 'transparent';
+  const t = Math.max(0, Math.min(1, value));
+  let r = 30;
+  let g = 120;
+  let b = 90;
+
+  if (layer === 'planting_fitness') {
+    r = 195.0 * (1.0 - t) + 25.0 * t;
+    g = 55.0 + 175.0 * Math.pow(t, 0.85);
+    b = 45.0 + 65.0 * t;
+  } else if (layer === 'moisture') {
+    r = 215.0 - 185.0 * t;
+    g = 180.0 - 75.0 * Math.pow(t, 1.1) + 30.0 * (1.0 - Math.abs(2.0 * t - 1.0));
+    b = 95.0 + 150.0 * Math.pow(t, 0.85);
+  } else if (layer === 'firmness') {
+    r = 120.0 + 95.0 * (1.0 - t);
+    g = 65.0 + 150.0 * t;
+    b = 45.0 + 75.0 * t;
+  } else if (layer === 'plant_density') {
+    r = 145.0 - 110.0 * t;
+    g = 110.0 + 115.0 * t;
+    b = 65.0 - 20.0 * t;
+  } else if (layer === 'stand_gap') {
+    r = 35.0 + 210.0 * t;
+    g = 150.0 + 55.0 * t - 60.0 * (t * t);
+    b = 85.0 - 55.0 * t;
+  } else if (layer === 'uncertainty') {
+    r = 20.0 + 225.0 * t;
+    g = 130.0 - 90.0 * t + 70.0 * (t * t);
+    b = 190.0 - 40.0 * t;
+  } else if (layer === 'elevation_m') {
+    r = 50.0 + 175.0 * t;
+    g = 95.0 + 125.0 * t;
+    b = 85.0 + 60.0 * (1.0 - t);
+  } else {
+    // traversability_risk / divergence
+    r = 30.0 + 220.0 * Math.pow(t, 0.85);
+    g = 175.0 * (1.0 - t);
+    b = 95.0 * (1.0 - t) + 110.0 * (t * t);
   }
-  if (layer === 'plant_density' || layer === 'firmness') {
-    const r = Math.round(16 + 40 * (1 - norm));
-    const g = Math.round(90 + 145 * norm);
-    const b = Math.round(80 + 60 * norm);
-    return `rgba(${r}, ${g}, ${b}, ${0.08 + norm * 0.25})`;
-  }
-  const r = Math.round(14 + 30 * (1 - norm));
-  const g = Math.round(116 + 110 * norm);
-  const b = Math.round(160 + 85 * norm);
-  return `rgba(${r}, ${g}, ${b}, ${0.1 + norm * 0.28})`;
+
+  return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, 0.42)`;
 }
 
 /**
- * Renders the clean, interactive multi-robot field map.
+ * Renders the Right-Pane 2D Top-Down Belief & Rice-Fitness Visualiser matching `src/ricebot/viewer/live_app.py`.
  */
 export const FieldMapCanvas: React.FC<FieldMapCanvasProps> = ({
   robots,
@@ -86,20 +144,15 @@ export const FieldMapCanvas: React.FC<FieldMapCanvasProps> = ({
   selectedRobotId,
   onSelectRobot,
   onDispatchRobotToPoint,
-  onInjectDynamicObstacle,
-  simulationRunning,
-  onToggleSimulation,
-  onStepSimulationOnce,
-  onResetSwarm,
 }) => {
-  const [heatmapLayer, setHeatmapLayer] = useState<HeatmapSelectorOption>('none');
+  const [heatmapLayer, setHeatmapLayer] = useState<HeatmapSelectorOption>('planting_fitness');
   const [perspective, setPerspective] = useState<BeliefPerspective>('planter');
   const [clickDispatchEnabled, setClickDispatchEnabled] = useState<boolean>(false);
 
   const widthM = APP_CONFIG.fieldGeometry.widthMeters;
   const heightM = APP_CONFIG.fieldGeometry.heightMeters;
-  const svgWidth = 960;
-  const svgHeight = 620;
+  const svgWidth = 840;
+  const svgHeight = 540;
 
   /**
    * Converts metric field coordinates (meters) to SVG viewport pixels.
@@ -112,12 +165,12 @@ export const FieldMapCanvas: React.FC<FieldMapCanvasProps> = ({
   }
 
   /**
-   * Precomputes the continuous RBF belief heatmap cells only when an overlay is chosen.
+   * Precomputes the vectorized 2D continuous belief grid (`32 x 20` cells).
    */
   const heatmapCells = useMemo(() => {
     if (heatmapLayer === 'none') return [];
-    const cols = 16;
-    const rows = 10;
+    const cols = 32;
+    const rows = 20;
     const cellW = svgWidth / cols;
     const cellH = svgHeight / rows;
     const cells: { key: string; x: number; y: number; w: number; h: number; fill: string }[] = [];
@@ -131,9 +184,12 @@ export const FieldMapCanvas: React.FC<FieldMapCanvasProps> = ({
           key: `hm-${r}-${c}`,
           x: c * cellW,
           y: r * cellH,
-          w: cellW,
-          h: cellH,
-          fill: getHeatmapCellColor(heatmapLayer, val),
+          w: cellW + 0.6,
+          h: cellH + 0.6,
+          fill: getLiveAppHeatmapColor(
+            perspective === 'divergence' ? 'traversability_risk' : heatmapLayer,
+            val
+          ),
         });
       }
     }
@@ -195,364 +251,193 @@ export const FieldMapCanvas: React.FC<FieldMapCanvasProps> = ({
     });
   }
 
-  const selectedRobot = robots.find((r) => r.id === selectedRobotId) ?? robots[0];
+  const activeLayerMeta =
+    LAYER_OPTIONS.find((l) => l.id === heatmapLayer) ?? LAYER_OPTIONS[0];
 
   return (
     <section
-      aria-label="Flooded Paddy Field Multi-Robot Map"
-      className="flex flex-col bg-slate-900 border border-slate-800 rounded-lg overflow-hidden"
+      aria-label="2D Top-Down Belief and Rice-Fitness Visualiser"
+      className="flex flex-col bg-[#111d2c] border border-[#1f3247] rounded-md overflow-hidden h-full"
     >
-      {/* Single Clean Map Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-slate-950 border-b border-slate-800">
-        {/* Left: Map Title + Compact Overlay Selector */}
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-sm font-semibold text-slate-100">
-            Field Map (24m × 16m)
-          </h2>
-
-          <div className="flex items-center gap-1.5 text-xs">
-            <label htmlFor="map-overlay-select" className="text-slate-400">
-              Overlay:
-            </label>
-            <select
-              id="map-overlay-select"
-              value={heatmapLayer}
-              onChange={(e) => {
-                const nextLayer = e.target.value as HeatmapSelectorOption;
-                logFunctionCall('FieldMapCanvas.setHeatmapLayer', { layer: nextLayer });
-                setHeatmapLayer(nextLayer);
-              }}
-              className="px-2 py-1 text-xs bg-slate-900 border border-slate-700 rounded text-slate-200 cursor-pointer"
-            >
-              <option value="none">Clean Map (Default)</option>
-              <option value="traversability_risk">Mud &amp; Slip Risk</option>
-              <option value="moisture">Soil Moisture</option>
-              <option value="firmness">Soil Firmness</option>
-              <option value="stand_gap">Missing Crop Gaps</option>
-              <option value="uncertainty">Map Uncertainty</option>
-            </select>
-
-            {heatmapLayer !== 'none' && (
-              <select
-                aria-label="Belief Perspective"
-                value={perspective}
-                onChange={(e) => setPerspective(e.target.value as BeliefPerspective)}
-                className="px-2 py-1 text-xs bg-slate-900 border border-slate-700 rounded text-cyan-300 cursor-pointer"
+      {/* Row 1: Inspect World Model Selector + Click-to-Move toggle */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-[#0d1826] border-b border-[#1f3247]">
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-xs font-bold text-amber-400 mr-1 whitespace-nowrap">
+            2D Belief Map:
+          </span>
+          {BELIEF_VIEW_OPTIONS.map((opt) => {
+            const active = perspective === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => {
+                  logFunctionCall('FieldMapCanvas.setPerspective', { perspective: opt.id });
+                  setPerspective(opt.id);
+                }}
+                className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  active
+                    ? 'bg-sky-600 text-white font-semibold'
+                    : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                }`}
               >
-                <option value="planter">Planter View</option>
-                <option value="scout">Scout View</option>
-                <option value="divergence">Planter vs Scout Gap</option>
-                <option value="truth">Ground Truth</option>
-              </select>
-            )}
-          </div>
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Right: Clean Playback & Action Buttons */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              logFunctionCall('FieldMapCanvas.onToggleSimulation', { next: !simulationRunning });
-              onToggleSimulation();
-            }}
-            className={`px-3 py-1 text-xs font-semibold rounded border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              simulationRunning
-                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
-                : 'bg-cyan-600 border-cyan-500 text-white hover:bg-cyan-500'
-            }`}
-          >
-            {simulationRunning ? 'Pause Sim' : 'Play Sim'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              logFunctionCall('FieldMapCanvas.onStepSimulationOnce', {});
-              onStepSimulationOnce();
-            }}
-            className="px-2.5 py-1 text-xs font-medium rounded border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Step
-          </button>
-
-          <button
-            type="button"
-            data-testid="inject-obstacle-btn"
-            onClick={() => {
-              logFunctionCall('FieldMapCanvas.onInjectDynamicObstacle', {});
-              onInjectDynamicObstacle();
-            }}
-            className="px-2.5 py-1 text-xs font-medium rounded border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            + Add Obstacle
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setClickDispatchEnabled((v) => !v)}
-            className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              clickDispatchEnabled
-                ? 'bg-cyan-600 border-cyan-400 text-white'
-                : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
-            }`}
-          >
-            {clickDispatchEnabled ? 'Click Map to Move...' : 'Set Waypoint'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              logFunctionCall('FieldMapCanvas.onResetSwarm', {});
-              onResetSwarm();
-            }}
-            className="px-2.5 py-1 text-xs font-medium rounded border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Reset
-          </button>
-        </div>
-      </div>
-
-      {/* Main SVG Metric Field Map */}
-      <div className="relative w-full bg-[#071118] select-none">
-        <svg
-          data-testid="paddy-field-map-svg"
-          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          onClick={handleMapSurfaceClick}
-          className={`w-full h-auto block ${
-            clickDispatchEnabled ? 'cursor-crosshair' : 'cursor-pointer'
+        <button
+          type="button"
+          onClick={() => setClickDispatchEnabled((v) => !v)}
+          className={`px-2 py-0.5 text-[11px] font-medium rounded border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+            clickDispatchEnabled
+              ? 'bg-amber-500/20 border-amber-400 text-amber-200'
+              : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
           }`}
         >
-          <defs>
-            <pattern
-              id="paddyMetricGrid"
-              width={svgWidth / 12}
-              height={svgHeight / 8}
-              patternUnits="userSpaceOnUse"
+          {clickDispatchEnabled ? 'Click Map to Send Robot...' : 'Send Selected Robot'}
+        </button>
+      </div>
+
+      {/* Row 2: 2D Field Layer Radio Bar matching live_app.py */}
+      <div className="flex flex-wrap items-center gap-1 px-3 py-1 bg-[#111d2c] border-b border-[#1f3247]">
+        <span className="text-[11px] font-semibold text-slate-400 mr-1">2D Field Layer:</span>
+        {LAYER_OPTIONS.map((l) => {
+          const active = heatmapLayer === l.id;
+          return (
+            <button
+              key={l.id}
+              type="button"
+              onClick={() => {
+                logFunctionCall('FieldMapCanvas.setHeatmapLayer', { layer: l.id });
+                setHeatmapLayer(l.id);
+              }}
+              className={`px-2 py-0.5 text-[11px] rounded transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                active
+                  ? 'bg-sky-600 text-white font-semibold'
+                  : 'bg-slate-800/70 text-slate-300 hover:bg-slate-700'
+              }`}
             >
-              <path
-                d={`M ${svgWidth / 12} 0 L 0 0 0 ${svgHeight / 8}`}
-                fill="none"
-                stroke="rgba(148, 163, 184, 0.08)"
-                strokeWidth="1"
+              {l.shortLabel}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Maximized 2D Top-Down SVG Map */}
+      <div className="relative flex-1 bg-[#070d14] min-h-[470px] flex items-center justify-center">
+        <svg
+          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+          onClick={handleMapSurfaceClick}
+          className={`w-full h-full block select-none ${
+            clickDispatchEnabled ? 'cursor-crosshair' : 'cursor-default'
+          }`}
+        >
+          {/* Vectorized 2D Heatmap Grid */}
+          <g>
+            {heatmapCells.map((cell) => (
+              <rect
+                key={cell.key}
+                x={cell.x}
+                y={cell.y}
+                width={cell.w}
+                height={cell.h}
+                fill={cell.fill}
               />
-            </pattern>
-            <marker
-              id="arrow-cyan"
-              viewBox="0 0 10 10"
-              refX="7"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#06b6d4" />
-            </marker>
-            <marker
-              id="arrow-emerald"
-              viewBox="0 0 10 10"
-              refX="7"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
-            </marker>
-            <marker
-              id="arrow-amber"
-              viewBox="0 0 10 10"
-              refX="7"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#f59e0b" />
-            </marker>
-          </defs>
+            ))}
+          </g>
 
-          {/* Base Paddy Surface */}
-          <rect x="0" y="0" width={svgWidth} height={svgHeight} fill="#07131a" />
+          {/* Subtle Meter Grid Lines */}
+          <g stroke="rgba(148, 163, 184, 0.12)" strokeWidth="1">
+            {[4, 8, 12, 16, 20].map((xm) => {
+              const { px } = metricToPixel({ x: xm, y: 0 });
+              return <line key={`vx-${xm}`} x1={px} y1={0} x2={px} y2={svgHeight} />;
+            })}
+            {[4, 8, 12].map((ym) => {
+              const { py } = metricToPixel({ x: 0, y: ym });
+              return <line key={`hy-${ym}`} x1={0} y1={py} x2={svgWidth} y2={py} />;
+            })}
+          </g>
 
-          {/* Optional Heatmap Overlay */}
-          {heatmapCells.map((cell) => (
-            <rect
-              key={cell.key}
-              x={cell.x}
-              y={cell.y}
-              width={cell.w}
-              height={cell.h}
-              fill={cell.fill}
-            />
-          ))}
-
-          <rect x="0" y="0" width={svgWidth} height={svgHeight} fill="url(#paddyMetricGrid)" />
-
-          {/* Section A / Section B Subtle Divider */}
-          <line
-            x1={svgWidth / 2}
-            y1={0}
-            x2={svgWidth / 2}
-            y2={svgHeight}
-            stroke="rgba(56, 189, 248, 0.2)"
-            strokeWidth="1"
-            strokeDasharray="6 6"
-          />
-          <text
-            x={svgWidth * 0.25}
-            y={svgHeight - 10}
-            textAnchor="middle"
-            fill="rgba(148, 163, 184, 0.45)"
-            fontSize="10"
-            fontFamily="JetBrains Mono, monospace"
-          >
-            SECTION A (WEST)
-          </text>
-          <text
-            x={svgWidth * 0.75}
-            y={svgHeight - 10}
-            textAnchor="middle"
-            fill="rgba(148, 163, 184, 0.45)"
-            fontSize="10"
-            fontFamily="JetBrains Mono, monospace"
-          >
-            SECTION B (EAST)
-          </text>
-
-          {/* Rice Crop Furrow Lines */}
-          {Array.from({ length: 7 }).map((_, idx) => {
-            const rowNumber = idx + 1;
-            const yMeters = rowNumber * 2;
-            const py = (yMeters / heightM) * svgHeight;
+          {/* SLAM / Mud Hazard Zones */}
+          {hazardZones.map((hz) => {
+            const { px, py } = metricToPixel(hz.position);
+            const rPx = (hz.radiusMeters / widthM) * svgWidth;
             return (
-              <g key={`crop-row-${rowNumber}`}>
-                <line
-                  x1={28}
-                  y1={py}
-                  x2={svgWidth - 28}
-                  y2={py}
-                  stroke="rgba(16, 185, 129, 0.14)"
-                  strokeWidth="2.5"
-                  strokeDasharray="10 6"
-                />
-                <text
-                  x={8}
-                  y={py - 5}
-                  fill="rgba(148, 163, 184, 0.4)"
-                  fontSize="9.5"
-                  fontFamily="JetBrains Mono, monospace"
-                >
-                  Row {rowNumber}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Seed Depot Station */}
-          {(() => {
-            const depot = metricToPixel(APP_CONFIG.fieldGeometry.depotPosition);
-            return (
-              <g>
-                <rect
-                  x={depot.px - 22}
-                  y={depot.py - 14}
-                  width={44}
-                  height={28}
-                  rx={4}
-                  fill="rgba(15, 23, 42, 0.9)"
-                  stroke="#38bdf8"
-                  strokeWidth="1.5"
-                />
-                <text
-                  x={depot.px}
-                  y={depot.py + 3}
-                  textAnchor="middle"
-                  fill="#bae6fd"
-                  fontSize="9.5"
-                  fontFamily="JetBrains Mono, monospace"
-                  fontWeight="600"
-                >
-                  DEPOT
-                </text>
-              </g>
-            );
-          })()}
-
-          {/* Hazard Zones */}
-          {hazardZones.map((hazard) => {
-            const { px, py } = metricToPixel(hazard.position);
-            const rPx = (hazard.radiusMeters / widthM) * svgWidth;
-            return (
-              <g key={hazard.id}>
+              <g key={hz.id}>
                 <circle
                   cx={px}
                   cy={py}
                   r={rPx}
-                  fill="rgba(239, 68, 68, 0.12)"
-                  stroke="rgba(248, 113, 113, 0.55)"
+                  fill="rgba(239, 68, 68, 0.14)"
+                  stroke="#ef4444"
                   strokeWidth="1.5"
-                  strokeDasharray="5 4"
-                />
-                <text
-                  x={px}
-                  y={py + rPx + 13}
-                  textAnchor="middle"
-                  fill="rgba(252, 165, 165, 0.85)"
-                  fontSize="9.5"
-                  fontFamily="JetBrains Mono, monospace"
-                >
-                  {hazard.label}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Dynamically Injected Obstacles */}
-          {obstacles.map((obs) => {
-            const { px, py } = metricToPixel(obs.position);
-            const rPx = (obs.radiusMeters / widthM) * svgWidth;
-            return (
-              <g key={obs.id} data-testid={`dynamic-obstacle-${obs.id}`}>
-                <circle
-                  cx={px}
-                  cy={py}
-                  r={rPx}
-                  fill="rgba(245, 158, 11, 0.25)"
-                  stroke="#fbbf24"
-                  strokeWidth="2"
                   strokeDasharray="4 3"
                 />
                 <text
                   x={px}
-                  y={py - rPx - 6}
+                  y={py - rPx - 5}
                   textAnchor="middle"
-                  fill="#fde68a"
-                  fontSize="9.5"
-                  fontFamily="JetBrains Mono, monospace"
-                  fontWeight="700"
+                  fill="#fca5a5"
+                  fontSize="10"
+                  fontFamily="monospace"
+                  fontWeight="bold"
                 >
-                  ▲ {obs.label}
+                  {hz.label}
                 </text>
               </g>
             );
           })}
 
-          {/* Crop Gap Sites */}
+          {/* Dynamic Injected Obstacles */}
+          {obstacles.map((obs) => {
+            const { px, py } = metricToPixel(obs.position);
+            return (
+              <g key={obs.id}>
+                <rect
+                  x={px - 11}
+                  y={py - 11}
+                  width={22}
+                  height={22}
+                  fill="#dc2626"
+                  stroke="#fef08a"
+                  strokeWidth="2"
+                />
+                <text
+                  x={px}
+                  y={py - 15}
+                  textAnchor="middle"
+                  fill="#fef08a"
+                  fontSize="10"
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                >
+                  OBSTACLE
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Crop Gap / Patch Sites (`patch_a`..`patch_d` / `C-01`..`C-08`) */}
           {cropGapSites.map((site) => {
             const { px, py } = metricToPixel(site.position);
             const isPlanted = site.status === 'PLANTED_VERIFIED';
-            const isHazardSkipped = site.status === 'HAZARD_SKIPPED';
-            const strokeColor = isPlanted
-              ? '#10b981'
-              : isHazardSkipped
-                ? '#f43f5e'
-                : '#fbbf24';
-            const fillColor = isPlanted
-              ? 'rgba(16, 185, 129, 0.22)'
-              : isHazardSkipped
-                ? 'rgba(244, 63, 94, 0.22)'
-                : 'rgba(251, 191, 36, 0.18)';
+            const isRejected = site.status === 'HAZARD_SKIPPED';
+            const ringColor = isPlanted
+              ? '#22c55e'
+              : isRejected
+              ? '#f87171'
+              : site.status === 'ASSIGNED'
+              ? '#38bdf8'
+              : '#fbbf24';
+            const statusTag = isPlanted
+              ? 'PLANTED'
+              : isRejected
+              ? 'MUD REJECT'
+              : site.status === 'ASSIGNED'
+              ? 'VIABLE'
+              : '?';
 
             return (
               <g
@@ -560,246 +445,200 @@ export const FieldMapCanvas: React.FC<FieldMapCanvasProps> = ({
                 onClick={(e) => handleCropSiteClick(e, site)}
                 className="cursor-pointer"
               >
-                <rect
-                  x={px - 10}
-                  y={py - 10}
-                  width={20}
-                  height={20}
-                  rx={4}
-                  fill={fillColor}
-                  stroke={strokeColor}
-                  strokeWidth="1.5"
+                <circle
+                  cx={px}
+                  cy={py}
+                  r={15}
+                  fill="rgba(15, 23, 42, 0.55)"
+                  stroke={ringColor}
+                  strokeWidth="2"
                 />
                 <text
                   x={px}
                   y={py + 3}
                   textAnchor="middle"
                   fill="#f8fafc"
-                  fontSize="8.5"
-                  fontFamily="JetBrains Mono, monospace"
-                  fontWeight="700"
+                  fontSize="9"
+                  fontFamily="monospace"
+                  fontWeight="bold"
                 >
                   {site.id}
                 </text>
+                <text
+                  x={px}
+                  y={py - 19}
+                  textAnchor="middle"
+                  fill={ringColor}
+                  fontSize="9"
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                >
+                  {site.id} [{statusTag}]
+                </text>
               </g>
             );
           })}
 
-          {/* Robot Plan Trajectories & Rescue Links */}
-          {robots.map((robot) => {
-            const start = metricToPixel(robot.position);
-            const end = metricToPixel(robot.targetWaypoint);
-            const dist = Math.hypot(end.px - start.px, end.py - start.py);
-            const theme = APP_CONFIG.statusTheme[robot.status];
-
-            const routePoints =
-              robot.plannedRoute && robot.plannedRoute.length > 0
-                ? [robot.position, ...robot.plannedRoute]
-                : [robot.position, robot.targetWaypoint];
-
-            const polylineStr = routePoints
-              .map((pt) => {
-                const p = metricToPixel(pt);
-                return `${p.px},${p.py}`;
-              })
-              .join(' ');
-
-            const peerRobot =
-              robot.taskMode === 'RETRIEVE_PEER' && robot.targetPeerId
-                ? robots.find((r) => r.id === robot.targetPeerId)
-                : null;
-
+          {/* UWB + Wi-Fi HaLow Peer-to-Peer Gossip Link between active rovers */}
+          {robots.length >= 2 && (() => {
+            const p0 = metricToPixel(robots[0].position);
+            const p1 = metricToPixel(robots[2]?.position ?? robots[1].position);
             return (
-              <g key={`plan-vec-${robot.id}`}>
-                {dist > 8 && (
-                  <g>
-                    <polyline
-                      points={polylineStr}
-                      fill="none"
-                      stroke={theme.hex}
-                      strokeWidth="2.2"
-                      strokeDasharray="6 4"
-                      markerEnd={
-                        robot.status === 'RETRIEVING'
-                          ? 'url(#arrow-cyan)'
-                          : robot.status === 'WARNING_SLIP'
-                            ? 'url(#arrow-amber)'
-                            : 'url(#arrow-emerald)'
-                      }
-                    />
-                    <circle
-                      cx={end.px}
-                      cy={end.py}
-                      r={4.5}
-                      fill="none"
-                      stroke={theme.hex}
-                      strokeWidth="1.5"
-                    />
-                  </g>
-                )}
-
-                {peerRobot && (
-                  <g>
-                    {(() => {
-                      const peerPx = metricToPixel(peerRobot.position);
-                      const midX = (start.px + peerPx.px) / 2;
-                      const midY = (start.py + peerPx.py) / 2;
-                      return (
-                        <>
-                          <line
-                            x1={start.px}
-                            y1={start.py}
-                            x2={peerPx.px}
-                            y2={peerPx.py}
-                            stroke="#22d3ee"
-                            strokeWidth="2.5"
-                          />
-                          <rect
-                            x={midX - 48}
-                            y={midY - 20}
-                            width={96}
-                            height={16}
-                            rx={3}
-                            fill="#083344"
-                            stroke="#06b6d4"
-                            strokeWidth="1"
-                          />
-                          <text
-                            x={midX}
-                            y={midY - 9}
-                            textAnchor="middle"
-                            fill="#a5f3fc"
-                            fontSize="9"
-                            fontFamily="JetBrains Mono, monospace"
-                            fontWeight="600"
-                          >
-                            RESCUE LINK
-                          </text>
-                        </>
-                      );
-                    })()}
-                  </g>
-                )}
+              <g>
+                <line
+                  x1={p0.px}
+                  y1={p0.py}
+                  x2={p1.px}
+                  y2={p1.py}
+                  stroke="#22d3ee"
+                  strokeWidth="2"
+                  strokeDasharray="6 4"
+                />
+                <text
+                  x={(p0.px + p1.px) * 0.5}
+                  y={(p0.py + p1.py) * 0.5 - 7}
+                  textAnchor="middle"
+                  fill="#fef08a"
+                  fontSize="9"
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                >
+                  UWB+HaLow GOSSIP
+                </text>
               </g>
             );
-          })}
+          })()}
 
-          {/* Color-Coded Robot Dots */}
-          {robots.map((robot) => {
+          {/* Robot Trajectories, Dashed Plan Paths & Color-Coded Robot Dots */}
+          {robots.map((robot, idx) => {
             const { px, py } = metricToPixel(robot.position);
+            const targetPx = metricToPixel(robot.targetWaypoint);
             const theme = APP_CONFIG.statusTheme[robot.status];
             const isSelected = robot.id === selectedRobotId;
-            const headingRad = (robot.headingDeg * Math.PI) / 180;
-            const dirX = px + Math.cos(headingRad) * 20;
-            const dirY = py + Math.sin(headingRad) * 20;
-            const shortNum = robot.id.replace('ANT-0', 'R');
+            const yawRad = (robot.headingDeg * Math.PI) / 180;
+            const hx = px + 18 * Math.cos(yawRad);
+            const hy = py + 18 * Math.sin(yawRad);
 
             return (
-              <g
-                key={robot.id}
-                onClick={(e) => handleRobotDotClick(e, robot)}
-                className="cursor-pointer"
-              >
-                {isSelected && (
-                  <circle
-                    cx={px}
-                    cy={py}
-                    r={25}
-                    fill="none"
-                    stroke="#f8fafc"
-                    strokeWidth="2"
-                    strokeDasharray="4 3"
-                  />
-                )}
-
-                <circle
-                  cx={px}
-                  cy={py}
-                  r={19}
-                  fill={theme.ringHex}
-                  stroke={theme.hex}
-                  strokeWidth={isSelected ? '2.5' : '1.5'}
-                />
-
+              <g key={robot.id}>
+                {/* Dashed Planned Trajectory Line */}
                 <line
                   x1={px}
                   y1={py}
-                  x2={dirX}
-                  y2={dirY}
+                  x2={targetPx.px}
+                  y2={targetPx.py}
                   stroke={theme.hex}
-                  strokeWidth="2.5"
+                  strokeWidth={isSelected ? '2.5' : '1.8'}
+                  strokeDasharray="5 4"
+                  opacity={0.85}
                 />
 
-                <circle
-                  cx={px}
-                  cy={py}
-                  r={11}
-                  fill={theme.hex}
-                  stroke="#020617"
-                  strokeWidth="2"
-                />
-
-                <text
-                  x={px}
-                  y={py + 3.5}
-                  textAnchor="middle"
-                  fill="#020617"
-                  fontSize="9.5"
-                  fontFamily="JetBrains Mono, monospace"
-                  fontWeight="800"
+                {/* Clickable Robot Dot */}
+                <g
+                  onClick={(e) => handleRobotDotClick(e, robot)}
+                  className="cursor-pointer"
                 >
-                  {shortNum}
-                </text>
+                  {isSelected && (
+                    <circle
+                      cx={px}
+                      cy={py}
+                      r={20}
+                      fill="none"
+                      stroke="#fef08a"
+                      strokeWidth="2.5"
+                    />
+                  )}
+                  <circle
+                    cx={px}
+                    cy={py}
+                    r={13}
+                    fill={theme.hex}
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                  />
+                  {/* Heading Indicator */}
+                  <line
+                    x1={px}
+                    y1={py}
+                    x2={hx}
+                    y2={hy}
+                    stroke="#fef08a"
+                    strokeWidth="2"
+                  />
+                  <text
+                    x={px}
+                    y={py + 3.5}
+                    textAnchor="middle"
+                    fill="#0f172a"
+                    fontSize="9"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                  >
+                    R{idx + 1}
+                  </text>
 
-                {/* Clean Floating Label */}
-                <g transform={`translate(${px}, ${py - 26})`}>
+                  {/* Robot ID + Color-Coded Status Tag */}
                   <rect
-                    x={-52}
-                    y={-16}
-                    width={104}
-                    height={18}
+                    x={px - 62}
+                    y={py + 16}
+                    width={124}
+                    height={15}
                     rx={3}
-                    fill="rgba(2, 6, 23, 0.9)"
-                    stroke={theme.hex}
+                    fill="rgba(9, 19, 31, 0.88)"
+                    stroke={isSelected ? '#fef08a' : '#1f3247'}
                     strokeWidth="1"
                   />
                   <text
-                    x={0}
-                    y={-4}
+                    x={px}
+                    y={py + 26.5}
                     textAnchor="middle"
-                    fill="#f8fafc"
+                    fill={isSelected ? '#fef08a' : '#f8fafc'}
                     fontSize="9.5"
-                    fontFamily="JetBrains Mono, monospace"
-                    fontWeight="600"
+                    fontFamily="monospace"
+                    fontWeight="bold"
                   >
-                    {theme.glyph} Robot {robot.id.replace('ANT-0', '')}
+                    {robot.id} [{theme.shortLabel.toUpperCase()}]
+                  </text>
+
+                  {/* Concise Plan Label on Map */}
+                  <text
+                    x={px}
+                    y={py + 40}
+                    textAnchor="middle"
+                    fill="#cbd5e1"
+                    fontSize="9"
+                    fontFamily="monospace"
+                  >
+                    {robot.planSummary.length > 36
+                      ? `${robot.planSummary.slice(0, 36)}...`
+                      : robot.planSummary}
                   </text>
                 </g>
               </g>
             );
           })}
+
+          {/* Top HUD Banner matching live_app.py lines 1439-1447 */}
+          <rect
+            x={8}
+            y={8}
+            width={svgWidth - 16}
+            height={24}
+            fill="#09131f"
+            stroke="#1f3247"
+            strokeWidth="1"
+          />
+          <text
+            x={14}
+            y={24}
+            fill="#38bdf8"
+            fontSize="11"
+            fontFamily="monospace"
+            fontWeight="bold"
+          >
+            {`View: ${perspective.toUpperCase()}  |  Layer: ${activeLayerMeta.fullTitle}  (Click any robot dot to inspect or control)`}
+          </text>
         </svg>
-
-        {/* Clean Bottom Legend & Selected Robot Plan Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-slate-950 border-t border-slate-800 text-xs">
-          {/* Status Color Key */}
-          <div className="flex flex-wrap items-center gap-3" aria-label="Robot Status Color Legend">
-            {Object.values(APP_CONFIG.statusTheme).map((theme) => (
-              <span key={theme.code} className={`inline-flex items-center gap-1 font-medium ${theme.textClass}`}>
-                <span aria-hidden="true">{theme.glyph}</span>
-                <span>{theme.shortLabel}</span>
-              </span>
-            ))}
-          </div>
-
-          {/* Selected Robot Current Plan */}
-          <div className="flex items-center gap-2 text-slate-300 truncate max-w-md">
-            <span className="font-mono font-semibold text-cyan-400 shrink-0">
-              {selectedRobot.callsign.split('·')[0].trim()}:
-            </span>
-            <span className="truncate">{selectedRobot.planSummary}</span>
-          </div>
-        </div>
       </div>
     </section>
   );

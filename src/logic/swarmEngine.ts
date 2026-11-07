@@ -161,6 +161,25 @@ export function evaluateContinuousBeliefField(
   // Underlying ground-truth scalar for the requested layer
   let truthVal = 0.5;
   switch (layer) {
+    case 'planting_fitness': {
+      const mVal =
+        0.58 +
+        0.34 * Math.exp(-(dSinkhole * dSinkhole) / 9.5) +
+        0.08 * Math.sin(x * 0.35) * Math.cos(y * 0.4);
+      const fVal =
+        0.74 -
+        0.58 * Math.exp(-(dSinkhole * dSinkhole) / 8.5) +
+        0.14 * Math.exp(-(dBund * dBund) / 5.0);
+      const gapVal =
+        0.18 +
+        0.72 * Math.exp(-Math.pow(x - 11.2, 2) / 5.5 - Math.pow(y - 4.0, 2) / 3.5) +
+        0.68 * Math.exp(-Math.pow(x - 16.5, 2) / 5.5 - Math.pow(y - 4.0, 2) / 3.5) +
+        0.64 * Math.exp(-Math.pow(x - 9.6, 2) / 5.5 - Math.pow(y - 14.0, 2) / 3.5);
+      const mOpt = Math.max(0.05, 1.0 - Math.abs(mVal - 0.62) * 1.8);
+      const fOpt = Math.max(0.05, Math.min(1.0, (fVal - 0.22) / 0.6));
+      truthVal = 0.25 + 0.65 * mOpt * fOpt * (0.45 + 0.55 * gapVal);
+      break;
+    }
     case 'moisture':
       truthVal =
         0.58 +

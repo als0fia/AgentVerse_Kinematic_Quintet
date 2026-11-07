@@ -2,29 +2,38 @@
 
 ## 1. Overview & Alignment with Repository Specifications
 The **Antenna Swarm Control Console** is the interactive multi-robot operator interface for the **AgentVerse Kinematic Quintet** (`https://github.com/als0fia/AgentVerse_Kinematic_Quintet`). It is aligned with the canonical engineering documents in the repository:
-- `src/ricebot/viewer/README.md` & `src/ricebot/viewer/dashboard.py` (`antenna.dashboard.v1` schema)
+- `src/ricebot/viewer/README.md`, `src/ricebot/viewer/live_app.py` (`LiveSwarmDashboardApp`), & `src/ricebot/viewer/dashboard.py` (`antenna.dashboard.v1` schema)
 - `src/ricebot/robot/README.md` (`make_homogeneous_rover_spec`, `paddy_ant_rigid_rescue.xml`)
 - `docs/IMMOBILIZATION_SCENARIOS.md` (`S1`–`S8` immobilization hypotheses + Negative Controls)
 - `docs/ANTENNA_RF_SUBSYSTEM.md` (ESP-NOW / Sub-1GHz Wi-Fi HaLow P2P gossip, 60GHz mmWave radar, BeiDou RTK)
-- `docs/DECISIONS.md` (`D-0008`, `D-0009`, `D-0011` Multi-Objective Pareto Rescue Triage, `D-0012` Standalone Edge AI Visualizer & Dynamic Obstacle Injection)
+- `docs/DECISIONS.md` (`D-0008`, `D-0009`, `D-0010` Equal-Work Comm Accounting, `D-0011` Multi-Objective Pareto Rescue Triage, `D-0012` Standalone Edge AI Visualizer & Dynamic Obstacle Injection)
 - `src/riceswarm_ai/README.md` & `src/riceswarm_ai/visualizer.py`
 
 ---
 
 ## 2. Core User Interface Features
 
-### 2.1 Multi-Robot Paddy Field Map (`src/components/FieldMapCanvas.tsx`)
+### 2.0 Maximized Side-by-Side 3D MuJoCo + 2D Belief Benchmark Visualizer (`src/ricebot/viewer/live_app.py` & `src/components/Mujoco3DViewport.tsx`)
+- **Dual-Format Delivery (Python `live_app.py` + Interactive Web Preview)**:
+  - Both the Python Tkinter/MuJoCo application (`src/ricebot/viewer/live_app.py`) and the interactive web preview (`src/App.tsx`, `src/components/Mujoco3DViewport.tsx`, `src/components/FieldMapCanvas.tsx`) implement the maximized side-by-side 3D + 2D layout with a compact top control bar.
+- **Left Viewport — BIG 3D MuJoCo Physics Visualiser**:
+  - Interactive 3D perspective scene with mouse-drag orbit and scroll zoom plus 6 camera presets (`Isometric Terrace`, `Low Mud/Wheel Close-Up`, `Follow Planter`, `Follow Scout`, `Ego Optical Cam`, `Top 3D`).
+  - Visualizes the undulating 3D paddy terrace micro-topography (`paddy_micro_relief`), 3D sunken wheel-mud ruts, 3D wheel-sinkage collars (`collar_rgba`), split dual-rover 3D belief spheres above each patch, UWB+HaLow cyan gossip beams, LiDAR rays, and rigid cam-latch extraction links.
+- **Compact Top Control & Multi-Seed Benchmark Bar**:
+  - Includes `Play/Pause 3D Sim`, `Step (0.1s)`, `Reset`, `13kg Mud Belly-Out` (S1 overload), `4.2kg Nominal` restore, **Emergency Human Control** toggle + inline WASD/directional teleop, Seed selector (`1, 2, 3, 4, 5, 7`), Scenario selector, Policy selector (`Mycelial SLAM (B)`, `Centralised (A)`, `Single Rover`), and the `5-Seed Benchmark Table` popup.
+
+### 2.1 Multi-Robot 2D Top-Down Belief & Rice-Fitness Map (`src/components/FieldMapCanvas.tsx`)
 - **Color-Coded Robot Position Dots**: Displays all 5 homogeneous Medic-Ant rovers (`ANT-01` through `ANT-05`) on the $24.0\text{ m} \times 16.0\text{ m}$ flooded paddy terrace (`Section A: Batch 1 Day -25` and `Section B: Batch 2 +20d Offset`):
   - `● Nominal` (`#10b981` Emerald): Active planting, scouting, or relay within safe slip bounds ($s < 0.42$).
   - `◆ Retrieving` (`#06b6d4` Cyan): Collinear rigid docking, cam-latch, and pitch-lift rescue in progress.
   - `▲ Alert / Slip` (`#f59e0b` Amber): Elevated wheel slip ($0.42 \le s < 0.60$) or furrow drift warning.
   - `✖ Immobilized` (`#ef4444` Crimson): Bogged down in deep mud (`S1`–`S8`), motor phase torque cut off.
   - `■ Human Control` (`#a855f7` Purple): Direct human teleoperation override or Global Fleet E-Stop engaged.
-- **Continuous 2D Gaussian-RBF Belief Heatmap & Perspective Switcher (`antenna.dashboard.v1`)**:
-  - **Perspectives**: `Planter Belief`, `Scout Belief`, `|Planter − Scout| Gap`, and `Ground Truth (Ref)` (strictly read-only visual comparator; never leaked to planners).
-  - **Continuous Field Layers**: `Moisture M(x,y)`, `Firmness F(x,y)`, `Density ρ(x,y)`, `Stand Gap G(x,y)`, `Uncertainty σ(x,y)`, `Mud Risk R(x,y)`, and `Elevation z(x,y)` with live cursor $f(x,y)$ inspection.
+- **Vectorized Continuous 2D Belief Heatmap & Perspective Switcher (`live_app.py` Palettes)**:
+  - **Perspectives**: `Planter Local Belief`, `Scout Local Belief`, `|Planter − Scout| Gap`, and `Hidden Ground Truth f(x,y)` (strictly read-only visual comparator; never leaked to planners).
+  - **8 Continuous Field Layers**: `Rice Planting Fitness Φ(x,y)` (default), `Moisture M(x,y)`, `Firmness F(x,y)`, `Stand Gap G(x,y)`, `Plant Density ρ(x,y)`, `Uncertainty σ(x,y)`, `Mud/SLAM Risk R(x,y)`, and `Micro-Topography z(x,y)`.
 - **Interactive Mid-Run Dynamic Obstacle Injection (`D-0012`)**:
-  - Clicking **`+ Inject Obstacle (D-0012)`** inserts a sudden mid-sequence obstacle directly along an active robot's planned path, invalidates intersecting routes, and triggers immediate A* multi-waypoint detour replanning visible on the map.
+  - Clicking **`+ Obstacle`** inserts a sudden mid-sequence obstacle directly along an active robot's planned path, invalidates intersecting routes, and triggers immediate A* multi-waypoint detour replanning visible on both the 3D and 2D viewports.
 
 ### 2.2 Explicit Natural-Language Robot Plans (`src/components/RobotRosterPanel.tsx` & `src/components/PlanTimelinePanel.tsx`)
 - Every robot displays its explicit natural-language mission plan and step-by-step execution queue (e.g., *"Robot 1 is going to retrieve Robot 3 via collinear rigid docking, cam-latch & pitch-lift at (14.4m, 8.4m)"*).

@@ -40,6 +40,7 @@ export type TaskMode =
 export type BeliefPerspective = 'planter' | 'scout' | 'divergence' | 'truth';
 
 export type ContinuousHeatmapLayer =
+  | 'planting_fitness'
   | 'moisture'
   | 'firmness'
   | 'plant_density'
@@ -47,6 +48,27 @@ export type ContinuousHeatmapLayer =
   | 'uncertainty'
   | 'traversability_risk'
   | 'elevation_m';
+
+export type MujocoCameraPreset =
+  | 'isometric'
+  | 'wheel_closeup'
+  | 'planter_follow_cam'
+  | 'scout_follow_cam'
+  | 'planter_ego_cam'
+  | 'top_overview';
+
+export type SimulationSeed = 1 | 2 | 3 | 4 | 5 | 7;
+
+export type SimulationScenario =
+  | 'nominal'
+  | 'bad_soil'
+  | 'shifted_moisture'
+  | 'obstacle'
+  | 'sensor_degraded';
+
+export type SwarmPolicyMode = 'mycelial' | 'centralized' | 'single_rover';
+
+export type RfCommsMode = 'normal' | 'intermittent' | 'isolated';
 
 export type CommsScenarioMode =
   | 'NORMAL_P2P_GOSSIP'
