@@ -1,21 +1,26 @@
 # Reproducible setup, run and recovery
 
-**Selected project is Antenna cooperative rice-field stand-gap mapping, targeted replanting and physical seed placement.** **Isaac Sim is the user-selected simulator for now**, but exact version, machine/container, scene performance and hardware are **not yet verified**. Do not claim a running robot, working seed drop, GPU credits, model or deployment. Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
+**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
+**Current project direction:** **Antenna rescue-first** collective robotics, with checked-in MuJoCo rice-field sensing/physical seed placement as working task context and a scripted rigid-docking/tandem extraction physics test. **Not yet verified:** automatic sensed-fault→rescue reasoning→physical execution→mission-continuation loop, learned policy, distributed Jetson inference or Isaac Sim integration.
+
+## Recovery integration gate (separate from existing MuJoCo mechanical test)
+
+To claim the full product, demonstrate a **real detected fault**, contextual rescue/abstain decision, bounded command driving the merged `paddy_ant_rigid_rescue.xml` / `update_rigid_dock_latch` mechanism, independently checked target displacement/helper safety and continued actual fieldwork. The current `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` is scripted contact/extraction, not end-to-end. Research pooled offline inference only on verified hardware and trusted network; no public llama.cpp RPC or cloud charges without approval.
 
 ## New teammate or agent onboarding
 
-For **any fresh Windows/macOS/Linux machine**, start with [WORKSTATION-SETUP](WORKSTATION-SETUP.md): inspect/clone safely, create local `.venv`, run actual kernel checks, optionally verify a **toy MuJoCo physics joint/sensor** via `scripts/smoke_mujoco.py`, verify Antigravity/Gemini tool access, and gate Isaac Sim on real compatible GPU/RAM and permissions. Do not copy another teammate's private keys or assume their local prototype exists on this machine. Selected production target remains Isaac Sim; MuJoCo is optional local preflight/fallback by human decision. [COMPONENTS](COMPONENTS.md) owns world vs robot vs single Isaac integration writer and the module README standard.
+For **any fresh Windows/macOS/Linux machine**, start with [WORKSTATION-SETUP](WORKSTATION-SETUP.md): inspect/clone safely, create local `.venv`, run actual kernel checks, optionally verify a toy MuJoCo joint with `scripts/smoke_mujoco.py` **or run the now-merged PaddyPatch MuJoCo prototype**, verify Antigravity/Gemini access, and gate Isaac Sim on compatible hardware and permissions. Do not copy another teammate's private keys or assume their local prototype exists on this machine. Isaac Sim remains the selected target; **MuJoCo is already the approved active development prototype**. Porting to Isaac still requires tests. [COMPONENTS](COMPONENTS.md) owns world vs robot vs single Isaac integration writer and the module README standard.
 
 ## Implemented core check (no Isaac Sim required)
 
-From repo root with Python 3.10+:
+For **core-only** checks (Python 3.10+, no simulation dependency):
 
 ```bash
 python -m unittest discover -s tests -p 'test_ricebot_foundation.py' -v
-python -m unittest discover -s tests -v
 ```
 
-These checks exercise **scripted sensor frames**, measured local soil fusion, simple tasks, bounded commands and an injected fake simulation-port response. **They do not verify Isaac Sim wheel motion, a physical hopper, landing contact or a working demo.**
+These use **scripted observations only**. Full discovery additionally runs MuJoCo physics tests and requires Python 3.11+ and `requirements-mujoco.txt`. Neither level proves Isaac Sim or farm performance.
 
 **Next coding agent:** implement the actual Isaac Sim `SimulationPort` against `src/ricebot/contracts.py`; first a real wheel-driven rover and range sensor, then an **actual rigid-body seed drop and landing/contact feedback**. Use the installed Isaac version; report exact host/VRAM/driver, commands, physics traces and failures. The physical bridge must refuse expired/invalid drive and drop commands independently. Keep the hidden true soil field out of the observations.
 
@@ -23,13 +28,16 @@ These checks exercise **scripted sensor frames**, measured local soil fusion, si
 
 ## MuJoCo Rapid-Prototyping SimulationPort & Isaac Sim Translation Protocol
 
-For rapid local prototyping on 8 GB VRAM laptops before translating to a teammate's ≥16 GB VRAM Isaac Sim workstation, see [MUJOCO-PROTOTYPE-AND-ISAAC-TRANSLATION](MUJOCO-PROTOTYPE-AND-ISAAC-TRANSLATION.md) and [`src/ricebot/mujoco_sim/README.md`](../src/ricebot/mujoco_sim/README.md):
+The checked-in MuJoCo prototype is the **active local development backend**. See [translation notes](MUJOCO-PROTOTYPE-AND-ISAAC-TRANSLATION.md) and [component README](../src/ricebot/mujoco_sim/README.md). With Python 3.11+, in Windows PowerShell:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --viewer-seconds 12
-.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --headless
+.\.venv\Scripts\python.exe -m pip install -r requirements-mujoco.txt
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --headless
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --viewer-seconds 12
 ```
+
+Use `.venv/bin/python` on Linux/macOS. CI runs headlessly; a MuJoCo success does not prove Isaac translation or real crop outcomes.
 
 ## Foundation checks — actually available
 
@@ -40,7 +48,7 @@ python -m unittest discover -s tests -v
 python scripts/evaluate.py --candidate tests/fixtures/candidate.jsonl --baseline tests/fixtures/baseline.jsonl
 ```
 
-Run `python scripts/sync_skills.py --write` after editing any canonical `.agents/skills/` file. The check command fails if the complete Claude mirrors diverge or skills are missing/extra. Python 3.10+ standard library only. These checks validate **repo structure and evaluation tooling**, not any robotics entry.
+Run `python scripts/sync_skills.py --write` after editing a canonical `.agents/skills/` file. Repo/skill/evaluator tools remain Python 3.10+ standard-library-only; **full unittest discovery also executes MuJoCo integration tests and requires `requirements-mujoco.txt` on Python 3.11+**. CI installs it. Physics success does not establish Isaac compatibility.
 
 ## Optional Gemini CLI development-agent preflight
 
@@ -52,7 +60,7 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 **Use NVIDIA Isaac Sim** for the actual USD scene, physically actuated rover wheels and hopper, rigid-body seed proxies, raycast/range/contact/odometry and second scout. Start from [official Isaac Sim requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html), [current sensor docs](https://docs.isaacsim.omniverse.nvidia.com/latest/sensors/isaacsim_sensors_physics_raycast.html), [Python API](https://docs.isaacsim.omniverse.nvidia.com/latest/py/index.html). **Do not pin a version from these links**: confirm and pin the *actually installed* build and its supported API; versions differ.
 
-**Hardware reality:** official Isaac Sim guidance specifies 32 GB system RAM and 16 GB GPU VRAM minimum for supported workstation operation; some teammates' reported laptops with 8 GB VRAM are below that. Check each actual machine's CPU/system RAM, GPU model + **VRAM**, driver, OS, free disk and run the Isaac Sim Compatibility Checker. If one machine already runs it reliably, use that as the physics host and connect other PCs through a bounded, logged network layer **only if their permissions/network work**. A GPU cloud host is possible only after verifying allocation, cost/credits, security, streaming and explicit spending/deployment approval. The Linux-only container build, assets network requirements and RTX constraints may affect the choice. Keep a headless/low-sensor-count scene to reduce rendering load. **Do not silently switch back to MuJoCo**; if Isaac Sim genuinely blocks progress, report logs and obtain human choice for fallback.
+**Hardware reality:** official Isaac Sim guidance specifies 32 GB system RAM and 16 GB GPU VRAM minimum for supported workstation operation; some teammates' reported laptops with 8 GB VRAM are below that. Check each actual machine's CPU/system RAM, GPU model + **VRAM**, driver, OS, free disk and run the Isaac Sim Compatibility Checker. If one machine already runs it reliably, use that as the physics host and connect other PCs through a bounded, logged network layer **only if their permissions/network work**. A GPU cloud host is possible only after verifying allocation, cost/credits, security, streaming and explicit spending/deployment approval. The Linux-only container build, assets network requirements and RTX constraints may affect the choice. Keep a headless/low-sensor-count scene to reduce rendering load. **The already approved MuJoCo prototype can continue independently**; do not call it Isaac. If Isaac preflight fails, report logs and ask the human team whether to retain MuJoCo for the final demo.
 
 **Preflight must show actual evidence:** installed version, driver/VRAM/RAM, engine executable, physics tick rate, one moving wheel-driven articulation, one measured range sensor value, ability to generate rigid-body seed proxy with ground contact, deterministic reset, a screenshot/trace, CPU/GPU usage and any failures. No source or cloud credentials in Git. If physics is remote, distinguish onsite robot controller/agent process from remote simulation; a disconnected agent cannot be called locally autonomous merely because a remote renderer is still running.
 
@@ -62,7 +70,7 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 **Copy-paste first coding assignment:**
 ```text
-Implement the FIRST EXECUTABLE ISAAC SIM ANTENNA SKELETON.
+Implement the FIRST EXECUTABLE ISAAC SIM PADDYPATCH SKELETON.
 Use the latest main and read AGENTS, PRODUCT, ARCHITECTURE, CONTRACTS,
 RUN, and matching skills. Own one isolated branch/worktree.
 Inspect installed Isaac Sim version, compatibility and existing robot assets
@@ -87,7 +95,7 @@ expose secrets, spend credits or submit.
 
 **After first seam:** other owners independently build (a) second rover and locally sampled stand/soil proxy, (b) shared map estimation, (c) site selection and two-robot routing, (d) grader/baselines/video, all consuming the same tested contract. P0 still requires a complete physical rice planting mission and surprise-driven replanning. Separate time-permitting rescue and flood-gate work **only after** end-to-end physical placement and scoring are safe.
 
-**Target future command shape only (NOT implemented):** `./python.sh scripts/run_antenna.py --scenario patchy-stand --seed 7 --headless` if using an Isaac Sim workstation install; exact startup depends on verified installation, OS and pinned version. Replace with actually tested command in this file.
+**Target future command shape only (NOT implemented):** `./python.sh scripts/run_paddypatch.py --scenario patchy-stand --seed 7 --headless` if using an Isaac Sim workstation install; exact startup depends on verified installation, OS and pinned version. Replace with actually tested command in this file.
 
 ## Fill immediately after selecting the product stack
 

@@ -1,4 +1,4 @@
-"""Unit and physics integration tests for the 3D MuJoCo Antenna SimulationPort adapter."""
+"""Unit and physics integration tests for the 3D MuJoCo PaddyPatch SimulationPort adapter."""
 from __future__ import annotations
 
 import sys

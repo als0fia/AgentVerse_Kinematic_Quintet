@@ -1,17 +1,17 @@
 # Workstation onboarding — every human or coding agent
 
-**Scope:** reproducible **local** onboarding for Antenna's existing Python `rice.v1` kernel, optional **MuJoCo environment smoke tests**, and the separately approved **Isaac Sim target**. This document is a recipe, **not a report of installs on another teammate's machine**, and not permission to spend money or alter another developer's files. Read [AGENTS](../AGENTS.md), [RUN](RUN.md) and [component ownership](COMPONENTS.md) before modifying a feature.
+**Scope:** reproducible **local** onboarding for PaddyPatch's Python `rice.v1` core, the **checked-in MuJoCo prototype and toy smoke**, and the separately gated **Isaac Sim target**. This document is a recipe, **not a report of installs on another teammate's machine**, and not permission to spend money or alter another developer's files. Read [AGENTS](../AGENTS.md), [RUN](RUN.md) and [component ownership](COMPONENTS.md) before modifying a feature.
 
 ## Safe start: choose a lane
 
 | Lane | Who | What counts as complete |
 | --- | --- | --- |
 | Core-only | Anyone with Python 3.10+ | Importable kernel and repository's standard-library checks really pass |
-| Local simulator sanity | Windows/macOS/Linux developer | An isolated `mujoco` Python environment can advance a real toy physics body and report a measured joint sensor; this is **not** an Isaac Sim or Antenna result |
+| Local simulator sanity | Windows/macOS/Linux developer | An isolated `mujoco` Python environment can advance a real toy physics body and report a measured joint sensor; this is **not** an Isaac Sim or PaddyPatch result |
 | Selected production engine | Approved Isaac Sim owner on qualifying machine/host | Actual installed Isaac version, real wheel joint/range observations, physical seed release/contact and recorded resource use; until then **unverified** |
 | Coding-agent harness | Optional Antigravity/Gemini CLI user | Confirm what this installed client actually discovers; model/credit/skills availability is not assumed |
 
-**Selected target remains Isaac Sim**, per [PRODUCT](PRODUCT.md) and [DECISIONS](DECISIONS.md). A local MuJoCo verification or sandbox is a **fallback/reference**, not permission to replace the project's official engine. The main kernel, planner and world/robot interfaces are simulator-independent.
+**Isaac Sim remains the selected but unverified integration target**. MuJoCo is already approved as the in-repo local development prototype, not just a hypothetical fallback; do not describe it as Isaac. The main kernel, planner and world/robot interfaces are simulator-independent.
 
 ## A. Inspect and preserve the computer before installing
 
@@ -49,8 +49,10 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe --version
 .\.venv\Scripts\python.exe scripts\check_repo.py
 .\.venv\Scripts\python.exe scripts\sync_skills.py --check
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_ricebot_foundation.py -v
 ```
+
+**Core-only setup intentionally excludes MuJoCo.** Full test discovery requires the dependency from section C; otherwise `test_mujoco_sim.py` cannot import.
 
 If `py` is missing, use the verified `python` executable; if Python is absent, use an approved official Python installer. A virtual environment is ignored by `.gitignore`. The core tools use the standard library and **must not require Isaac Sim, a Gemini key or MuJoCo**.
 
@@ -58,15 +60,18 @@ On Linux/macOS, use `python3 -m venv .venv`, then `.venv/bin/python` for the sam
 
 ## C. Optional lightweight local physics smoke (not final engine)
 
-In the repo's existing `.venv`, install only the [official MuJoCo Python package](https://mujoco.readthedocs.io/en/stable/python.html), if permitted:
+For the toy smoke **or current PaddyPatch MuJoCo prototype**, use **Python 3.11+** (MuJoCo 4.0.0 requires it) and install the pinned [optional dependency](../requirements-mujoco.txt), if permitted:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install mujoco
+.\.venv\Scripts\python.exe -m pip install -r requirements-mujoco.txt
 .\.venv\Scripts\python.exe scripts\smoke_mujoco.py
-.\.venv\Scripts\python.exe -m mujoco.viewer
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --headless
+# Optional GUI on a desktop:
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --viewer-seconds 8
 ```
 
-The viewer starts empty; close it manually after confirming it renders. You may also open an MJCF model via `python -m mujoco.viewer --mjcf=path\to\approved.xml` as described in the official docs. On Linux/macOS replace the Python executable with `.venv/bin/python`. The scripted smoke checks an actual actuated **toy joint sensor + stepping/reset**; it does **not** test rice-field sensors, a rover, a seed release, Isaac Sim, cloud access or the full mission. There is **no requirement to install MuJoCo** for the core-only lane.
+On Linux/macOS use `.venv/bin/python`. The **toy smoke** only checks a basic joint; the **full MuJoCo integration suite** exercises the checked-in rover, sensors and seed-contact prototype. CI runs headlessly; an interactive viewer must be closed by its owner. Neither proves Isaac Sim, field yield or complete hackathon readiness. Core-only development still needs no MuJoCo.
 
 **Do not copy files from one teammate's local Antigravity sandbox into the team repo without an explicit integration assignment.** A previous local prototype reported physics tests on one machine; treat that as *local experimental evidence*, never as universal reproducibility.
 

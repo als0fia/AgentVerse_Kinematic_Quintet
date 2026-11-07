@@ -1,57 +1,37 @@
-# Antenna — Rice Paddy Immobilization ("Stuck") Scenarios & Multi-Agent Recovery Matrix
+# Antenna — eight physical immobilisation scenarios and independent tests
 
-> [!NOTE]
-> **Scope & Provenance:** This specification catalogs the 8 primary physical immobilization ("stuck") failure modes in Southern Chinese rice paddies (*Lannitian* / 烂泥田 and terraced *Bazhangtian* / 巴掌田), how the **Antenna** 200 Hz sensor-fusion stack detects and classifies each scenario without hidden world-truth leakage, and how the AI Coordinator evaluates recovery vs. task reallocation trade-offs.
-> Related docs: [ANTENNA_RF_SUBSYSTEM.md](ANTENNA_RF_SUBSYSTEM.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [COMMERCIALIZATION_CHINA.md](COMMERCIALIZATION_CHINA.md)
+**Source:** Reconciled from teammate PR #22, 7 Nov 2026. These S1–S8 are **hypotheses to simulate**, not a validated frequency distribution for Southern China's rice fields. [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md) owns scientific alternatives; [TESTING](TESTING.md) owns acceptance; [robot mechanics](../src/ricebot/robot/README.md) owns the actually merged **rigid docking/cam-latch/pitch-lift**, not a cable/winch.
 
----
+| ID | Hypothesised cause | Evidence to simulate and log (with uncertainty) | Bounded response to evaluate |
+| --- | --- | --- | --- |
+| **S1** | Weak substrate, chassis belly sinkage, wheel spin | commanded vs independently observed displacement; wheel rotation, contact forces, body height | Stop excavating; evaluate helper only if safe approach and load budget exist |
+| **S2** | Asymmetric mud traction / yaw lock | requested vs observed yaw, left/right wheel effort and translation | limited reverse along validated safe corridor, then replan or abstain |
+| **S3** | High-centred on bund/ridge with drive wheels unloaded | body–ridge contacts, normal load, orientation, no motion despite wheel rotation | Hold; rigid dock if geometry permits, otherwise defer to human |
+| **S4** | Drop into irrigation ditch or edge / tip risk | abrupt orientation/pose change; independent range/contact evidence | Immediate stop; exclude unsafe helper position and rollover risk |
+| **S5** | Straw/roots entangled in axle or seed mechanism | high motor effort with low joint rotation, tool feedback, stagnant pose | bounded clearing motion only if safe; otherwise isolate and reallocate |
+| **S6** | Stiction or suction on restart after planting/sampling pause | prior intentional HOLD, restart command, contact/effort, no translation | small validated self-attempt; real clay suction is **not** in current rigid-bed physics |
+| **S7** | Rigid dock/cam-latch overload or second-robot traction failure | latch state, relative poses, both robots' actual displacement, collision and forces | abort unsafe helper actuation, unlatch safely if possible, defer rescue |
+| **S8** | Narrow row pinching the chassis with separate RF/range occlusion | physical clearance/contact plus independent invalid/noisy sensor flags | distinguish true jam from radio dropout; stop, investigate or controlled reverse |
 
-## 1. Summary Matrix of Rice Field Immobilization Scenarios
+The previous PR assumed a **tether/winch** topology, a 200 Hz sensor stack, a 300–400 N cable limit, tight UWB AoA measurements and fixed 5 s, tilt or slip cutoffs. These **are not properties of the tested rover**; winch would need an explicit redesign. Do not put such thresholds into runtime or assert them as Chinese equipment standards.
 
-| ID | Failure Mode | Physical Cause in Rice Paddy | 200 Hz Sensor-Fusion Signature (How **Antenna** Detects It) | Autonomous Response & AI Coordinator Trade-Off |
-| :--- | :--- | :--- | :--- | :--- |
-| **S1** | **Plow-Pan Breach & Belly-Out** (*"陷车" / Deep Mud Sinkage*) | Localized weak/broken subterranean hardpan (*Lannitian* mud pocket `> 30 cm` deep); chassis belly contacts cohesive clay mud, unloading wheel normal force. | **Wheel encoders:** high spin ($\omega \gg 0$)<br>**mmWave Doppler radar (`BGT60TR13C`):** $v_{\text{true}} \approx 0$<br>**UWB DS-TWR (`DWM3000`):** $\Delta r_{ij} \approx 0$<br>**9-DOF IMU (`ICM-42688-P`):** static sinkage pitch/roll offset. | **Abort wheel spin immediately** (spinning excavates mud and deepens sinkage). Mark cell as a `no-go` hazard on the shared belief map; evaluate **tethered winch pull ($F_{\text{pull}} \le 400\text{ N}$)** from an adjacent firm lane vs. reallocating tasks to healthy units. |
-| **S2** | **Differential / Asymmetric Mud Trap** (*Yaw Lock & Pivot Spin*) | Left wheels enter a soft mud pocket or submerged drainage furrow while right wheels stay on firm soil, creating severe asymmetric drag. | **IMU Gyroscope:** uncommanded yaw rate ($\dot{\psi}_{\text{meas}} \neq \dot{\psi}_{\text{cmd}}$)<br>**Dual-Antenna UWB PDoA (`AoA`):** bearing shifts without forward translation<br>**Motor Telemetry:** asymmetric phase current ($I_L \neq I_R$). | Execute bounded reverse-arc self-recovery along the verified incoming breadcrumb trajectory ($\le 5\text{ s}$). If second attempt fails, transition to `HOLD` and reroute peer robots around the asymmetric hazard boundary. |
-| **S3** | **Earthen Bund High-Centering** (*"搁浅" / Straddling a Ridge*) | Crossing a narrow (`30–50 cm`) slippery field ridge (*田埂*) or submerged levee where the chassis belly bottoms out on the crest, lifting drive wheels off the soil. | **IMU:** sharp pitch transition ($\theta > 15^\circ \rightarrow 0^\circ$) with roll instability<br>**Wheel encoders:** high RPM with **abnormally low motor current ($I \downarrow$)** (wheels spinning freely in water/air)<br>**mmWave Radar & UWB:** $v_{\text{true}} = 0$. | Self-recovery is physically impossible without wheel traction. Coordinator dispatches a partner unit on the adjacent terrace for a **short-impulse tether tug** monitored by the **`INA240` strain gauge**, or flags human assist. |
-| **S4** | **Submerged Irrigation Trench Drop-In** (*"掉沟" / Perimeter Ditch Trap*) | Front or side wheels drop into a turbid, water-filled perimeter drainage ditch (*排水沟*, `20–35 cm` deep) invisible to optical cameras due to muddy water surface glare. | **IMU:** sudden step change in roll/pitch ($> 18^\circ$) + vertical $a_z$ impact spike<br>**ToF (`VL53L8CX`):** ground-range discontinuity<br>**UWB PDoA:** tilt-compensated attitude gate exceeded. | Trigger immediate deterministic safety `HOLD` to prevent rollover into water. Mark trench vector on the shared map; require **angled multi-robot tether recovery** pulling away from the ditch edge. |
-| **S5** | **Rice Straw Mat & Weed Root Entanglement** (*"缠轴" / Mechanical Stall*) | Un-decomposed previous-season rice straw (*秸秆还田*), filamentous algae, or perennial weed roots wrap around wheel hubs, axles, or the seed-release chute. | **Motor Current:** spikes to stall threshold ($I \rightarrow I_{\max}$)<br>**Wheel encoders:** angular velocity drops ($\omega \rightarrow 0$)<br>**mmWave Radar:** $v_{\text{true}} \rightarrow 0$ *(distinct from mud slip where $\omega$ is high)*. | Execute brief reverse-polarity clearing oscillation to shed straw. If axle remains mechanically stalled, disable propulsion, convert the robot into a **stationary UWB / Wi-Fi HaLow relay beacon**, and reallocate its planting queue. |
-| **S6** | **Thixotropic Clay Suction Lock** (*Post-Probe / Post-Plant Adhesion*) | While paused ($v = 0$) in cohesive clay mud to insert a soil probe or release a seed proxy, mud settles and creates vacuum suction around the wheels and underbody. | Upon issuing a post-plant `DRIVE` command, both **motor current ($I \uparrow$)** and **wheel slip ($s \uparrow$)** surge simultaneously while **UWB + mmWave radar** show zero initial displacement. | Apply a low-duty-cycle alternating $\pm$ micro-rocking torque profile to break mud thixotropy (liquefying the boundary layer without shearing the soil crust) before resuming normal linear speed. |
-| **S7** | **Tether Snag & Cooperative Tow Overload** (*Cascading Rescue Fault*) | During tethered formation travel or an active rescue pull, the winch cable snags on a field post/rock or the stuck robot's mud resistance exceeds safe pull limits. | **Tow Hitch Strain Gauge (`INA240`):** tension spike ($F_{\text{pull}} > 350\text{–}400\text{ N}$)<br>**UWB DS-TWR:** inter-robot distance $r_{ij}$ remains static ($\dot{r}_{ij} \approx 0$)<br>**Rescue Robot Radar:** rising wheel slip ($s_{\text{rescue}} > 0.4$). | **Deterministic safety gate aborts tow immediately** to prevent trapping a second robot or sweeping the taut cable across planted rice rows. Coordinator rejects direct tow and either plans an angled detour pull or defers to human recovery. |
-| **S8** | **Canopy Multipath & Narrow Furrow Pinch** (*"夹行" / Inter-Row Jam*) | Navigating between established rice hills where dense wet foliage causes RF multipath jumps, or a collapsing mud wall pinches the chassis against living rice stems. | **EKF Innovation Gate:** rejects sudden UWB range jumps ($\Delta r_{ij}$) that violate the **mmWave radar + odometry dead-reckoning envelope**<br>**Whiskers + ToF (`VL53L8CX`):** bilateral zero-clearance ($e_y \rightarrow 0$ on both sides). | Switch 100% lateral control authority to local **Whisker + ToF furrow-lock** at crawl speed; if pinched, reverse out along recorded odometry breadcrumbs rather than turning in place (preventing seedling trampling). |
+## Negative controls — prevent fabricated stuck-robot diagnoses
 
----
+- Intentional HOLD, parking, deliberate seed release and robot sampling must not become rescue calls.
+- A missing forward rangefinder value alone is a **sensor fault**, not immobilisation.
+- Unchanged distance to one neighbour cannot distinguish both robots moving together from no motion or lateral translation.
+- Wheel spin without forward motion may be slip, invalid localisation, collision, traction loss or a bad command. Motor current and contact data narrow the ambiguity but do not eliminate it.
+- A disabled robot may also lose compute/radio; safe recovery logic cannot require a model shard on that disabled unit.
 
-## 2. 200 Hz Onboard Sensor-Fusion Diagnostic Flow (`STM32H7`)
+## Runnable evaluation work needed — not yet accomplished
 
-Rather than treating "robot stopped moving" as a single opaque error, the low-level controller computes the real-time **kinematic slip ratio ($s$)** at `200 Hz` by comparing wheel encoder speed ($\omega_{\text{encoder}}$) against Doppler radar ground speed ($v_{\text{radar}}$) and UWB range rate ($\dot{r}_{\text{UWB}}$):
+1. Start a real permitted sensor → decision → bounded motion rice-field episode and inject one S1–S8 condition mid-run. Keep the evaluator's hidden world truth separate from agent input.
+2. Log command, odometry, wheel/joint motion, pose error, contact, sensor-valid mask, timestamps, power and message provenance. Explicitly distinguish traction loss, mechanical stall, intentional safe stop and communications failure.
+3. Compare **never rescue**, **always rescue**, deterministic calibrated risk/utility optimisation and any optional contextual reasoning model under matched seeds. Include rational safe refusal where intervention risks a second casualty.
+4. A typed high-level rescue intent must pass safety gating before invoking the **existing physical rigid docking** mechanism. An LLM must not issue raw torques.
+5. Independently record latch engagement, actual physical extraction, second-robot outcome, further crop damage, task/seed/site work after rescue, time/energy cost and failure rates. A rendezvous, a RESCUE_NOW text label or the isolated scripted docking test alone does **not** prove autonomous rescue.
+6. Repeat with changing traction, occlusion, heterogeneous risk, sensor false positives and dropped gossip; document latency and abstentions.
 
-$$s = 1 - \frac{v_{\text{radar}}}{r_{\text{wheel}} \cdot \omega_{\text{encoder}}}$$
+**AI necessity is an experiment, not a foregone conclusion:** compute quantitative risks and resource budgets mathematically. An optional LLM can interpret hard-to-formalise user priorities and uncertain incident context, but only belongs in the loop if its additional measured decisions justify latency and failure modes against a serious deterministic baseline.
 
-```mermaid
-flowchart TD
-    A["Commanded Drive (v_cmd > 0) at 200 Hz"] --> B{"True Ground Speed v_radar ≈ 0\nand UWB Δr_ij ≈ 0?"}
-    B -- "No (Moving Normally)" --> C["Nominal Closed-Loop Navigation\n(EKF fuses UWB + Radar + IMU)"]
-    B -- "Yes (Immobilized)" --> D{"Check Wheel Speed ω\nand Motor Current I"}
-    D -- "ω >> 0 and I Normal/High\n(Slip Ratio s → 1.0)" --> E["S1 / S2: Cohesive Mud Spin\nStop wheels immediately to prevent digging deeper"]
-    D -- "ω >> 0 and I Abnormally Low\n+ IMU Pitch/Roll Offset" --> F["S3 / S4: High-Centered on Bund or Trench Drop\nWheels unloaded in air/water; request external tether tug"]
-    D -- "ω ≈ 0 and I → I_max\n(Mechanical Stall)" --> G["S5 / S6: Straw Entanglement or Clay Suction\nRun micro-rocking / reverse pulse or convert to UWB Beacon"]
-    E --> H["Report Structured Fault to Antenna AI Coordinator"]
-    F --> H
-    G --> H
-```
-
----
-
-## 3. AI Coordinator Multi-Objective Rescue Evaluation (`SBC / Agent Layer`)
-
-When an individual robot reports an immobilization diagnostic packet (`S1`–`S8`) over the **Sub-1GHz Wi-Fi HaLow / ESP-NOW** mesh, the **Antenna** AI Coordinator evaluates five candidate actions against a multi-objective cost function:
-
-$$\mathcal{J}(\text{action}) = w_{\text{task}} \cdot \Delta \text{Coverage} - w_{\text{crop}} \cdot \text{CropDamage} - w_{\text{energy}} \cdot \Delta E - w_{\text{risk}} \cdot P(\text{SecondaryImmobilization})$$
-
-| Candidate Action | Trigger Condition | Why It Beats Fixed Rule-Based Recovery |
-| :--- | :--- | :--- |
-| **`1. SELF_RECOVER_BOUNDED`** | `S2` (asymmetric yaw trap), `S5` (straw wrap), or `S6` (clay suction) with tilt $< 12^\circ$. | Strictly capped at $\le 5\text{ s}$ and low wheel torque so the robot never excavates a deep hole in the plow pan. |
-| **`2. DISPATCH_RESCUE_DIRECT`** | `S1` or `S3` where an unplanted, firm-soil corridor exists and predicted pull tension $F_{\text{pull}} < 300\text{ N}$. | Uses **UWB PDoA + Strain Gauge (`INA240`)** closed-loop tension control to pull the stuck unit along the lowest-resistance vector. |
-| **`3. DISPATCH_RESCUE_DETOUR`** | Shortest path between rescuer and stuck unit crosses **already-planted rice rows** or soft mud. | Trades slightly higher battery consumption for **zero seedling trampling damage** (preserving NJTG `< 3%` crop damage compliance). |
-| **`4. REALLOCATE_AND_BEACON`** | `S5` persistent mechanical axle stall or low battery where propulsion is lost but RF/compute remain healthy. | Converts the immobilized unit into a **stationary ultra-stable Dual-UWB reference anchor**, improving localization accuracy for all remaining robots while redistributing its unplanted sites. |
-| **`5. SAFE_ABSTAIN_DEFER_HUMAN`** | `S1` deep plow-pan breach surrounded by saturated mud (`moisture > 0.85`), or `S7` tow tension $> 400\text{ N}$. | Refuses a dangerous rescue that would trap a second robot, isolates the hazard zone on the shared map, completes the rest of the field, and logs exact centimeter-level coordinates for human retrieval. |
+**Preservation:** original eight incident classes and cooperative choices from PR #22 retained; unvalidated sensors, winch designs, fabricated fixed numeric constraints and claims of implemented autonomy corrected.

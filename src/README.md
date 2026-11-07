@@ -1,4 +1,4 @@
-# Antenna application core
+# PaddyPatch application core
 
 The `src/ricebot/` package is a **standard-library Python contract and baseline**, not a working Isaac Sim simulation.
 

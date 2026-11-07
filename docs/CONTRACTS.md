@@ -1,6 +1,12 @@
 # Contracts and invariants — Antenna rice planting
 
-**A narrow rice.v1 Python interface is now implemented and unit-tested; the Isaac Sim adapter and embodied product are NOT.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
+**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
+**The Python `rice.v1` core is implemented and unit-tested, and a MuJoCo physics adapter tests the same `SimulationPort`. An Isaac Sim adapter and real agricultural deployment remain unverified.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
+
+## Proposed recovery action/result extension — not implemented as shared rice.v1 types
+
+The current `rescue_assist(...)` `SAMPLE` task is a waypoint, not a physical extraction command. The separate robot MJCF test has functioning rigid dock/cam-latch/pitch-lift **under scripted commands**, but is not wired into the main `SimulationPort` and mission supervisor. An integrator-owned compatible extension should include `FaultEvidence` (commanded vs observed movement; distinguish missing sensor), `IncidentReport` (source/time/validity), `RecoveryProposal` (risk, helper ability, target and urgency), `RecoveryCommand` (bounded physical skill, preconditions, TTL) and `RecoveryResult` (simulator-confirmed latch/contact, actual victim displacement, helper state and independent outcome). These names are proposals only. Keep evaluator truth private; no direct LLM torque control. P2P gossip and sharded LLM runtime are different interfaces. See [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md).
 
 ## World/robot/composition seam (developer agreement)
 
@@ -19,10 +25,10 @@ The current importable implementation is `src/ricebot/contracts.py`, `mission.py
 | `PlantFeedback` | Physics adapter reports *observed* release/contact and task ID, not independently scored establishment success. Core blocks blind repeats while awaiting feedback. |
 | `MeasuredFieldMap` | Deduplicated local site means, sample counts and source IDs. Not interpolation, GP mapping or calibrated uncertainty yet. |
 | `SimpleMissionPlanner`, `LocalController`, `MissionCore` | Inspectable non-LLM baseline and one tick of measured-data → task → drive/release commands, with stop conditions. Not an obstacle-aware route planner or certified controller. |
-| `SimulationPort.reset(seed)`, `.step(commands)` | **Unimplemented Isaac Sim adapter boundary.** It must own actual articulation, range/odometry/soil sensing and rigid-body seed drop/contact; clamp physical limits and refuse stale commands. |
+| `SimulationPort.reset(seed)`, `.step(commands)` | Implemented in **MuJoCo** under `src/ricebot/mujoco_sim/`; **not yet in Isaac Sim**. Each backend owns actual motion/sensing/seed contact and independent command safety. |
 | `ReadOnlyView.consume`, `EpisodeRunner.run` | Optional viewer subscriber, small runner. Mock-port tests do not prove embodiment. |
 
-No new general swarm message bus, mitigation actuator, plant-growth model or cloud service is needed. The next owner supplies **real Isaac physics** before anyone claims the rice robot works.
+No new general swarm message bus, mitigation actuator, plant-growth model or cloud service is needed. The next owner must implement and verify **Isaac physics and parity** before claiming cross-engine readiness. The existing MuJoCo prototype has physical tests but does not prove field yields or a completed judge demo.
 
 ## Mission-visible messages (proposed, exclusive boundaries)
 
@@ -59,7 +65,7 @@ viewer.consume(read_only_scene_and_trace) -> render frame
 
 ## Optional capability contracts — not needed to build
 
-Only if human-approved after demonstrated P0, define `RobotRecoveryRequestV2` or `MitigationRequestV2` against real additional actors and physics. Rescue requires actual helper behaviour; flood-control requires physical gate/outlet actuation and a transparently synthetic water model. Do not create unused mandatory fields, routes or mocks for these systems in `rice.v1`. Reforestation/Antenna/space need new physical environments and validation, not just changing the name of a scenario.
+Only if human-approved after demonstrated P0, define `RobotRecoveryRequestV2` or `MitigationRequestV2` against real additional actors and physics. Rescue requires actual helper behaviour; flood-control requires physical gate/outlet actuation and a transparently synthetic water model. Do not create unused mandatory fields, routes or mocks for these systems in `rice.v1`. Reforestation/Firewatch/space need new physical environments and validation, not just changing the name of a scenario.
 
 ## Shared-interface change rules
 

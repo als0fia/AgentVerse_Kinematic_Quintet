@@ -1,6 +1,12 @@
 # Demonstration and submission gate
 
+**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
 **Status:** Robotics deliverables are now specified by organiser slides; no submission or tested product demo has been verified.
+
+## Rescue-first judge story
+
+Antenna robots visibly do useful rice-field work, a rover experiences a **real physical fault**, the system uses local observations and mission/terrain uncertainty to decide whether to assist, and the helper either executes a bounded **physical** rigid-docking extraction or safely refuses. Grade actual contact/displacement, second-robot risk and post-rescue fieldwork in the same continuous ≤60-second episode. Today's rigid-docking unit test is scripted physics, **not yet** an integrated recovery policy, learned skill or cloud-free distributed LLM. If it is not integrated before submission, show the actual agricultural physics and scripted extraction honestly, without implying autonomy. [Current PRODUCT](PRODUCT.md).
 
 ## Proof-first demonstration
 
@@ -23,7 +29,7 @@
 
 **Working pace suggested by the speaker:** Saturday morning reduce to one user/pain and one 30-second capability; Saturday afternoon prove core loop before styling; Saturday evening layer optional senses and rehearsals; Sunday stop new features roughly **two hours before the verified deadline**, record a short backup and test the demo from a clean checkout. These are suggested *internal timeboxes*, **not organiser schedule changes**. The published latest BuilderBase portal now says **Sunday 8 Nov 13:00 GMT** (older site was 14:00), so use the earlier deadline unless organiser verifies an extension.
 
-## Antenna: ≤60-second continuous rice-planting episode (not recorded)
+## PaddyPatch: ≤60-second continuous rice-planting episode (not recorded)
 
 **User-facing pitch:** “A rice field has irregular failed emergence. Two autonomous robots gather different soil and crop-condition measurements, build a shared suitability map and coordinate where to replant—with fewer wasted seeds and safer routes. They must keep planting when new ground conditions invalidate their plan.” **Simulated benefit only; no claim of measured rice survival/yield.**
 

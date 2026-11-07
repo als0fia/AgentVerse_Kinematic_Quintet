@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OPTIONAL MuJoCo toy-physics preflight; never an Isaac or Antenna pass.
+"""OPTIONAL MuJoCo toy-physics preflight; never an Isaac or PaddyPatch pass.
 
 Run: .venv/Scripts/python.exe scripts/smoke_mujoco.py  (Windows)
      .venv/bin/python scripts/smoke_mujoco.py          (Linux/macOS)

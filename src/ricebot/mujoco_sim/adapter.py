@@ -1,21 +1,23 @@
-"""MuJoCo 3D paddy-terrace & wheeled-rover physics adapter implementing `SimulationPort` (`rice.v1`).
+"""MuJoCo 3D paddy-terrace & homogeneous Paddy Ant rover physics adapter (`src/ricebot/mujoco_sim/`).
 
 Architectural Composition per `docs/COMPONENTS.md` & `docs/ARCHITECTURE.md`:
 - Composes:
   1. `src/ricebot/world/` (`PaddyTerraceWorld`, `DEFAULT_SITES`, `build_world_terrain_xml`) — owns
-     the 6-patch rice terrace layout, hidden soil/stand truth, location-gated soil probes, and
+     the 6-patch rice terrace layout, hidden soil/stand truth, location-gated probes, and
      terrain/bunds/crops MJCF geometry.
   2. `src/ricebot/robot/` (`PLANTER_SPEC`, `SCOUT_SPEC`, `DEFAULT_CAPABILITIES`,
-     `compute_4wheel_skid_steer`, `build_rovers_and_seeds_xml`) — owns the 4-wheel differential
-     rover chassis, skid-steer kinematics, rangefinder/odometry mount frames, and seed-hopper
-     embodiment.
+     `compute_4wheel_skid_steer`, `build_rovers_and_seeds_xml`, `update_rigid_dock_latch`) — owns
+     the homogeneous "Paddy Ant" 4-wheel grouser-lug chassis, active farming end-effectors
+     (conical seed hopper, vertical seed-dibber/soil-probe plunger, counter-rotating underbelly
+     finger weeders, bio-sprayer boom, crop-row tactile whiskers), and the 4-part rigid docking,
+     cam-latching & anchor-spade rescue mechanism.
 - Implements `SimulationPort` (`reset(seed) -> ObservationFrame`, `step(commands) -> ObservationFrame`)
-  without touching `MissionCore` (`src/ricebot/mission.py`) or `src/ricebot/contracts.py`.
+  without touching `MissionCore` (`src/ricebot/runtime.py`) or `src/ricebot/contracts.py`.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2
+from math import atan2, hypot
 
 import mujoco
 import numpy as np
@@ -26,6 +28,7 @@ from ..contracts import (
     Pose2D,
     RobotCommand,
     RobotObservation,
+    SensorKind,
     Site,
 )
 from ..robot import (
@@ -43,7 +46,7 @@ from ..world import (
 
 
 def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) -> str:
-    """Compose the full MJCF XML from `src/ricebot/world/` terrain and `src/ricebot/robot/` rovers."""
+    """Compose the full MJCF XML from `src/ricebot/world/` terrain and `src/ricebot/robot/` Paddy Ant units."""
     world_terrain_xml = build_world_terrain_xml(obstacle_xy=obstacle_xy)
     rovers_bodies_xml, rovers_actuators_xml, rovers_sensors_xml = build_rovers_and_seeds_xml()
     return f"""
@@ -75,6 +78,11 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
     {rovers_bodies_xml}
   </worldbody>
 
+  <equality>
+    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.008 1.0"/>
+    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.008 1.0"/>
+  </equality>
+
   <actuator>
     {rovers_actuators_xml}
   </actuator>
@@ -86,7 +94,7 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
 """
 
 
-ANTENNA_MJCF = compose_paddypatch_mjcf()
+PADDYPATCH_MJCF = compose_paddypatch_mjcf()
 
 
 def _quat_to_yaw(quat_wxyz: np.ndarray) -> float:
@@ -109,7 +117,7 @@ class SeedDropEvent:
 
 
 class MujocoPaddySimulation:
-    """Genuine 3D wheeled-rover & rice-terrace MuJoCo implementation of `SimulationPort` (`rice.v1`)."""
+    """Genuine 3D homogeneous Paddy-Ant & rice-terrace MuJoCo implementation of `SimulationPort` (`rice.v1`)."""
 
     def __init__(
         self,
@@ -118,8 +126,11 @@ class MujocoPaddySimulation:
         substeps_per_tick: int = 25,
         inject_obstacle_at_s: float | None = None,
         obstacle_xy: tuple[float, float] = (0.75, -0.25),
+        hidden_truth: dict[str, dict[SensorKind, float]] | None = None,
     ) -> None:
-        self.world = PaddyTerraceWorld(sites=sites, probe_radius_m=probe_radius_m)
+        self.world = PaddyTerraceWorld(
+            sites=sites, probe_radius_m=probe_radius_m, hidden_truth=hidden_truth
+        )
         self.sites = self.world.sites
         self.probe_radius_m = probe_radius_m
         self.substeps_per_tick = substeps_per_tick
@@ -149,6 +160,21 @@ class MujocoPaddySimulation:
             int(self.model.jnt_dofadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"seed_{i}_free")])
             for i in range(PLANTER_SPEC.initial_seeds)
         ]
+
+        # Optional active farming end-effector actuator IDs from PR #24 (dibber plunger + finger weeders)
+        self._dibber_act_ids: dict[str, int] = {}
+        self._weeder_l_act_ids: dict[str, int] = {}
+        self._weeder_r_act_ids: dict[str, int] = {}
+        for rid in ("planter", "scout"):
+            self._dibber_act_ids[rid] = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_dibber_act"
+            )
+            self._weeder_l_act_ids[rid] = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_weeder_l_act"
+            )
+            self._weeder_r_act_ids[rid] = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_weeder_r_act"
+            )
 
         self._seed: int = 7
         self._episode_id: str = "mujoco-episode-7"
@@ -225,7 +251,6 @@ class MujocoPaddySimulation:
         now_s = round(float(self.data.time), 4)
         cmd_by_robot = {c.robot_id: c for c in commands}
 
-        # Apply mid-episode obstacle injection if configured
         if (
             self.inject_obstacle_at_s is not None
             and not self._obstacle_injected
@@ -235,13 +260,16 @@ class MujocoPaddySimulation:
             self._obstacle_injected = True
             mujoco.mj_forward(self.model, self.data)
 
-        # Process commands for planter (ctrl 0..3) and scout (ctrl 4..7) via src/ricebot/robot/
         self.data.ctrl[:] = 0.0
         for spec, ctrl_offset in ((PLANTER_SPEC, 0), (SCOUT_SPEC, 4)):
             robot_id = spec.robot_id
             cmd = cmd_by_robot.get(robot_id)
             if cmd is None or not (cmd.issued_at_s <= now_s < cmd.expires_at_s):
                 continue
+
+            dib_id = self._dibber_act_ids.get(robot_id, -1)
+            wl_id = self._weeder_l_act_ids.get(robot_id, -1)
+            wr_id = self._weeder_r_act_ids.get(robot_id, -1)
 
             if cmd.release_seed:
                 if (
@@ -251,13 +279,14 @@ class MujocoPaddySimulation:
                     and cmd.linear_m_s == 0.0
                     and cmd.angular_rad_s == 0.0
                 ):
+                    if dib_id >= 0:
+                        self.data.ctrl[dib_id] = -0.048  # Plunge vertical seed dibber into soil
                     seed_idx = spec.initial_seeds - self._seeds_remaining[robot_id]
                     self._seeds_remaining[robot_id] -= 1
                     planter_xyz = self.data.sensor("planter_pos").data
                     px, py = float(planter_xyz[0]), float(planter_xyz[1])
                     qadr = self._seed_qpos_adrs[seed_idx]
                     vadr = self._seed_qvel_adrs[seed_idx]
-                    # Drop from bottom hopper chute at spec.hopper_drop_z_m so gravity lands it on the soil bed
                     self.data.qpos[qadr : qadr + 3] = [px, py, spec.hopper_drop_z_m]
                     self.data.qpos[qadr + 3 : qadr + 7] = [1.0, 0.0, 0.0, 0.0]
                     self.data.qvel[vadr : vadr + 6] = [0.0, 0.0, -0.08, 0.0, 0.0, 0.0]
@@ -279,7 +308,23 @@ class MujocoPaddySimulation:
                 self.data.ctrl[ctrl_offset + 2] = w_rl
                 self.data.ctrl[ctrl_offset + 3] = w_rr
 
-        # Advance MuJoCo physics substeps and detect physical seed-ground contact
+                # Spin counter-rotating underbelly finger weeders when cruising forward
+                if abs(cmd.linear_m_s) > 0.05:
+                    if wl_id >= 0:
+                        self.data.ctrl[wl_id] = 12.0
+                    if wr_id >= 0:
+                        self.data.ctrl[wr_id] = -12.0
+
+                # Plunge soil-penetrometer dibber when inside probe radius of a site
+                r_xyz = self.data.sensor(f"{robot_id}_pos").data
+                rx, ry = float(r_xyz[0]), float(r_xyz[1])
+                if dib_id >= 0:
+                    near_site = any(
+                        s.permitted and hypot(rx - s.center.x_m, ry - s.center.y_m) <= self.probe_radius_m
+                        for s in self.sites.values()
+                    )
+                    self.data.ctrl[dib_id] = -0.045 if near_site else 0.0
+
         new_feedback: list[PlantFeedback] = []
         for _ in range(self.substeps_per_tick):
             self._sync_carried_seeds()

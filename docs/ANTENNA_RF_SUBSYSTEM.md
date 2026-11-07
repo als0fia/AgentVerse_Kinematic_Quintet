@@ -1,56 +1,27 @@
-# Antenna & RF Subsystem — Sensor Fusion Architecture
+# Antenna radio and sensor-fusion options — feasibility, not deployed hardware
 
-**Scope Note:** This specification defines the physical hardware and multi-sensor fusion architecture for the **Antenna** multi-robot paddy platform in the **AgentVerse Kinematic Quintet** architecture (target embodied hardware / physical subsystem specification; distinct from the pure-Python `rice.v1` contract tests in `src/ricebot/`). See [ARCHITECTURE](ARCHITECTURE.md), [IMMOBILIZATION_SCENARIOS](IMMOBILIZATION_SCENARIOS.md), and [COMMERCIALIZATION_CHINA](COMMERCIALIZATION_CHINA.md).
+**Reconciliation of PR #22 (7 Nov 2026).** Simulated Policy B keeps a separate map per rover and exchanges modelled gossip/blackout messages inside **one Python/MuJoCo process**. The team has not demonstrated UWB radios, Wi-Fi HaLow, ESP-NOW hardware, Jetson inference, real distributed processes, radar ground-speed measurements, a 200 Hz MCU, or live force sensors. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) owns implementation status; [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md) owns the tests; the [robot module](../src/ricebot/robot/README.md) owns the tested **rigid docking**, not a tether.
 
----
+| Proposed modality | Sourced physical capability | What needs correcting or measuring |
+| --- | --- | --- |
+| UWB ranging | [Qorvo DWM3000](https://www.qorvo.com/products/p/DWM3000) uses DW3110; manufacturer describes object positioning precision around **10 cm** in relevant conditions | This is not guaranteed ±5 cm in wet paddy foliage. One range reading gives distance, **not** relative bearing or a 2D location; NLOS, radio clocks and anchors matter |
+| UWB angle of arrival | [DW3110 specifications](https://www.qorvo.com/products/p/DW3110) show **one antenna port** and **no built-in PDoA**. [DW3220](https://www.qorvo.com/products/p/DW3220) supports two-port PDoA but has an end-of-life notice | Two DWM3000 modules do not magically provide calibrated AoA; a synchronized dual-radio system, different chipset or independent geometry/pose estimate must be validated |
+| Peer packet transport | [Espressif ESP-NOW](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/network/esp_now.html) uses Wi-Fi vendor-specific connectionless action frames. Wi-Fi HaLow is a **different sub-GHz IEEE 802.11ah system** | The old phrase “Sub-1GHz Wi-Fi HaLow / ESP-NOW” conflates incompatible radio families; do not claim real mesh deployment or link performance |
+| mmWave motion sensing | [Infineon BGT60TR13C datasheet](https://www.infineon.com/assets/row/public/documents/24/49/infineon-bgt60tr13c-datasheet-en.pdf?fileId=8ac78c8c7d718a49017d94bac88e5d43) and [processing note](https://www.infineon.com/dgdl/Infineon-AN652_Digital_Beamforming_using_the_BGT60TR13C_Radar_Sensor-ApplicationNotes-v01_40-EN.pdf?fileId=8ac78c8c8779172a0187e2848e2d0f73) describe FMCW and target radial-velocity processing | Actual **ground velocity** over slow wet/muddy surfaces requires appropriate mounting, radar returns, filtering, testing and an error distribution; not a ready-made slip-invariant sensor output |
+| Motor effort and docking force | [TI INA240](https://www.ti.com/product/INA240) is a shunt **current-sense amplifier** | It is not a load-cell amplifier or direct towing-force sensor. Actual contact-force instrumentation needs separate calibrated transducer/circuit and valid model thresholds |
 
-In the AgentVerse Kinematic Quintet multi-robot paddy architecture, the **Antenna and RF subsystem** (comprising the dual Qorvo DWM3000 UWB transceivers and the Sub-1GHz Wi-Fi HaLow / ESP-NOW antenna) forms the backbone of the relative localization, formation keeping, and collaborative state estimation.
+## Sensor-to-action design, not a promised integrated stack
 
-Below is the breakdown of how the antenna signals are fused with the rest of the sensory suite:
+1. **Local deterministic safety:** commanded and actual motor/joint rates, obstacle/contact detection, tilt and safe HOLD. No model gets direct torque control.
+2. **Local state and uncertainty:** wheel odometry/independent pose, sensor-valid flags, timestamp and bounded commanded-vs-observed-motion diagnosis. A static relative UWB distance by itself is insufficient to infer immobilisation.
+3. **Cooperative belief:** per-robot measurements with provenance, local maps, explicit message packets and link blackouts. The existing simulated Policy B exercises this logic; no physical RF performance can be inferred from it.
+4. **Rare strategic recovery event:** evaluate risk and value of intervention, choose investigate/self-recover/dispatch/defer/abstain via a bounded skill validated by safety and capability checks. Use a calibrated deterministic optimiser as mandatory baseline for any contextual LLM.
+5. **Independent verification:** real simulator contact, latch actuation and extraction, risk to second robot, crop and time cost, and remaining fieldwork. Test false sensor dropouts separately from stuck rovers.
 
-## 1. Dual-Antenna UWB Array Fusion (Relative Pose Estimation)
+**Do not inherit the old PR's asserted numbers as specifications:** dual-DWM3000 ±5 cm AoA, 200 Hz controller, 20° tilt abort, 0.6 wheel-slip cut-off, 350–400 N tether loads, or guaranteed row/terrain performance. Derive actuator limits from installed robot geometry, forces and physics tests, and measure actual sensor timing if ever built.
 
-Each robot utilizes two Qorvo DWM3000 transceivers separated by a calibrated baseline on the chassis/mast:
+**Physical architecture remains unchanged:** Main has a **rigid cam latch/pitch-lift mechanism** and scripted tandem extraction. A tether/winch is an unverified *alternative requiring a separately approved redesign*, not something to quietly include in this research merge.
 
-- **Measurement Modalities:**
-  - **DS-TWR (Double-Sided Two-Way Ranging):** Delivers peer-to-peer distance $r_{ij}$ ($\pm 5\text{ cm}$).
-  - **PDoA (Phase Difference of Arrival):** Computes Angle-of-Arrival ($\text{AoA} / \theta$) in the robot’s horizontal plane.
-- **Fusion with 9-DOF IMU/AHRS (ICM-42688-P + MMC5983MA):**
-  - **Tilt/Attitude Compensation:** Pitch and roll angles measured by the IMU are used to project the antenna baseline vector into the local horizontal frame, preventing pitch/roll sinkage in mud from distorting the AoA bearing angle.
-  - **Heading Alignment:** Fused with the MMC5983MA magnetometer heading to project peer-to-peer relative vectors into a shared global/field coordinate frame.
+**Evidence to obtain if real hardware is pursued:** clock calibration and RF NLOS packet errors, worst-case pose/velocity estimation, radar returns on actual wet ground, hitch force sensor calibration, contact geometry, physical second-casualty risk, host latency/RAM/energy, and safe operation without a disabled device's compute or radio.
 
-## 2. Antenna vs. Odometry Fusion (NLOS & Multipath Filtering)
-
-Dense, wet rice canopy causes Non-Line-of-Sight (NLOS) delays and RF multipath reflections. The system filters these using kinematic sensors:
-
-- **mmWave Radar (Infineon BGT60TR13C) + Wheel Encoders:**
-  - Doppler radar provides true ground speed ($v_{\text{true}}$) invariant to wheel slip in mud.
-  - An Extended Kalman Filter (EKF) / Factor Graph predicts the expected inter-robot range increment:
-    $$\Delta r_{ij} \approx \int (v_i - v_j) \cdot \hat{u}_{ij} \, dt$$
-  - Any sudden jump in UWB antenna range that deviates significantly from the radar/odometry dead-reckoning envelope is rejected as an NLOS reflection or canopy multipath glitch.
-
-## 3. Antenna + Tow Hitch Strain Gauge (Tether Kinematics Fusion)
-
-In the Kinematic Quintet tethered/winch topology, physical cables link units for traction assistance and self-recovery:
-
-- **Strain Gauge (INA240 / Load Cell on Tow Hitch):** Measures pull tension $F_{\text{pull}}$ (up to $400\text{ N}$).
-- **Sensor Fusion:**
-  - The UWB antenna distance between the lead and trailing robot is fused with the tether reel encoder/winch line length.
-  - This validates whether the cable is under tension ($F_{\text{pull}} > \text{threshold}$) or slacked, maintaining safe formation spacing and preventing the tether from becoming entangled in the mud or crop rows.
-
-## 4. Antenna + Row Tracking (Boundary & Cross-Track Fusion)
-
-- **Whiskers + ToF (VL53L8CX):** Provide high-frequency analog cross-track error ($e_y$) relative to rice plant stems.
-- **UWB Antenna:** Provides longitudinal inter-robot following distance ($e_x$).
-- **Fusion:** Decouples navigation into:
-  1. **Lateral controller:** Whiskers + ToF directly lock the robot inside the narrow furrow.
-  2. **Longitudinal/Swarm controller:** UWB antenna ranging maintains formation stagger and prevents collisions between the quintet members.
-
-## 5. Multi-Rate Compute Split & Telemetry Sync
-
-- **Low-Level (STM32H7 @ 200 Hz):**
-  - Direct SPI processing of IMU, radar Doppler, and real-time antenna UWB timestamps (TWR/AoA).
-  - Executes the high-rate strapdown INS/odometry error-state propagation.
-- **Mid-Level (SBC: Raspberry Pi 5 / Jetson Orin Nano):**
-  - Ingests local state vectors from the STM32 via high-speed UART/CAN.
-  - Sends/receives peer state covariance packets over the Wi-Fi HaLow / ESP-NOW antenna to run the distributed multi-robot swarm consensus and LLM reasoning agent loops.
+**Provenance:** preserves PR #22's fusion, IMU, ToF, radar, peer-link and effort-monitoring ideas while correcting hardware capabilities and differentiating proposed apparatus from tested simulation.
