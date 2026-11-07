@@ -771,7 +771,9 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         winning_bids: dict[str, AgentBid] = dict(rescue_assignments)
 
         for robot in robots_sorted:
-            if advisor_override and robot.robot_id in advisor_override:
+            # Advisory task suggestions must never override a verified stranded
+            # robot's HOLD or a safety-gated helper rescue assignment.
+            if advisor_override and robot.robot_id in advisor_override and robot.robot_id not in winning_bids:
                 mode, target_id, reason = advisor_override[robot.robot_id]
                 if target_id is not None:
                     assigned_sites.add(target_id)
