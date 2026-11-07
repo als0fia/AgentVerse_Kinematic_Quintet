@@ -53,6 +53,31 @@ DEFAULT_HIDDEN_SOIL_TRUTH: dict[str, dict[SensorKind, float]] = {
     },
 }
 
+# Unexpected bad-soil scenario truth: patch_b is waterlogged mud while patch_d (north row) is viable loam.
+# Tests whether Scout's discovery propagates over peer-to-peer gossip to alter Planter's planting choice.
+UNEXPECTED_BAD_SOIL_TRUTH: dict[str, dict[SensorKind, float]] = {
+    "patch_a": {
+        SensorKind.MOISTURE: 0.92,
+        SensorKind.FIRMNESS: 0.16,
+        SensorKind.STAND_GAP: 0.85,
+    },
+    "patch_b": {
+        SensorKind.MOISTURE: 0.91,
+        SensorKind.FIRMNESS: 0.17,
+        SensorKind.STAND_GAP: 0.82,
+    },
+    "patch_c": {
+        SensorKind.MOISTURE: 0.50,
+        SensorKind.FIRMNESS: 0.72,
+        SensorKind.STAND_GAP: 0.84,
+    },
+    "patch_d": {
+        SensorKind.MOISTURE: 0.52,
+        SensorKind.FIRMNESS: 0.70,
+        SensorKind.STAND_GAP: 0.88,
+    },
+}
+
 
 class PaddyTerraceWorld:
     """Simulator-independent world & location-gated sensor host.
@@ -108,6 +133,17 @@ class PaddyTerraceWorld:
                         )
                     )
         return tuple(samples)
+
+    def mud_traction_scale(self, pose: Pose2D) -> float:
+        """Return wheel-velocity traction factor in `(0.35, 1.0]` based on hidden local mud softness."""
+        for site_id, site in self.sites.items():
+            truth = self._hidden_site_truth.get(site_id)
+            if truth is None:
+                continue
+            if truth[SensorKind.MOISTURE] > 0.80 and truth[SensorKind.FIRMNESS] < 0.25:
+                if hypot(pose.x_m - site.center.x_m, pose.y_m - site.center.y_m) <= self.probe_radius_m:
+                    return 0.36
+        return 1.0
 
 
 def _build_seedling_clumps_xml() -> str:
