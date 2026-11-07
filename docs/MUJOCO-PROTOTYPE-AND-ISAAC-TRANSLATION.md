@@ -2,7 +2,7 @@
 
 ## 1. Why MuJoCo First → Isaac Sim Next
 - **Hardware Constraint on 8 GB VRAM Laptops:** NVIDIA Isaac Sim 5.1 specifies a minimum of **32 GB System RAM** and **16 GB GPU VRAM** for supported workstation operation. Developer laptops with **8 GB VRAM / ~16 GB RAM** can run **MuJoCo 4.0.0** at `>1,000x` real-time with zero cloud spend.
-- **Architectural Seam (`SimulationPort`):** The PaddyPatch core (`src/ricebot/contracts.py`, `src/ricebot/mission.py`, `src/ricebot/control.py`, `src/ricebot/runtime.py`) is 100% simulator-independent and interacts with the physical world exclusively through:
+- **Architectural Seam (`SimulationPort`):** The Antenna core (`src/ricebot/contracts.py`, `src/ricebot/mission.py`, `src/ricebot/control.py`, `src/ricebot/runtime.py`) is 100% simulator-independent and interacts with the physical world exclusively through:
   ```python
   class SimulationPort(Protocol):
       def reset(self, seed: int) -> ObservationFrame: ...
@@ -12,7 +12,7 @@
 
 ---
 
-## 2. Running the MuJoCo PaddyPatch Simulator Locally
+## 2. Running the MuJoCo Antenna Simulator Locally
 
 From the repository root using a Python 3.10+ `.venv` with `mujoco` installed (`pip install mujoco`):
 

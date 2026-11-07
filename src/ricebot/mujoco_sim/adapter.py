@@ -1,7 +1,7 @@
 """MuJoCo 3D paddy-terrace & wheeled-rover physics backend implementing SimulationPort (rice.v1).
 
 Purpose:
-- Implements a genuine 3D Southern China / PaddyPatch rice terrace in MuJoCo 4.0.0:
+- Implements a genuine 3D Southern China / Antenna rice terrace in MuJoCo 4.0.0:
   - Raised perimeter soil bunds / field ridges (田埂), irrigation canal & drainage sluice,
     and a 6-patch rice plot with:
     - Living green rice seedling stands (protected no-go zones with 3D plant stalks)
@@ -86,8 +86,8 @@ def _build_seedling_clumps_xml() -> str:
     return "\n    ".join(lines)
 
 
-PADDYPATCH_MJCF = f"""
-<mujoco model="paddypatch_rice_v1_terrace">
+ANTENNA_MJCF = f"""
+<mujoco model="antenna_rice_v1_terrace">
   <option timestep="0.004" gravity="0 0 -9.81" integrator="implicitfast"/>
 
   <visual>
@@ -323,7 +323,7 @@ class MujocoPaddySimulation:
         self.inject_obstacle_at_s = inject_obstacle_at_s
         self.obstacle_xy = obstacle_xy
 
-        self.model = mujoco.MjModel.from_xml_string(PADDYPATCH_MJCF)
+        self.model = mujoco.MjModel.from_xml_string(ANTENNA_MJCF)
         self.data = mujoco.MjData(self.model)
 
         self._ground_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "field_ground")

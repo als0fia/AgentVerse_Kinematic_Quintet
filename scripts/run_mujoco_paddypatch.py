@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run PaddyPatch rice.v1 3D Rice-Terrace & 4-Wheel Rover Simulator in MuJoCo.
+"""Run Antenna rice.v1 3D Rice-Terrace & 4-Wheel Rover Simulator in MuJoCo.
 
 Features:
 - Full 3D bunded rice terrace with irrigation canal, 3D green rice seedling stands,

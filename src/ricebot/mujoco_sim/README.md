@@ -27,7 +27,7 @@ Requires Python 3.10+ with `mujoco` installed in `.venv`:
 # Run automated unit + physics integration tests
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_mujoco_sim.py" -v
 
-# Run the PaddyPatch MuJoCo simulator demo (headless trace + optional interactive 3D viewer)
+# Run the Antenna MuJoCo simulator demo (headless trace + optional interactive 3D viewer)
 .\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --headless
 .\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --viewer-seconds 8
 ```
