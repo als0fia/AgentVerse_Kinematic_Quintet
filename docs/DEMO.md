@@ -23,27 +23,24 @@
 
 **Working pace suggested by the speaker:** Saturday morning reduce to one user/pain and one 30-second capability; Saturday afternoon prove core loop before styling; Saturday evening layer optional senses and rehearsals; Sunday stop new features roughly **two hours before the verified deadline**, record a short backup and test the demo from a clean checkout. These are suggested *internal timeboxes*, **not organiser schedule changes**. The published latest BuilderBase portal now says **Sunday 8 Nov 13:00 GMT** (older site was 14:00), so use the earlier deadline unless organiser verifies an extension.
 
-## RiceWatch: ≤60-second continuous P0 episode (not recorded)
+## PaddyPatch: ≤60-second continuous rice-planting episode (not recorded)
 
-**Pitch:** “A water gauge warns a rice farmer that something may be wrong. Instead of assuming every warning is real, an autonomous inspection robot **goes to gather evidence**, adapts if its path becomes unsafe, and reports what it could verify.” Normal shallow paddy water is not itself harmful; use site-defined synthetic abnormal readings rather than real agronomic damage claims.
+**User-facing pitch:** “A rice field has irregular failed emergence. Two autonomous robots gather different soil and crop-condition measurements, build a shared suitability map and coordinate where to replant—with fewer wasted seeds and safer routes. They must keep planting when new ground conditions invalidate their plan.” **Simulated benefit only; no claim of measured rice survival/yield.**
 
-**Target storyboard, continuous physics simulation with live sensor and command trace:**
-
-| Video segment | Physical and informational evidence |
+| Target video segment | What the judge must actually see |
 | --- | --- |
-| 0–10 s | Paddy with station water-gauge alert. Viewer identifies simulated fixed reading, its uncertainty and rover location; incident supervisor chooses a reachable inspection point. |
-| 10–25 s | Actuated rover travels along service bank; actual range/odometry readings and bounded local steering update. Local water reading is **not yet accessible** from the station. |
-| 25–38 s | Simulator injects an unexpected obstacle *during the same recording*. Rover's range sensor detects it; planner adjusts route to another valid viewpoint or safely stops. |
-| 38–52 s | Rover physically reaches the chosen local measurement position, samples **independent water-level evidence**, contrasts it with station gauge and updates incident belief. If unreachable, returns an honest unresolved assessment. |
-| 52–60 s | Show independent grader result and final `verified abnormal / likely false alarm / unresolved` report with source IDs. No need to touch water/gate; reference matched-seed baseline results only if genuinely run. |
+| 0–10 s | Prepared/partly drained stylised rice plot with patchy crop stand, two physical rovers, seed inventory and **uncertain shared soil map**; no hidden-quality labels in agent view |
+| 10–23 s | Two robots **physically move and sample separate local areas**; sensor readings, robot IDs/timestamps and belief/uncertainty heatmap change as evidence is fused |
+| 23–33 s | Planner chooses viable stand-gap sites and distinct **safe routes** for scout and planter; actual bounded drive commands and positions shown |
+| 33–44 s | Mid-episode new obstacle or locally discovered unsuitable soil **invalidates a chosen target/route**; fresh sensor drives map/target/route update; no scripted second clip |
+| 44–55 s | Planter physically reaches a valid gap and **releases seed proxy from its tool**, with rigid-body landing/contact/inventory result visible |
+| 55–60 s | Independent outcome: actual landed seeds in valid gaps, synthetic benefit/seed or coverage, safety violations and a baseline comparison **only if truly measured** |
 
-**Two additional evaluation episodes** (not necessarily all squeezed into the primary recording): true rise versus false gauge, with identical sensing/action budgets and a competent reactive planner. A visually rich screenshot is not independent proof; a real recording/trace is required.
+The real episode may need simplification; do not falsify elapsed runtimes or pretend video transitions are continuous. Maintain one genuine changing-world episode showing sensor → decision → physical actuation → new observation; even if video cannot fit every metric, provide logs and one-page PDF with tested independent results. The UI is **read-only**, no hidden world truth steering policy.
 
-**Optional P1, only if there is surplus time:** physically actuate a separate drainage gate/control and show a subsequent synthetic water-proxy response. **Never make mitigation, lowering water, operating a gate or proving crop benefit a requirement of the P0 video, project or reviewer checklist.** Optional P2 robot rescue/domain transfer likewise not needed.
+**Not in the P0 demo:** flood warning as main mission, opening a drainage gate or lowering water, robot towing/rescue, extra reforestation or lunar environment, VLA training, photorealistic field science. These can be named as optional future applications only after planting is real. Present a failed/drop misfire as a real failure, not a successful ghost planting.
 
-**Robot design:** one physically credible wheeled inspection rover on a service bank, approved by human mechanical owner; no muddy in-crop driving, manipulator, waterproof hardware or flood control is presumed. Safety-critical local actions remain bounded without cloud LLM motor commands.
-
-**What can be claimed once measured:** autonomous on-site verification and adaptation in a stylised simulation. **Cannot claim** real crop protection, flood prevention, working gate manipulation, multi-robot rescue, real-world field hardware or unseen simulation outcomes.
+**Mechanical plausibility:** direct-seeded or partially drained field, safe traversable lanes, physical rover wheels/dropper and local probe/range. Synthetic soil quality and establishment evaluation explicitly labelled. [PRODUCT](PRODUCT.md) and [TESTING](TESTING.md) govern what is actually claimed.
 
 ## Demo card (fill with actual working entry)
 
