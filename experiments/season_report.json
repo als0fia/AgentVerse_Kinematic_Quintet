@@ -1,0 +1,112 @@
+{
+  "phase": "active",
+  "day": 145,
+  "weather": "cloudy",
+  "ticks": 4250,
+  "crop_targets": 12,
+  "planted": 12,
+  "weeded": 11,
+  "harvested": 10,
+  "section_a": {
+    "stage": "harvested",
+    "planted": 6,
+    "harvested": 5,
+    "yield_kg": 4.25
+  },
+  "section_b": {
+    "stage": "harvest_ready",
+    "planted": 6,
+    "harvested": 5,
+    "yield_kg": 4.25
+  },
+  "field_report": {
+    "total_cells": 120,
+    "surveyed_cells": 118,
+    "crop_targets": 12,
+    "planted_cells": 12,
+    "weeded_cells": 11,
+    "harvested_cells": 10,
+    "known_hazards": 0,
+    "avg_grain_maturity": 0.962
+  },
+  "rescue_attempts": 0,
+  "successful_recoveries": 0,
+  "human_escalations": 0,
+  "unsafe_crop_movements": 0,
+  "robots": {
+    "RS1": {
+      "position": [
+        9,
+        8
+      ],
+      "battery": 86.0,
+      "status": "idle",
+      "planted": 2,
+      "weeded": 3,
+      "harvested": 3,
+      "travelled": 20
+    },
+    "RS2": {
+      "position": [
+        6,
+        2
+      ],
+      "battery": 90.2,
+      "status": "idle",
+      "planted": 2,
+      "weeded": 2,
+      "harvested": 3,
+      "travelled": 14
+    },
+    "RS3": {
+      "position": [
+        7,
+        7
+      ],
+      "battery": 93.0,
+      "status": "working",
+      "planted": 2,
+      "weeded": 2,
+      "harvested": 0,
+      "travelled": 10
+    },
+    "RS4": {
+      "position": [
+        9,
+        2
+      ],
+      "battery": 86.7,
+      "status": "idle",
+      "planted": 2,
+      "weeded": 2,
+      "harvested": 2,
+      "travelled": 19
+    },
+    "RS5": {
+      "position": [
+        7,
+        6
+      ],
+      "battery": 95.1,
+      "status": "working",
+      "planted": 2,
+      "weeded": 0,
+      "harvested": 0,
+      "travelled": 7
+    },
+    "RS6": {
+      "position": [
+        6,
+        8
+      ],
+      "battery": 85.3,
+      "status": "idle",
+      "planted": 2,
+      "weeded": 2,
+      "harvested": 2,
+      "travelled": 21
+    }
+  },
+  "events_count": 50,
+  "daily_reports_count": 170
+}
