@@ -966,3 +966,132 @@ class DecentralizedMycelialRuntime:
             commands=tuple(commands),
             ingested_samples=total_ingested,
         )
+
+
+def evaluate_continuous_belief_field(
+    local_map: LocalMycelialMap,
+    x_m: float,
+    y_m: float,
+    length_scale_m: float = 0.52,
+) -> dict[str, float]:
+    """Evaluate a single robot's continuous 2D Gaussian-Process / RBF belief field at `(x_m, y_m)`.
+
+    Transforms the robot's local observations (`local_map.all_samples` and `local_map.slam.cells`)
+    into continuous spatial surfaces for:
+    - `moisture`: Posterior mean moisture $\\hat{M}_i(x, y) \\in [0, 1]$
+    - `firmness`: Posterior mean cone-index firmness $\\hat{F}_i(x, y) \\in [0, 1]$
+    - `stand_gap`: Posterior mean stand gap $\\hat{G}_i(x, y) \\in [0, 1]$
+    - `plant_density`: Estimated living plant density $\\hat{\\rho}_{\\text{plant},i}(x, y) = 1 - \\hat{G}_i(x, y)$
+    - `uncertainty`: Continuous epistemic uncertainty $\\sigma_i(x, y) \\in [0, 1]$ (high in unexplored regions,
+      collapses toward 0 around directly sampled or peer-gossiped locations)
+    - `traversability_risk`: Combined SLAM obstacle + mud-sinkage risk $\\mathcal{R}_i(x, y) \\in [0, 1]$
+    """
+    from math import exp
+
+    prior_weight = 0.22
+    l2 = 2.0 * length_scale_m * length_scale_m
+
+    w_m = prior_weight
+    w_f = prior_weight
+    w_g = prior_weight
+    acc_m = prior_weight * 0.50
+    acc_f = prior_weight * 0.50
+    acc_g = prior_weight * 0.50
+    info_density = 0.0
+
+    # 1. Publicly known protected living rice stands (crop_nw, crop_ne) have known high plant density
+    for site in local_map.sites.values():
+        if not site.permitted:
+            dx = x_m - site.center.x_m
+            dy = y_m - site.center.y_m
+            k = 3.2 * exp(-(dx * dx + dy * dy) / (2.0 * 0.34 * 0.34))
+            acc_g += k * 0.05
+            w_g += k
+            info_density += 0.5 * k
+
+    # 2. Fuse all samples currently stored in THIS robot's private LocalMycelialMap
+    for sample in local_map.all_samples.values():
+        dx = x_m - sample.location.x_m
+        dy = y_m - sample.location.y_m
+        k = 2.8 * exp(-(dx * dx + dy * dy) / l2)
+        if sample.kind == SensorKind.MOISTURE:
+            acc_m += k * sample.value
+            w_m += k
+            info_density += k
+        elif sample.kind == SensorKind.FIRMNESS:
+            acc_f += k * sample.value
+            w_f += k
+        elif sample.kind == SensorKind.STAND_GAP:
+            acc_g += k * sample.value
+            w_g += k
+
+    mean_m = max(0.02, min(0.98, acc_m / w_m))
+    mean_f = max(0.02, min(0.98, acc_f / w_f))
+    mean_g = max(0.02, min(0.98, acc_g / w_g))
+    plant_density = max(0.02, min(0.98, 1.0 - mean_g))
+    uncertainty = max(0.04, min(1.0, 1.0 / (1.0 + 1.35 * info_density)))
+
+    # 3. Continuous SLAM + mud-sinkage traversability risk
+    slam_risk = 0.0
+    for cell in local_map.slam.cells.values():
+        dx = x_m - cell.x_m
+        dy = y_m - cell.y_m
+        k_slam = exp(-(dx * dx + dy * dy) / (2.0 * 0.24 * 0.24))
+        weight = 0.95 if cell.kind == "obstacle" else 0.80
+        slam_risk = max(slam_risk, weight * k_slam)
+
+    soil_mud_risk = max(0.0, (mean_m - 0.55) * 1.4) * max(0.0, (0.55 - mean_f) * 1.4) * (1.0 - 0.5 * uncertainty)
+    traversability_risk = max(0.02, min(0.99, max(slam_risk, soil_mud_risk)))
+
+    return {
+        "moisture": round(mean_m, 4),
+        "firmness": round(mean_f, 4),
+        "stand_gap": round(mean_g, 4),
+        "plant_density": round(plant_density, 4),
+        "uncertainty": round(uncertainty, 4),
+        "traversability_risk": round(traversability_risk, 4),
+    }
+
+
+def sample_continuous_belief_grid(
+    local_map: LocalMycelialMap,
+    nx: int = 36,
+    ny: int = 24,
+    x_bounds: tuple[float, float] = (-0.25, 2.95),
+    y_bounds: tuple[float, float] = (-0.90, 0.90),
+    length_scale_m: float = 0.52,
+) -> dict[str, list[list[float]]]:
+    """Sample a robot's continuous 2D belief field across a `(ny x nx)` grid for top-down heatmap visualization."""
+    xs = [
+        x_bounds[0] + i * (x_bounds[1] - x_bounds[0]) / max(1, nx - 1)
+        for i in range(nx)
+    ]
+    ys = [
+        y_bounds[0] + j * (y_bounds[1] - y_bounds[0]) / max(1, ny - 1)
+        for j in range(ny)
+    ]
+    layers: dict[str, list[list[float]]] = {
+        "moisture": [],
+        "firmness": [],
+        "stand_gap": [],
+        "plant_density": [],
+        "uncertainty": [],
+        "traversability_risk": [],
+    }
+    for y in ys:
+        row_m, row_f, row_g, row_p, row_u, row_r = [], [], [], [], [], []
+        for x in xs:
+            val = evaluate_continuous_belief_field(local_map, x, y, length_scale_m=length_scale_m)
+            row_m.append(val["moisture"])
+            row_f.append(val["firmness"])
+            row_g.append(val["stand_gap"])
+            row_p.append(val["plant_density"])
+            row_u.append(val["uncertainty"])
+            row_r.append(val["traversability_risk"])
+        layers["moisture"].append(row_m)
+        layers["firmness"].append(row_f)
+        layers["stand_gap"].append(row_g)
+        layers["plant_density"].append(row_p)
+        layers["uncertainty"].append(row_u)
+        layers["traversability_risk"].append(row_r)
+    return layers

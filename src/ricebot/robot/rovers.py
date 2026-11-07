@@ -566,3 +566,132 @@ def export_robot_mjcf_assets(output_dir: str | Path | None = None) -> tuple[Path
     single_path = target_dir / "paddy_ant_unit.xml"
     single_path.write_text(single_xml, encoding="utf-8")
     return single_path, rescue_path
+
+
+@dataclass(frozen=True)
+class TerramechanicsSinkageState:
+    r"""Analytical Bekker–Wong & Janosi–Hanamoto wheel-mud interaction state for a rover of given size/weight.
+
+    Models wheeled vehicles of varying mass $m$, wheel radius $r$, wheel width $b$, and belly clearance
+    $h_{\text{belly,0}}$ operating on soft paddy soil without requiring expensive 3D CFD/DEM mud solvers:
+    - **Bekker Pressure–Sinkage:**
+      $$z_0 = \left( \frac{W_{\text{wheel}}}{b \cdot \sqrt{2r} \cdot (k_c / b + k_\phi)} \right)^{1/n}$$
+    - **Slip-Excavation Sinkage:**
+      $$z = \min\left(h_{\text{mud}}, \; z_0 + k_{\text{slip}} \cdot s \cdot (1 - F)\right)$$
+    - **Compaction / Bulldozing Resistance (per wheel):**
+      $$R_c = b \cdot \left(\frac{k_c}{b} + k_\phi\right) \frac{z^{n+1}}{n+1}$$
+    - **Mohr–Coulomb / Janosi–Hanamoto Gross Thrust:**
+      $$H_{\max} = n_{\text{wheels}} \cdot A_c \cdot c + W_{\text{eff}} \tan\phi$$
+    - **Belly-Out / Immobilization Check (`S1` Plow-Pan Breach):**
+      When sinkage $z \ge h_{\text{belly,0}}$, the hull contacts cohesive clay mud ($h_{\text{belly}} \le 0$),
+      unloading wheel normal force $W_{\text{eff}}$ and adding suction drag $F_{\text{suction}}$.
+    """
+
+    robot_id: str
+    mass_kg: float
+    wheel_radius_m: float
+    wheel_width_m: float
+    sinkage_z_m: float
+    belly_clearance_m: float
+    bellied_out: bool
+    compaction_resistance_n: float
+    max_thrust_n: float
+    drawbar_pull_margin_n: float
+    required_rescue_pull_n: float
+    immobilization_risk: float
+    speed_penalty_factor: float
+
+
+def evaluate_bekker_terramechanics(
+    spec: RoverChassisSpec,
+    *,
+    moisture: float,
+    firmness: float,
+    mud_depth_m: float = 0.18,
+    slope_magnitude: float = 0.0,
+    slip_ratio: float = 0.08,
+    mass_override_kg: float | None = None,
+    wheel_radius_override_m: float | None = None,
+    wheel_width_override_m: float | None = None,
+    belly_clearance_override_m: float | None = None,
+) -> TerramechanicsSinkageState:
+    """Compute analytical Bekker-Wong sinkage, compaction drag, and immobilization risk for a wheeled machine."""
+    from math import exp, radians, sqrt, tan
+
+    default_mass = 4.20 if spec.can_plant else 3.60
+    mass = float(mass_override_kg if mass_override_kg is not None else default_mass)
+    r_m = float(wheel_radius_override_m if wheel_radius_override_m is not None else spec.wheel_radius_m)
+    b_m = float(wheel_width_override_m if wheel_width_override_m is not None else 2.0 * spec.wheel_half_width_m)
+    base_clear = float(belly_clearance_override_m if belly_clearance_override_m is not None else 0.044)
+    clearance_0 = max(0.020, base_clear + (r_m - spec.wheel_radius_m))
+
+    m_clamped = max(0.05, min(0.98, moisture))
+    f_clamped = max(0.05, min(0.98, firmness))
+    s_clamped = max(0.0, min(1.0, slip_ratio))
+
+    # Soil terramechanics moduli (in kPa / N/m units)
+    kc_kpa = 1.5 + 24.0 * (f_clamped**1.4) * (1.0 - 0.55 * m_clamped)
+    kphi_kpa = 45.0 + 920.0 * (f_clamped**1.5) * (1.0 - 0.60 * m_clamped)
+    n_exp = 0.52 + 0.58 * f_clamped
+    cohesion_pa = (1.2 + 14.5 * f_clamped * (1.0 - 0.45 * m_clamped)) * 1000.0
+    phi_rad = radians(6.0 + 24.0 * f_clamped * (1.0 - 0.50 * m_clamped))
+
+    # Convert Bekker modulus k_eq = (kc/b + kphi) into N / m^(n+2) scaled for miniature agricultural wheels
+    k_eq = max(28000.0, (kc_kpa / max(0.015, b_m) + kphi_kpa) * 950.0)
+
+    total_weight_n = mass * 9.81
+    w_wheel_n = total_weight_n / 4.0
+    contact_chord = max(0.025, sqrt(2.0 * r_m * 0.035))
+
+    # Static Bekker sinkage z0 + dynamic slip-excavation sinkage
+    z0_m = (w_wheel_n / max(1.0, b_m * contact_chord * k_eq)) ** (1.0 / n_exp)
+    z_slip_m = 0.015 * s_clamped * ((1.0 - f_clamped) ** 1.3) * (0.5 + 0.5 * m_clamped)
+    z_m = min(mud_depth_m, z0_m + z_slip_m)
+
+    belly_clear_m = clearance_0 - z_m
+    bellied_out = belly_clear_m <= 0.0
+
+    # Compaction resistance across all 4 wheels + slope grade resistance + belly suction drag if bellied out
+    r_c_per_wheel = b_m * k_eq * (z_m ** (n_exp + 1.0)) / (n_exp + 1.0)
+    grade_drag_n = total_weight_n * slope_magnitude
+    belly_suction_n = 0.0
+    if bellied_out:
+        belly_area = (2.0 * spec.chassis_half_x_m) * (2.0 * spec.chassis_half_y_m)
+        belly_suction_n = belly_area * cohesion_pa * (0.35 + 12.0 * abs(belly_clear_m))
+
+    total_resistance_n = 4.0 * r_c_per_wheel + grade_drag_n + belly_suction_n
+
+    # Effective wheel normal load drops sharply once the chassis belly bottoms out on the mud
+    unloading_factor = 1.0 if not bellied_out else max(0.22, 1.0 - 18.0 * abs(belly_clear_m))
+    w_eff_n = total_weight_n * unloading_factor
+    contact_area_per_wheel = b_m * max(0.028, sqrt(max(1e-4, 2.0 * r_m * z_m)))
+    janosi_activation = 1.0 - exp(-max(0.08, s_clamped) / 0.12)
+    h_max_n = (4.0 * contact_area_per_wheel * cohesion_pa + w_eff_n * tan(phi_rad)) * janosi_activation
+
+    drawbar_pull_n = h_max_n - total_resistance_n
+    req_rescue_n = max(0.0, total_resistance_n - 0.35 * h_max_n + (18.0 if bellied_out else 0.0))
+
+    # Immobilization risk in [0, 1]
+    clearance_ratio = min(1.0, z_m / max(0.01, clearance_0))
+    force_ratio = min(1.0, total_resistance_n / max(1.0, h_max_n))
+    risk = max(0.0, min(1.0, 0.55 * (clearance_ratio**1.4) + 0.45 * (force_ratio**1.2)))
+    if bellied_out or drawbar_pull_n <= 0.0:
+        risk = max(risk, 0.88)
+
+    speed_factor = 0.0 if (bellied_out and drawbar_pull_n < -2.0) else max(0.18, min(1.0, 1.0 - 0.72 * risk))
+
+    return TerramechanicsSinkageState(
+        robot_id=spec.robot_id,
+        mass_kg=round(mass, 3),
+        wheel_radius_m=round(r_m, 4),
+        wheel_width_m=round(b_m, 4),
+        sinkage_z_m=round(z_m, 4),
+        belly_clearance_m=round(belly_clear_m, 4),
+        bellied_out=bellied_out,
+        compaction_resistance_n=round(total_resistance_n, 2),
+        max_thrust_n=round(h_max_n, 2),
+        drawbar_pull_margin_n=round(drawbar_pull_n, 2),
+        required_rescue_pull_n=round(req_rescue_n, 2),
+        immobilization_risk=round(risk, 4),
+        speed_penalty_factor=round(speed_factor, 4),
+    )

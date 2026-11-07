@@ -8,7 +8,8 @@ Exports:
 2. Policy B — Zero-Central-Map Mycelial SLAM, UWB/HaLow Gossip & Local Auction (`mycelial_swarm.py`):
    - `DecentralizedMycelialRuntime`, `DecentralizedRobotNode`, `LocalMycelialMap`,
      `LocalSlamGrid`, `MycelialGossipPacket`, `OnboardSensorTelemetry`, `SlamHazardCell`,
-     `SoilSafetyEnvelope`, `TaskBidProposal`, `GaussianChannelBelief`
+     `SoilSafetyEnvelope`, `TaskBidProposal`, `GaussianChannelBelief`,
+     `evaluate_continuous_belief_field`, `sample_continuous_belief_grid`
 """
 from .mycelial_swarm import (
     DecentralizedMycelialRuntime,
@@ -21,6 +22,8 @@ from .mycelial_swarm import (
     SlamHazardCell,
     SoilSafetyEnvelope,
     TaskBidProposal,
+    evaluate_continuous_belief_field,
+    sample_continuous_belief_grid,
 )
 from .planner import (
     AgentBid,
@@ -55,5 +58,7 @@ __all__ = [
     "SwarmRobotAgent",
     "TaskBidProposal",
     "TravelCostFn",
+    "evaluate_continuous_belief_field",
     "homogeneous_capabilities",
+    "sample_continuous_belief_grid",
 ]
