@@ -38,7 +38,7 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Status:** process adopted in documentation; worker runtime/model entitlements not exercised
 - **Alternatives:** (a) single developer and human review, (b) GitHub branches/PRs with bounded Gemini CLI sessions, (c) hosted multi-agent messaging service.
 - **Decision:** start with (a); use (b) when independent modules genuinely exist. ChatGPT may actively implement/review via its GitHub connector; Gemini sessions/subagents must be started by authorised local operators. Each worker owns branch/paths, returns observed test results and a PR for shared code; human integrator merges and approves external actions. No automatic direct ChatGPT→Gemini calls or remote A2A service.
-- **Reasons:** first-party [engineering evidence](RESEARCH.md#development-agent-communication-and-model-choice-evidence-7-november-2026) favours simple workflows, context isolation, explicit handoff and independent verification. Model roles are provisional and must be measured on actual accessible tools.
+- **Reasons:** first-party [engineering evidence](RESEARCH.md#development-agent-communication-and-model-choice-evidence--7-november-2026) favours simple workflows, context isolation, explicit handoff and independent verification. Model roles are provisional and must be measured on actual accessible tools.
 - **Testability:** the PR template and regression checks protect rubric consistency/skill mirrors; **none of this is a running robot or a measured multi-agent benchmark**.
 - **Revisit:** when two separately runnable module tasks exist or repeated communication failures justify automation.
 
