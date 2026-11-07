@@ -222,14 +222,30 @@ def _build_homogeneous_ant_rover_xml(
     <!-- ========================================================================= -->
     <body name="{rid}_body" pos="{ix:.3f} {iy:.3f} {iz + 0.010:.3f}">
       <freejoint name="{rid}_free"/>
-      <!-- Sealed IP68 Waterproof Hull (270 x 190 x 64 mm) + Hydrodynamic Belly Skid -->
-      <geom name="{rid}_chassis" type="box" pos="0 0 0.015" size="{spec.chassis_half_x_m:.3f} {spec.chassis_half_y_m:.3f} {spec.chassis_half_z_m:.3f}" mass="2.45" contype="{contype}" conaffinity="5" rgba="{chassis_rgba}"/>
+      <!-- Sealed IP68 Waterproof Hull Monocoque (270 x 190 x 64 mm) + Hydrodynamic Belly Skid -->
+      <geom name="{rid}_chassis" type="box" pos="0 0 0.015" size="{spec.chassis_half_x_m:.3f} {spec.chassis_half_y_m:.3f} {spec.chassis_half_z_m:.3f}" mass="0.66" contype="{contype}" conaffinity="5" rgba="{chassis_rgba}"/>
       <geom name="{rid}_belly_skid" type="box" pos="0 0 -0.019" size="0.115 0.078 0.005" mass="0.08" contype="0" conaffinity="0" rgba="0.22 0.24 0.27 1"/>
       <geom name="{rid}_deck" type="box" pos="-0.010 0 0.052" size="0.105 0.078 0.008" mass="0.10" contype="0" conaffinity="0" rgba="0.90 0.93 0.96 1"/>
 
-      <!-- BeiDou RTK-GNSS Receiver Mast & Status Beacon -->
-      <geom name="{rid}_rtk_mast" type="cylinder" pos="-0.088 0.058 0.095" size="0.007 0.036" mass="0.01" contype="0" conaffinity="0" rgba="0.82 0.84 0.88 1"/>
-      <geom name="{rid}_rtk_dome" type="sphere" pos="-0.088 0.058 0.135" size="0.018" mass="0.01" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
+      <!-- 6S3P High-Density 21700 Li-Ion Battery Pack (21.6V / 15Ah / 324Wh, 18x Samsung 50S, 1.35 kg IP67 Cartridge) -->
+      <!-- Centered low on the chassis floor (x=0, y=0, z=0.005) for neutral 50/50 axle balance to prevent mud sinkage -->
+      <geom name="{rid}_battery_pack" type="box" pos="0 0 0.005" size="0.070 0.050 0.021" mass="1.35" contype="0" conaffinity="0" rgba="0.15 0.20 0.25 1"/>
+
+      <!-- Top-Deck Monocrystalline Solar Panel Skin (15W SunPower Maxeon Tile, 0.18 kg, +85Wh/day daylight harvesting) -->
+      <geom name="{rid}_solar_deck" type="box" pos="-0.010 0 0.061" size="0.102 0.075 0.002" mass="0.18" contype="0" conaffinity="0" rgba="0.08 0.12 0.28 1"/>
+
+      <!-- Onboard Edge AI Compute Module & Heatsink (Jetson Orin Nano / Pi 5 + Carrier Board, 0.22 kg) -->
+      <geom name="{rid}_compute_pack" type="box" pos="0.040 0 0.024" size="0.045 0.038 0.012" mass="0.22" contype="0" conaffinity="0" rgba="0.28 0.32 0.36 1"/>
+
+      <!-- BeiDou BDS-3 RTK-GNSS Receiver Mast & Status Dome (0.055 kg total: mast 0.020 kg + dome 0.035 kg) -->
+      <geom name="{rid}_rtk_mast" type="cylinder" pos="-0.088 0.058 0.095" size="0.007 0.036" mass="0.020" contype="0" conaffinity="0" rgba="0.82 0.84 0.88 1"/>
+      <geom name="{rid}_rtk_dome" type="sphere" pos="-0.088 0.058 0.135" size="0.018" mass="0.035" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
+
+      <!-- Dual UWB DWM3000 Ranging & Wi-Fi HaLow / LoRa Swarm Transceiver Module (0.040 kg) -->
+      <geom name="{rid}_uwb_transceiver" type="box" pos="-0.088 -0.058 0.068" size="0.012 0.012 0.015" mass="0.040" contype="0" conaffinity="0" rgba="0.30 0.32 0.38 1"/>
+
+      <!-- 6-Axis IMU & Flight Controller / Power Management Board (0.035 kg) -->
+      <geom name="{rid}_imu_board" type="box" pos="0 0 0.028" size="0.025 0.025 0.004" mass="0.035" contype="0" conaffinity="0" rgba="0.12 0.45 0.22 1"/>
 
       <!-- FARMING TOOL 1: Conformal Seed Hopper Funnel + Seed Sight-Glass + Bottom Drop Chute -->
       <geom name="{rid}_hopper_outer" type="cylinder" pos="0.034 0 0.076" size="0.042 0.024" mass="0.06" contype="0" conaffinity="0" rgba="0.95 0.74 0.12 1"/>
@@ -273,13 +289,13 @@ def _build_homogeneous_ant_rover_xml(
       <geom name="{rid}_whisker_l" type="capsule" pos="0.142 0.086 0.018" euler="0 1.57 0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
       <geom name="{rid}_whisker_r" type="capsule" pos="0.142 -0.086 0.018" euler="0 1.57 -0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
 
-      <!-- Front Optical Surroundings Perception Camera (Ego-View: 14 deg downward pitch for crop stand, mud sinkhole & peer docking view) -->
-      <geom name="{rid}_cam_housing" type="box" pos="0.126 0 0.070" size="0.010 0.018 0.010" mass="0.015" contype="0" conaffinity="0" rgba="0.12 0.14 0.16 1"/>
-      <geom name="{rid}_cam_lens" type="cylinder" pos="0.137 0 0.070" zaxis="1 0 0" size="0.007 0.002" mass="0.005" contype="0" conaffinity="0" rgba="0.05 0.75 0.95 1"/>
+      <!-- Front Optical Surroundings Perception Camera (Ego-View: 14 deg downward pitch, 0.065 kg: housing 0.050 kg + optics 0.015 kg) -->
+      <geom name="{rid}_cam_housing" type="box" pos="0.126 0 0.070" size="0.010 0.018 0.010" mass="0.050" contype="0" conaffinity="0" rgba="0.12 0.14 0.16 1"/>
+      <geom name="{rid}_cam_lens" type="cylinder" pos="0.137 0 0.070" zaxis="1 0 0" size="0.007 0.002" mass="0.015" contype="0" conaffinity="0" rgba="0.05 0.75 0.95 1"/>
       <camera name="{rid}_front_camera" pos="0.139 0 0.070" xyaxes="0 -1 0  0.24 0 0.97" fovy="62" mode="fixed"/>
 
-      <!-- Front LiDAR / Rangefinder Turret (3-ray fan: center, +18 deg left, -18 deg right) -->
-      <geom name="{rid}_lidar_pod" type="cylinder" pos="0.112 0 0.056" size="0.020 0.013" mass="0.02" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
+      <!-- Front LiDAR / Rangefinder Turret (3-ray fan: center, +18 deg left, -18 deg right, 0.045 kg) -->
+      <geom name="{rid}_lidar_pod" type="cylinder" pos="0.112 0 0.056" size="0.020 0.013" mass="0.045" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
       <site name="{rid}_range_c" pos="0.140 0.00 0.050" zaxis="1 0 0" size="0.008" rgba="{ray_rgba}"/>
       <site name="{rid}_range_l" pos="0.138 0.04 0.050" zaxis="0.951 0.309 0" size="0.006" rgba="{ray_rgba}"/>
       <site name="{rid}_range_r" pos="0.138 -0.04 0.050" zaxis="0.951 -0.309 0" size="0.006" rgba="{ray_rgba}"/>

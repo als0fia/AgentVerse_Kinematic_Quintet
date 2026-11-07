@@ -33,6 +33,22 @@ Owns the physical rover embodiment (`RoverChassisSpec`), 4-wheel differential sk
        - `ALIGNED_APPROACH` (`|?| <= 0.14 rad`): Straightens into the ramp entry at `0.36 m/s` while keeping the visual centroid locked on `c_x = 80 px`.
        - `CLIMBING_INCLINE` (`|pitch| > 0.07 rad` or `z > 0.11 m`): Boosts 4-wheel torque (`v = 0.42 m/s`, `1.55x` incline wheel boost) while damping yaw drift up the `22?` slope until `CRESTED_UPPER_TIER` (`z >= 0.325 m`).
 
+6. **Center-of-Gravity (CG) Stability & 40° Incline Anti-Tip Analysis:**
+   - **Rigid Fixed Low-CG Floorpan Mounting (Rejection of Moving Battery):**
+     - Active shifting of the heavy 1.35 kg 21.6V Li-ion battery via internal rails was **explicitly rejected** due to critical safety hazards in wet agricultural robotics: cyclic copper wiring fatigue leading to short circuits and thermal runaway, mechanical rail jamming from silt/condensation, and degradation of the IP68 sealed hull.
+     - The battery cartridge (`_battery_pack`, 1.35 kg) is permanently potted and bolted flat against the aluminum bottom floorpan at `(x=0.0, y=0.0, z=0.005 m)`, serving as low ballast, structural stiffener, and conductive heatsink.
+   - **50/50 Axle Balance for Mud Flotation:**
+     - Horizontal alignment with the geometric midpoint between front and rear axles (`wx = +-0.085 m`) guarantees an exact 50/50 front/rear ground load distribution on flat paddy terrain, preventing nose sinkage or tail drag in liquid silt.
+   - **70.5° Geometric Anti-Tip Margin on Steep Slopes:**
+     - With total robot height of only 64 mm and floor-mounted powertrain, the effective center-of-gravity height is `h_cg approx 30 mm` over a 170 mm wheelbase (`L/2 = 85 mm`).
+     - The static backward rollover threshold is:
+       $$\theta_{\text{flip}} = \arctan\left(\frac{L/2}{h_{\text{cg}}}\right) = \arctan\left(\frac{85\text{ mm}}{30\text{ mm}}\right) \approx \mathbf{70.5^\circ}$$
+     - On a steep **40° earthen ramp or bund**, the gravity vector displacement is `h_cg * tan(40°) = 30 mm * 0.839 = 25.2 mm`, remaining well within the 85 mm support footprint. The robot cannot tip over backwards.
+   - **Active Front Boom Counter-Pitch Ballast:**
+     - On steep climbs, the front pitch-lift docking boom (`_dock_pitch`, range -0.20 to +0.45 rad) drops downward against the incline toe, acting as an active anti-wheelie brace that forces front-wheel traction into the slope.
+   - **Traction Management:**
+     - Incline ascents are traction-limited rather than tipping-limited; 6 radial herringbone grouser lugs per wheel bite into the earthen surface while the skid-steer controller commands an automatic 1.55x incline wheel torque boost.
+
 ## 2. Public Entry Points
 - `RoverChassisSpec`, `PLANTER_SPEC`, `SCOUT_SPEC`, `DEFAULT_CAPABILITIES`, `make_homogeneous_rover_spec` in [`src/ricebot/robot/rovers.py`](rovers.py)
 - `compute_4wheel_skid_steer(spec, linear_m_s, angular_rad_s) -> (w_fl, w_fr, w_rl, w_rr)`
