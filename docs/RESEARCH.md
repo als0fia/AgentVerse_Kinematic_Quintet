@@ -1,6 +1,6 @@
 # Method references and useful hackathon evidence
 
-**Reviewed 7 November 2026.** These are adaptable engineering ideas, **not official AgentVerse judging rules** and not proof that one library makes teams win. This is a short methods reference; product-specific prior art belongs next to the product hypothesis after selection.
+**Reviewed and updated 7 November 2026.** These are adaptable engineering ideas, **not official AgentVerse judging rules** and not proof that one library makes teams win. This is a short methods reference; product-specific prior art belongs next to the product hypothesis after selection.
 
 | Reference | Adapted technique | What we deliberately avoid |
 | --- | --- | --- |
@@ -22,6 +22,23 @@
 - **Narrative:** problem → physical/simulated action → independently verified result → edge case → honest limitations. Show code execution before polishing pitch slides.
 
 Research for product prior art belongs in current `docs/PRODUCT.md` (claim and nearest baseline) and source references here if extensive; avoid creating large shadow dossiers in this public repository.
+
+## Targeted 2026 research for this specific Robotics challenge
+
+This selection is **primary developer guidance**, not a ranking of guaranteed hackathon-winning prompt packs. No prompt/skill library proves a prize outcome. Adopt mechanisms that address the team's actual bottlenecks: working simulation, bounded modules, testable adaptation, verified results and truthful demos.
+
+| Source | Reliable actionable finding | Why it matters |
+| --- | --- | --- |
+| [NVIDIA Isaac Sim installation](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html) | Requires an RTX-capable workstation with substantial GPU/VRAM/RAM; check version-specific requirements before committing | Host/platform compatibility is a first-hour gate, not a later model-debugging problem |
+| [NVIDIA Isaac Sim headless WebRTC streaming](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/manual_livestream_clients.html) | Streaming needs a suitable NVENC GPU; do not expose unauthenticated/unencrypted endpoints to public networks | Presenter-recommended cloud simulator path must be validated and protected |
+| [MuJoCo Python docs](https://mujoco.readthedocs.io/en/stable/python.html) and [rendering](https://mujoco.readthedocs.io/en/latest/programming/rendering.html) | Supported Python bindings and rendering paths for a smaller locally reproducible physics loop | Serious fallback for a real sensor/action episode without expensive remote sim |
+| [Agent Skills specification](https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx) and [Gemini CLI skills](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/skills.md) | Trigger-specific skill metadata with on-demand activation / progressive disclosure; full references only when needed | Stop flooding smaller workers with entire repo/context; existing six canonical skills remain discoverable |
+| [Google Gemini CLI subagents](https://github.com/google-gemini/gemini-cli/blob/main/docs/core/subagents.md) | Worker context and toolsets are isolated, with explicit project-level YAML definitions | Use narrow read-only specialists and hand off evidence, rather than one all-knowing agent doing every task |
+| [Gemini CLI skill design practices](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/skills-best-practices.md) | Distinct non-overlapping trigger descriptions, on-demand references, matching freedom to risk, and examples | Refine existing workflow skills first rather than installing an unreviewed mass of third-party agents |
+| [Demystifying evals for AI agents](https://www.anthropic.com/research/demystifying-evals-for-ai-agents) | Strong evaluation needs stable tasks/environments and deterministic graders rather than judging plausible prose | Paired scenario seeds, baseline, mid-run surprise and independent completion checks |
+| [Official AgentVerse](https://agentverse.uclai.co.uk/) and onsite Robotics slides 35–38 | Current organiser prompt: observe, decide and act in **simulation**; adapt, show local autonomy; three specific deliverables | Overrides generic hackathon presentation examples and older broad track suggestions |
+
+**Adaptation over simple tutorial reproduction:** freeze the smallest sensor/action contract, test basic observation-to-actuation before introducing a frontier model, run controlled nominal + changed-world episodes, preserve tests/seed/logs and a baseline, then show a single genuine 60-second episode. Fast planning is good; false demo confidence is not. The existing [problem-first](../.agents/skills/problem-first/SKILL.md), [implement-and-verify](../.agents/skills/implement-and-verify/SKILL.md), and [evaluate-and-demo](../.agents/skills/evaluate-and-demo/SKILL.md) skill procedures now cover the Robotics-specific gates; do not import a wholesale “winning hacks” repository.
 
 ## Cross-model discovery research — 7 November 2026
 
