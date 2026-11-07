@@ -1,16 +1,17 @@
 ---
 name: problem-first
-description: Assess a proposed hackathon project against real user utility, nearest prior art, deterministic baselines, technical AI necessity, event constraints, and a minimal falsifiable demo.
+description: Select a hackathon Robotics mission from credible human need, the official five-part judging rubric, strong non-agent baselines, technical AI necessity and a measurable changing-world demo.
 ---
 
-# Problem-first selection
+# Problem-first selection — real relevance and impact
 
-1. Read `docs/EVENT.md` for the now **revealed Robotics challenge** and verified rules: at least one simulated sensor, observation-driven action, and changed-scene adaptation. Treat any still-obscured scoring weights or credit terms as unknown.
-2. Write a specific person/workflow and the **observable action** the product performs. Reject purely cosmetic agent wrappers.
-3. Find the nearest existing implementation/paper and strongest conventional tool, controller, optimiser or VLM baseline. Explain which parts they already solve.
-4. Identify the **single uncertainty** where model judgement plausibly helps. State a falsifiable comparison and a case likely to fail.
-5. Propose the smallest reproducible **simulated sensor → decision → action → new observation** episode, plus one disturbance within the same continuous run. Specify an independent outcome check, latency, bounded failure and what a fixed-path baseline does.
-6. Establish a real first-hour simulator/stream preflight before assuming Isaac Sim or cloud GPU. MuJoCo/PyBullet/Gazebo/Webots are allowed alternatives. Discuss actual hardware, remote-vs-local inference, permissions, credits, data and time before choosing. Preserve alternatives; team human explicitly selects.
-7. Update `docs/PRODUCT.md` only for a **selected** product and `docs/DECISIONS.md` for enduring trade-offs. No code or fanciful performance results from ideation alone.
+1. Read [EVENT](../../../docs/EVENT.md): organiser's **verified 25% perception, 25% adaptation, 15% autonomy, 20% relevance/impact, 15% ambition/technical quality** judging table. Never confuse Gemini sponsor advice with the Robotics rubric.
+2. Name an actual beneficiary and exact real task; cite evidence of **need and impact** (observed workflow, firsthand input, public credible source, or explicit unverified hypothesis). **Do not invent interviews or adoption.**
+3. Define what beneficial outcome changes and how to measure it independently. Name the most important plausible failure, what unsafe/failed behaviour costs the beneficiary, and **what safe response will be handled visibly on screen**.
+4. Identify the strongest conventional alternative (controller, VLM, optimisation, existing product or human process) and nearest prior art. State what they already solve before invoking an agent.
+5. State the one ambiguous perception/diagnosis/long-horizon decision for which an AI component could improve on a competent deterministic baseline; frame a falsifiable ablation.
+6. Specify an executable simulation scene with **genuine sensor observations → state-dependent action → new observations**, plus an unexpected mid-run scene change, local/safe policy behavior and independent result on matching seeds.
+7. Verify feasible simulator/stream/account access, demo video and one-page PDF evidence; check permissions. Human team **explicitly selects** the mission; until then keep concept research exploratory. Record adopted product only in `docs/PRODUCT.md`, enduring rationale in `docs/DECISIONS.md`.
+8. Before prioritising further code, challenge the pitch: can the judge explain **who needs this, why it matters, what its worst failure is and how the demo handles it**? A polished simulation alone does not satisfy the 20% impact criterion.
 
-Deliver: human benefit; real action; AI necessity; baseline; demo; risk; go/clarify/park with evidence and sources.
+Deliver: beneficiary + evidence; measured job; critical failure response; AI vs baseline; scene/change/metric; feasibility; go/clarify/park with honest sources.

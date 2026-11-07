@@ -37,7 +37,7 @@ When scope is cut, maintain a demonstrable sensor → decision → action loop a
 
 ## Multi-agent cooperation
 
-- Team human/integration lead owns task allocation, merge order, integration and final demo.
+- Team human/integration lead owns task allocation, merge order, integration and final demo. ChatGPT can write/review on an isolated GitHub branch; Gemini CLI workers are separately launched, not directly controllable from ChatGPT chat. For cross-agent communication use `docs/TEAM.md` and the PR template; never claim automatic model dispatch.
 - Implementation agents own isolated modules and corresponding tests; shared contracts change only through coordinated review.
 - Independent evaluator probes claims and edge cases without changing the test to make a failing candidate appear successful.
 - Demo lead owns the audience story and fallback but may not invent production capability.

@@ -1,15 +1,17 @@
 ---
 name: parallel-handoff
-description: Coordinate several people and coding agents working on independent feature branches/worktrees with clear ownership, immutable interface versions and reviewable handoffs.
+description: Coordinate separately started ChatGPT, Gemini CLI and human coding workers on isolated Git branches/worktrees, GitHub issues/PRs, reviewable test evidence and no-overwrite handoffs.
 ---
 
-# Parallel work and handoff
+# Parallel work and agent-to-agent handoff
 
-1. Check the newest branch HEAD and the current [team coordination rules](../../../docs/TEAM.md). For two simultaneous tasks, communicate **only** owner, branch, changed paths and a testable result; add contract/version/dependencies when the tasks share an interface. An issue is optional.
-2. Start with a **working vertical slice and minimal stable seam** before splitting dependent components. Delegate only independently editable/testable features; otherwise finish the shared interface first.
-3. Give local CLI agents separate worktrees/checkouts and all agents separate branches; do not let two agents edit one working tree or shared schema at once.
-4. GitHub-connector agents must base their commit on the current parent SHA and update their own branch with a checked expected head (if supported). If a write is rejected or a branch advanced, re-read/rebase: never force-update or silently replace a teammate's work. Local git agents fetch and push normally; handle non-fast-forward rejection rather than `--force`.
-5. Each worker reports branch/PR, files, test command and **observed** result; the integrator reviews and merges, then reruns affected end-to-end tests. Keep the handoff short and avoid separate status logs.
-6. For a small independent solo fix, avoid ceremony: make the scoped change, run the focused check and report the commit. Never turn these protections into a required planning session.
+1. Read the [one-writer team communication protocol](../../../docs/TEAM.md#communication-protocol-between-developer-agents-chatgpt--gemini--humans) and verify latest base HEAD. The human integrator owns final merge/decisions. **A GitHub issue/PR does not start a Gemini session; ChatGPT cannot directly command a teammate's CLI.**
+2. **First build one actual sensor → decision → action vertical slice.** Parallelise only genuinely independent tasks; otherwise the integrator first freezes the smallest required typed contract + fixture in `docs/CONTRACTS.md`.
+3. For each parallel task send the minimal **ASSIGN**: outcome / beneficiary relevance; owner; base SHA; unique branch and owned file paths; relevant contract, one fixture, expected test/command; permissions, time/spend limit, one stop condition. Read only relevant files. No giant conversation transcripts.
+4. On one machine, give concurrent CLI sessions separate **Git worktrees**. ChatGPT GitHub-connector workers operate only their own branches, build from fresh commit/tree and use expected-head update; local git workers fetch/reconcile non-fast-forward instead of force-push.
+5. **BLOCKED:** post failing command/trace/commit and one concrete decision required to the designated issue/PR; stop altering shared files while blocked. Escalate schema changes, unverified GPU credits, unsafe robot commands and public deployment/spending to the human.
+6. **HANDOFF:** PR with changed paths/commit, actual test commands **and observed outcomes**, one sample trace, contract version (if relevant), limitations and next integration action. Use the [PR handoff template](../../../.github/pull_request_template.md); an unrun suggestion is never “tested”.
+7. **REVIEW → INTEGRATE:** an independent reviewer checks code+impact claims and edge cases; human integrator reviews the latest base, merges deliberately, reruns combined smoke and mid-episode disturbance cases. Keep failure truthful.
+8. Fast lane: a tiny independent solo fix may skip issue and delegation; follow branch convention, run its focused check and report commit. **Never** create agent-count theatre, a remote messaging server or new status diaries just for collaboration.
 
-Deliver: explicit task ownership + reviewable acceptance and handoffs, not theatrical multi-agent output.
+Deliver: concise reproducible evidence that can cross models and tool environments, not a promise that tools/agents were launched.
