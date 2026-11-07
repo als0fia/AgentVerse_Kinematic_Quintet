@@ -10,7 +10,7 @@ Strict separation per `docs/COMPONENTS.md`:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import cos, exp, hypot, sin
+from math import cos, cosh, exp, hypot, sin, tanh
 import random
 from typing import Any
 
@@ -144,7 +144,9 @@ def compute_rice_planting_fitness(
     """
     s_moisture = exp(-((moisture - 0.56) ** 2) / (2.0 * 0.14 * 0.14))
     s_firmness = exp(-((firmness - 0.65) ** 2) / (2.0 * 0.16 * 0.16))
-    s_micro_topo = exp(-((min(0.0, elevation_m + 0.008)) ** 2) / (2.0 * 0.018 * 0.018))
+    tier_base = 2.0 if elevation_m > 1.5 else (1.0 if elevation_m > 0.5 else 0.0)
+    dz_local = elevation_m - tier_base
+    s_micro_topo = exp(-((min(0.0, dz_local + 0.008)) ** 2) / (2.0 * 0.018 * 0.018))
     s_gap = max(0.0, min(1.0, (stand_gap - 0.22) / 0.66)) ** 1.25
     fitness = s_gap * (0.46 * s_moisture + 0.42 * s_firmness + 0.12 * s_micro_topo)
     return round(max(0.0, min(1.0, fitness)), 4)
@@ -197,23 +199,41 @@ class ContinuousPaddyTerrain:
         self._grid_cache: dict[tuple[int, int, tuple[float, float], tuple[float, float], int], dict[str, Any]] = {}
 
     def elevation_and_gradient(self, x_m: float, y_m: float) -> tuple[float, float, float]:
-        """Return `(elevation_m, dz_dx, dz_dy)` at `(x_m, y_m)` in metres."""
+        """Return `(elevation_m, dz_dx, dz_dy)` at `(x_m, y_m)` in metres.
+
+        Models stepped Chinese rice terraces with exact 1.0m height difference:
+        - Tier 1 (High): x < 1.18m -> z ≈ +2.0m
+        - Tier 2 (Mid):  1.18m <= x < 1.98m -> z ≈ +1.0m
+        - Tier 3 (Low):  x >= 1.98m -> z ≈ 0.0m
+        Transitions between levels occur exclusively via dedicated fixed ramps
+        located at South (y = -0.48), Center (y = 0.00), and North (y = +0.48).
+        Off-ramp boundaries form steep impassable cliff retaining walls.
+        """
+        # Fixed ramp corridors at y = -0.48, 0.00, +0.48
+        d_ramp = min(abs(y_m - (-0.48)), abs(y_m), abs(y_m - 0.48))
+        ramp_factor = exp(-((d_ramp / 0.16) ** 4))
+        w = 0.025 + (0.260 - 0.025) * ramp_factor
+
+        u1 = (x_m - 1.18) / w
+        s1 = 0.5 * (1.0 - tanh(u1))
+        u2 = (x_m - 1.98) / w
+        s2 = 0.5 * (1.0 - tanh(u2))
+
+        # Base 1.0m stepped levels: Tier 1 (+2.0m), Tier 2 (+1.0m), Tier 3 (0.0m)
+        z = 1.0 * s1 + 1.0 * s2
+
         phase = 0.17 * (self.seed % 11)
-        # Gentle natural terrace drainage grade + micro-undulations (hilliness)
-        z = (
-            0.012 * sin(1.35 * x_m + phase) * cos(1.65 * y_m)
-            + 0.008 * cos(2.40 * x_m - 1.90 * y_m)
-            - 0.005 * (x_m - 1.50)
+        z_micro = (
+            0.008 * sin(1.35 * x_m + phase) * cos(1.65 * y_m)
+            + 0.004 * cos(2.40 * x_m - 1.90 * y_m)
         )
-        dz_dx = (
-            0.012 * 1.35 * cos(1.35 * x_m + phase) * cos(1.65 * y_m)
-            - 0.008 * 2.40 * sin(2.40 * x_m - 1.90 * y_m)
-            - 0.005
-        )
-        dz_dy = (
-            -0.012 * 1.65 * sin(1.35 * x_m + phase) * sin(1.65 * y_m)
-            + 0.008 * 1.90 * sin(2.40 * x_m - 1.90 * y_m)
-        )
+        z += z_micro
+
+        grad_scale = 0.072 * ramp_factor + 3.5 * (1.0 - ramp_factor)
+        sech1 = 1.0 / cosh(max(-10.0, min(10.0, u1)))
+        sech2 = 1.0 / cosh(max(-10.0, min(10.0, u2)))
+        dz_dx = -0.5 * (grad_scale / w) * (sech1 * sech1) - 0.5 * (grad_scale / w) * (sech2 * sech2)
+        dz_dy = 0.0
 
         # Depressed waterlogged Lannitian mud basins around high-moisture anchors
         for site in self._sites:
@@ -223,8 +243,8 @@ class ContinuousPaddyTerrain:
                 dy = y_m - site.center.y_m
                 r2 = dx * dx + dy * dy
                 sigma2 = 0.42 * 0.42
-                w = exp(-r2 / (2.0 * sigma2))
-                basin_depth = -0.028 * w
+                w_basin = exp(-r2 / (2.0 * sigma2))
+                basin_depth = -0.028 * w_basin
                 z += basin_depth
                 dz_dx += basin_depth * (-dx / sigma2)
                 dz_dy += basin_depth * (-dy / sigma2)
@@ -335,11 +355,21 @@ class ContinuousPaddyTerrain:
         ys_np = np.linspace(y_bounds[0], y_bounds[1], ny, dtype=np.float64)
         X, Y = np.meshgrid(xs_np, ys_np)
 
+        # Stepped 1.0m terrace elevation with ramps
+        d_ramp = np.minimum(np.abs(Y - (-0.48)), np.minimum(np.abs(Y), np.abs(Y - 0.48)))
+        ramp_factor = np.exp(-((d_ramp / 0.16) ** 4))
+        W = 0.025 + (0.260 - 0.025) * ramp_factor
+
+        U1 = (X - 1.18) / W
+        S1 = 0.5 * (1.0 - np.tanh(U1))
+        U2 = (X - 1.98) / W
+        S2 = 0.5 * (1.0 - np.tanh(U2))
+        Z = 1.0 * S1 + 1.0 * S2
+
         phase_z = 0.17 * (self.seed % 11)
-        Z = (
-            0.012 * np.sin(1.35 * X + phase_z) * np.cos(1.65 * Y)
-            + 0.008 * np.cos(2.40 * X - 1.90 * Y)
-            - 0.005 * (X - 1.50)
+        Z += (
+            0.008 * np.sin(1.35 * X + phase_z) * np.cos(1.65 * Y)
+            + 0.004 * np.cos(2.40 * X - 1.90 * Y)
         )
         sigma2_basin = 0.42 * 0.42
         for site in self._sites:
@@ -523,34 +553,136 @@ def _build_seedling_clumps_xml() -> str:
 
 
 def build_world_terrain_xml(obstacle_xy: tuple[float, float] = (0.75, -0.25)) -> str:
-    """Return MJCF `<worldbody>` fragment for the bunded rice terrace, patches, crops, and obstacle."""
+    """Return MJCF `<worldbody>` fragment for genuine 3D stepped rice terraces with 1m elevation steps and 40 deg ramps."""
     ox, oy = obstacle_xy
     return f"""
-    <light name="sun_main" pos="1.5 -1.0 4.0" dir="-0.1 0.2 -1" diffuse="0.85 0.83 0.78" specular="0.25 0.25 0.25" castshadow="true"/>
-    <light name="sky_fill" pos="1.5 1.5 3.0" dir="0 -0.3 -1" diffuse="0.35 0.38 0.42" castshadow="false"/>
+    <light name="sun_main" pos="4.5 -5.0 9.0" dir="-0.25 0.35 -1" diffuse="0.92 0.90 0.82" specular="0.35 0.35 0.30" castshadow="true"/>
+    <light name="sky_fill" pos="2.5 3.0 7.0" dir="0 -0.2 -1" diffuse="0.45 0.48 0.52" castshadow="false"/>
 
-    <camera name="terrace_iso" pos="-0.65 -1.95 1.55" xyaxes="0.82 -0.57 0 0.32 0.46 0.83"/>
-    <camera name="top_overview" pos="1.35 -0.02 3.10" xyaxes="1 0 0 0 1 0"/>
+    <!-- Wide amphitheatre overview camera capturing ant-scale swarm on vast 3D stepped rice terraces -->
+    <camera name="terrace_iso" pos="-2.20 -4.60 4.20" xyaxes="0.88 -0.46 0 0.22 0.44 0.87"/>
+    <camera name="top_overview" pos="2.40 0.00 5.60" xyaxes="1 0 0 0 1 0"/>
 
-    <!-- Main Paddy Field Ground Plane (collision group 1) -->
-    <geom name="field_ground" type="plane" size="5 5 0.1" material="paddy_soil_mat" contype="1" conaffinity="7" friction="1.2 0.01 0.005"/>
+    <!-- ========================================================================= -->
+    <!-- BROAD VALLEY MOUNTAIN BASE (Prevents any hollow voids or floating sheets) -->
+    <!-- ========================================================================= -->
+    <geom name="valley_floor" type="box" pos="4.50 0.00 -2.50" size="14.0 10.0 1.0" material="mountain_rock_mat" contype="1" conaffinity="7"/>
 
-    <!-- Raised Perimeter Rice Terrace Bunds / Field Ridges (田埂) -->
-    <geom name="bund_north" type="box" pos="1.35 1.05 0.05" size="1.85 0.12 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
-    <geom name="bund_south" type="box" pos="1.35 -1.05 0.05" size="1.85 0.12 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
-    <geom name="bund_west" type="box" pos="-0.42 0.00 0.05" size="0.12 1.17 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
-    <geom name="bund_east" type="box" pos="3.12 0.00 0.05" size="0.12 1.17 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+    <!-- ========================================================================= -->
+    <!-- TRUE 3D PHYSICAL ELEVATED RICE TERRACES (1.0m Height Difference Per Level)  -->
+    <!-- ========================================================================= -->
 
-    <!-- Irrigation Canal & Water Channel along West Bund -->
-    <geom name="irrigation_canal_water" type="box" pos="-0.72 0.00 0.008" size="0.16 1.15 0.008" material="canal_water_mat" contype="0" conaffinity="0"/>
+    <!-- LEVEL 0: Valley Terrace (Top Surface z = -1.0m, Solid Earth Base to -2.0m) -->
+    <geom name="terrace_level0_base" type="box" pos="-2.25 0.00 -1.75" size="1.40 1.30 0.75" material="deep_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_level0_ground" type="box" pos="-2.25 0.00 -1.00" size="1.40 1.30 0.02" material="paddy_soil_mat" contype="1" conaffinity="7" friction="1.5 0.01 0.005"/>
+    <geom name="terrace_level0_bund_w" type="box" pos="-3.69 0.00 -0.95" size="0.08 1.36 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_level0_bund_n" type="box" pos="-2.25 1.33 -0.95" size="1.44 0.08 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_level0_bund_s" type="box" pos="-2.25 -1.33 -0.95" size="1.44 0.08 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
 
-    <!-- Subtle Row Guide Furrows across the Paddy Plot -->
-    <geom name="furrow_1" type="box" pos="1.55 -0.75 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
-    <geom name="furrow_2" type="box" pos="1.55 -0.25 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
-    <geom name="furrow_3" type="box" pos="1.55 0.20 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
-    <geom name="furrow_4" type="box" pos="1.55 0.70 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
+    <!-- LEVEL 1: Operational Terrace (Top Surface z = 0.0m, Solid Earth Base to -2.0m) -->
+    <geom name="terrace_level1_base" type="box" pos="1.39 0.00 -1.00" size="1.81 1.25 1.00" material="deep_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="field_ground" type="box" pos="1.39 0.00 -0.02" size="1.81 1.25 0.02" material="paddy_soil_mat" contype="1" conaffinity="7" friction="1.5 0.01 0.005"/>
+    <!-- Raised Perimeter Earthen Bunds around Level 1 -->
+    <geom name="bund_north" type="box" pos="1.39 1.25 0.05" size="1.85 0.08 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="bund_south" type="box" pos="1.39 -1.25 0.05" size="1.85 0.08 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="bund_west" type="box" pos="-0.46 0.00 0.05" size="0.08 1.25 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
 
-    <!-- 6 Field Patches (Visual Terrain Beds: Mud Hazard vs Viable Stand-Gap Loam vs Living Rice Stand) -->
+    <!-- LEVEL 2: Mid Mountain Terrace (Top Surface z = +1.0m, Solid Earth Base to -2.0m) -->
+    <geom name="terrace_level2_base" type="box" pos="5.79 0.00 -0.50" size="1.40 1.25 1.50" material="deep_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_level2_ground" type="box" pos="5.79 0.00 0.98" size="1.40 1.25 0.02" material="paddy_soil_mat" contype="1" conaffinity="7" friction="1.5 0.01 0.005"/>
+    <geom name="terrace_level2_bund_n" type="box" pos="5.79 1.25 1.05" size="1.44 0.08 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_level2_bund_s" type="box" pos="5.79 -1.25 1.05" size="1.44 0.08 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_level2_bund_e" type="box" pos="7.23 0.00 1.05" size="0.08 1.25 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+
+    <!-- LEVEL 3: Upper Mountain Terrace (Top Surface z = +2.0m, Solid Earth Base to -2.0m) -->
+    <geom name="terrace_level3_base" type="box" pos="9.88 0.00 0.00" size="1.50 1.30 2.00" material="deep_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_level3_ground" type="box" pos="9.88 0.00 1.98" size="1.50 1.30 0.02" material="paddy_soil_mat" contype="1" conaffinity="7" friction="1.5 0.01 0.005"/>
+    <geom name="terrace_level3_bund_n" type="box" pos="9.88 1.30 2.05" size="1.54 0.08 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_level3_bund_s" type="box" pos="9.88 -1.30 2.05" size="1.54 0.08 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_level3_bund_e" type="box" pos="11.42 0.00 2.05" size="0.08 1.30 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
+
+    <!-- ========================================================================= -->
+    <!-- FIXED RAMPS: EXACTLY 40.0 DEGREE INCLINE WITH RESPECT TO THE X-AXIS       -->
+    <!-- Height difference dz = 1.0m. Angle theta = 40.0 deg.                      -->
+    <!-- Horizontal run dx = 1.0 / tan(40 deg) = 1.19175m                          -->
+    <!-- Slope length L = 1.0 / sin(40 deg) = 1.55572m -> half-length = 0.77786m   -->
+    <!-- High friction clay earth, solid collision contype=1 conaffinity=7         -->
+    <!-- ========================================================================= -->
+
+    <!-- RAMP 1: Connecting Level 1 (z=0.0m) to Level 2 (z=1.0m) -->
+    <geom name="ramp_1_south" type="box" pos="3.79588 -0.55 0.50" size="0.77786 0.20 0.03" euler="0 -40 0" material="bund_earth_mat" contype="1" conaffinity="7" friction="2.8 0.05 0.01"/>
+    <geom name="ramp_1_center" type="box" pos="3.79588 0.00 0.50" size="0.77786 0.22 0.03" euler="0 -40 0" material="bund_earth_mat" contype="1" conaffinity="7" friction="2.8 0.05 0.01"/>
+    <geom name="ramp_1_north" type="box" pos="3.79588 0.55 0.50" size="0.77786 0.20 0.03" euler="0 -40 0" material="bund_earth_mat" contype="1" conaffinity="7" friction="2.8 0.05 0.01"/>
+
+    <!-- RAMP 2: Connecting Level 2 (z=1.0m) to Level 3 (z=2.0m) -->
+    <geom name="ramp_2_south" type="box" pos="7.78588 -0.55 1.50" size="0.77786 0.20 0.03" euler="0 -40 0" material="bund_earth_mat" contype="1" conaffinity="7" friction="2.8 0.05 0.01"/>
+    <geom name="ramp_2_center" type="box" pos="7.78588 0.00 1.50" size="0.77786 0.22 0.03" euler="0 -40 0" material="bund_earth_mat" contype="1" conaffinity="7" friction="2.8 0.05 0.01"/>
+    <geom name="ramp_2_north" type="box" pos="7.78588 0.55 1.50" size="0.77786 0.20 0.03" euler="0 -40 0" material="bund_earth_mat" contype="1" conaffinity="7" friction="2.8 0.05 0.01"/>
+
+    <!-- RAMP 0: Connecting Level 0 (z=-1.0m) to Level 1 (z=0.0m) -->
+    <geom name="ramp_0_center" type="box" pos="-1.05588 0.00 -0.50" size="0.77786 0.22 0.03" euler="0 40 0" material="bund_earth_mat" contype="1" conaffinity="7" friction="2.8 0.05 0.01"/>
+
+    <!-- ========================================================================= -->
+    <!-- IMPASSABLE VERTICAL CLIFF RETAINING WALLS (1.0m DROP) OFF-RAMP            -->
+    <!-- Robot CANNOT cross between levels except via the designated 40 deg ramps! -->
+    <!-- ========================================================================= -->
+
+    <!-- Level 1 to Level 2 Stone Retaining Walls (Drop 1.0m: z=0.0 to z=1.0, center z=0.50, sz=0.50) -->
+    <geom name="retaining_wall_1_south_flank" type="box" pos="3.80 -0.95 0.50" size="0.59 0.20 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+    <geom name="retaining_wall_1_mid_s" type="box" pos="3.80 -0.27 0.50" size="0.59 0.08 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+    <geom name="retaining_wall_1_mid_n" type="box" pos="3.80 0.27 0.50" size="0.59 0.08 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+    <geom name="retaining_wall_1_north_flank" type="box" pos="3.80 0.95 0.50" size="0.59 0.20 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+
+    <!-- Level 2 to Level 3 Stone Retaining Walls (Drop 1.0m: z=1.0 to z=2.0, center z=1.50, sz=0.50) -->
+    <geom name="retaining_wall_2_south_flank" type="box" pos="7.79 -0.95 1.50" size="0.59 0.20 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+    <geom name="retaining_wall_2_mid_s" type="box" pos="7.79 -0.27 1.50" size="0.59 0.08 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+    <geom name="retaining_wall_2_mid_n" type="box" pos="7.79 0.27 1.50" size="0.59 0.08 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+    <geom name="retaining_wall_2_north_flank" type="box" pos="7.79 0.95 1.50" size="0.59 0.20 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+
+    <!-- Level 0 to Level 1 Stone Retaining Walls (Drop 1.0m: z=-1.0 to z=0.0, center z=-0.50, sz=0.50) -->
+    <geom name="retaining_wall_0_south_flank" type="box" pos="-1.06 -0.75 -0.50" size="0.59 0.45 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+    <geom name="retaining_wall_0_north_flank" type="box" pos="-1.06 0.75 -0.50" size="0.59 0.45 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+
+    <!-- Lateral North Flank Tier (Elevated Stepped Terraces with Rice Crops) -->
+    <geom name="flank_n1_base" type="box" pos="4.50 3.20 -0.50" size="5.50 1.70 1.50" material="deep_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="flank_n1_ground" type="box" pos="4.50 3.20 1.00" size="5.50 1.70 0.02" material="paddy_soil_mat" contype="1" conaffinity="7"/>
+    <geom name="flank_n1_wall" type="box" pos="4.50 1.45 0.50" size="5.50 0.08 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+    <geom name="flank_n1_bund" type="box" pos="4.50 1.45 1.06" size="5.50 0.08 0.04" material="bund_earth_mat" contype="1" conaffinity="7"/>
+
+    <!-- Lateral South Flank Tier (Elevated Stepped Terraces with Rice Crops) -->
+    <geom name="flank_s1_base" type="box" pos="4.50 -3.20 -0.50" size="5.50 1.70 1.50" material="deep_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="flank_s1_ground" type="box" pos="4.50 -3.20 1.00" size="5.50 1.70 0.02" material="paddy_soil_mat" contype="1" conaffinity="7"/>
+    <geom name="flank_s1_wall" type="box" pos="4.50 -1.45 0.50" size="5.50 0.08 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+    <geom name="flank_s1_bund" type="box" pos="4.50 -1.45 1.06" size="5.50 0.08 0.04" material="bund_earth_mat" contype="1" conaffinity="7"/>
+
+    <!-- High Amphitheatre Ridge Tier (z = +3.0m) -->
+    <geom name="flank_n2_base" type="box" pos="5.00 6.00 0.50" size="6.00 1.50 2.50" material="deep_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="flank_n2_ground" type="box" pos="5.00 6.00 2.00" size="6.00 1.50 0.02" material="paddy_soil_mat" contype="1" conaffinity="7"/>
+    <geom name="flank_n2_wall" type="box" pos="5.00 4.95 1.50" size="6.00 0.08 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+
+    <!-- Sweeping Mountain Terraces & Background (Longji mountain amphitheatre) -->
+    <!-- Tier 4: Mountain Terrace Ridge (z = +3.0m, Solid Earth Base) -->
+    <geom name="terrace_tier4_base" type="box" pos="13.20 0.00 0.50" size="1.80 4.00 2.50" material="deep_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_tier4_ground" type="box" pos="13.20 0.00 2.98" size="1.80 4.00 0.02" material="paddy_soil_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_tier4_wall" type="box" pos="11.42 0.00 2.50" size="0.06 4.00 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+
+    <!-- Tier 5: Mountain Terrace Ridge (z = +4.0m) -->
+    <geom name="terrace_tier5_base" type="box" pos="16.50 0.00 1.00" size="1.60 6.00 3.00" material="deep_earth_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_tier5_ground" type="box" pos="16.50 0.00 3.98" size="1.60 6.00 0.02" material="paddy_soil_mat" contype="1" conaffinity="7"/>
+    <geom name="terrace_tier5_wall" type="box" pos="14.98 0.00 3.50" size="0.06 6.00 0.50" material="terrace_wall_mat" contype="1" conaffinity="7"/>
+
+    <!-- Distant Forested Mountain Ridges (Longji / Yuanyang mountain valley) -->
+    <geom name="mountain_ridge_east" type="ellipsoid" pos="21.0 0.0 6.5" size="4.5 10.0 5.5" rgba="0.22 0.38 0.25 1" contype="0" conaffinity="0"/>
+    <geom name="mountain_peak_north" type="ellipsoid" pos="12.0 12.0 7.5" size="8.0 5.0 5.5" rgba="0.26 0.42 0.28 1" contype="0" conaffinity="0"/>
+    <geom name="mountain_peak_south" type="ellipsoid" pos="12.0 -12.0 7.5" size="8.0 5.0 5.5" rgba="0.26 0.42 0.28 1" contype="0" conaffinity="0"/>
+
+    <!-- Row Guide Furrows across the Level 1 Paddy Plot -->
+    <geom name="furrow_1" type="box" pos="1.45 -0.75 0.002" size="1.40 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
+    <geom name="furrow_2" type="box" pos="1.45 -0.25 0.002" size="1.40 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
+    <geom name="furrow_3" type="box" pos="1.45 0.20 0.002" size="1.40 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
+    <geom name="furrow_4" type="box" pos="1.45 0.70 0.002" size="1.40 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
+
+    <!-- 6 Field Patches on Level 1 (Mud Hazard vs Viable Stand-Gap Loam vs Living Rice Stand) -->
     <geom name="bed_patch_a" type="cylinder" pos="0.85 -0.50 0.003" size="0.25 0.003" material="mud_hazard_mat" contype="0" conaffinity="0"/>
     <geom name="puddle_patch_a" type="cylinder" pos="0.85 -0.50 0.005" size="0.18 0.002" material="canal_water_mat" contype="0" conaffinity="0"/>
 

@@ -37,6 +37,13 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+# Automatically load photorealistic Chinese rice terrace textures when available
+try:
+    from ricebot.world.field_textures import patch_adapter_for_textures
+    patch_adapter_for_textures()
+except Exception:
+    pass
+
 import mujoco
 import mujoco.viewer
 import numpy as np
@@ -189,16 +196,17 @@ def _draw_viewer_hud_overlays(
             if not site.permitted:
                 continue
             cx, cy = site.center.x_m, site.center.y_m
+            site_z = sim.world.evaluate_continuous_point(cx, cy).elevation_m
             is_planted = site_id in planted_sites
             if scout_node is not None:
                 s_est = scout_node.local_map.estimate(site_id)
                 s_rgba = _site_color_rgba(s_est, is_planted, envelope)
-                add_sphere([cx, cy, 0.17], 0.036, s_rgba)
+                add_sphere([cx, cy, site_z + 0.17], 0.036, s_rgba)
             if planter_node is not None:
                 p_est = planter_node.local_map.estimate(site_id)
                 p_rgba = _site_color_rgba(p_est, is_planted, envelope)
-                add_sphere([cx, cy, 0.26], 0.046, p_rgba)
-                add_line([cx, cy, 0.01], [cx, cy, 0.22], 0.005, p_rgba)
+                add_sphere([cx, cy, site_z + 0.26], 0.046, p_rgba)
+                add_line([cx, cy, site_z + 0.01], [cx, cy, site_z + 0.22], 0.005, p_rgba)
 
         # 2. Render 3D Local SLAM Occupancy / Mud-Slip Hazard Cells discovered by the rovers
         seen_slam_coords: set[tuple[int, int]] = set()
@@ -207,15 +215,18 @@ def _draw_viewer_hud_overlays(
                 if key in seen_slam_coords:
                     continue
                 seen_slam_coords.add(key)
+                cz = sim.world.evaluate_continuous_point(cell.x_m, cell.y_m).elevation_m
                 if cell.kind == "obstacle":
-                    add_box([cell.x_m, cell.y_m, 0.04], [0.06, 0.06, 0.04], [1.0, 0.30, 0.10, 0.55])
+                    add_box([cell.x_m, cell.y_m, cz + 0.04], [0.06, 0.06, 0.04], [1.0, 0.30, 0.10, 0.55])
                 else:
-                    add_box([cell.x_m, cell.y_m, 0.015], [0.07, 0.07, 0.012], [0.75, 0.15, 0.85, 0.45])
+                    add_box([cell.x_m, cell.y_m, cz + 0.015], [0.07, 0.07, 0.012], [0.75, 0.15, 0.85, 0.45])
 
         # 3. Render UWB / Wi-Fi HaLow Peer-to-Peer Wireless Gossip Link between Rover Masts
         if "planter" in obs_by_id and "scout" in obs_by_id:
             p_pose = obs_by_id["planter"].pose
             s_pose = obs_by_id["scout"].pose
+            pz_t = sim.world.evaluate_continuous_point(p_pose.x_m, p_pose.y_m).elevation_m
+            sz_t = sim.world.evaluate_continuous_point(s_pose.x_m, s_pose.y_m).elevation_m
             # Active gossip packet transmitted recently (within 0.6s) -> bright glowing cyan/gold pulse
             recent_gossip = any(
                 abs(frame.time_s - pkt.sent_at_s) <= 0.6 for pkt in policy_runtime.gossip_history
@@ -224,18 +235,19 @@ def _draw_viewer_hud_overlays(
             dist_ps = tel_p.uwb_peer_ranges_m.get("scout", 99.0) if tel_p else 99.0
             if recent_gossip:
                 add_line(
-                    [p_pose.x_m, p_pose.y_m, 0.19],
-                    [s_pose.x_m, s_pose.y_m, 0.16],
+                    [p_pose.x_m, p_pose.y_m, pz_t + 0.19],
+                    [s_pose.x_m, s_pose.y_m, sz_t + 0.16],
                     0.011,
                     [0.10, 0.98, 0.92, 0.92],
                 )
                 mid_x = 0.5 * (p_pose.x_m + s_pose.x_m)
                 mid_y = 0.5 * (p_pose.y_m + s_pose.y_m)
-                add_sphere([mid_x, mid_y, 0.18], 0.028, [0.98, 0.92, 0.15, 0.95])
+                mid_z = 0.5 * (pz_t + sz_t)
+                add_sphere([mid_x, mid_y, mid_z + 0.18], 0.028, [0.98, 0.92, 0.15, 0.95])
             elif policy_runtime._is_link_open(frame.time_s, dist_ps):
                 add_line(
-                    [p_pose.x_m, p_pose.y_m, 0.19],
-                    [s_pose.x_m, s_pose.y_m, 0.16],
+                    [p_pose.x_m, p_pose.y_m, pz_t + 0.19],
+                    [s_pose.x_m, s_pose.y_m, sz_t + 0.16],
                     0.003,
                     [0.25, 0.80, 0.95, 0.30],
                 )
@@ -247,9 +259,10 @@ def _draw_viewer_hud_overlays(
                 continue
             est = field_map.estimate(site_id)
             cx, cy = site.center.x_m, site.center.y_m
+            site_z = sim.world.evaluate_continuous_point(cx, cy).elevation_m
             rgba = _site_color_rgba(est, site_id in planted_sites, envelope)
-            add_sphere([cx, cy, 0.22], 0.048, rgba)
-            add_line([cx, cy, 0.01], [cx, cy, 0.18], 0.006, rgba)
+            add_sphere([cx, cy, site_z + 0.22], 0.048, rgba)
+            add_line([cx, cy, site_z + 0.01], [cx, cy, site_z + 0.18], 0.006, rgba)
 
     # 4. Draw active task assignment vectors & forward rangefinder laser rays for each rover
     for intent in decision.intents:
@@ -257,25 +270,28 @@ def _draw_viewer_hud_overlays(
             continue
         r = obs_by_id[intent.robot_id]
         rx, ry, ryaw = r.pose.x_m, r.pose.y_m, r.pose.yaw_rad
+        rz_t = sim.world.evaluate_continuous_point(rx, ry).elevation_m
 
         beam_len = min(r.front_range_m if r.front_range_m is not None else 0.75, 0.75)
         bx = rx + beam_len * cos(ryaw)
         by = ry + beam_len * sin(ryaw)
+        bz_t = sim.world.evaluate_continuous_point(bx, by).elevation_m
         beam_rgba = (
             [1.0, 0.15, 0.15, 0.85]
             if (r.front_range_m is not None and r.front_range_m <= 0.40)
             else [0.25, 0.95, 0.55, 0.45]
         )
-        add_line([rx, ry, 0.08], [bx, by, 0.08], 0.004, beam_rgba)
+        add_line([rx, ry, rz_t + 0.08], [bx, by, bz_t + 0.08], 0.004, beam_rgba)
 
         if intent.target_site_id and intent.target_site_id in sim.sites:
             tsite = sim.sites[intent.target_site_id]
+            tz_t = sim.world.evaluate_continuous_point(tsite.center.x_m, tsite.center.y_m).elevation_m
             line_rgba = (
                 [0.98, 0.84, 0.15, 0.82]
                 if intent.mode == TaskMode.PLANT
                 else ([0.25, 0.68, 0.98, 0.65] if intent.robot_id == "planter" else [0.25, 0.92, 0.45, 0.65])
             )
-            add_line([rx, ry, 0.11], [tsite.center.x_m, tsite.center.y_m, 0.18], 0.005, line_rgba)
+            add_line([rx, ry, rz_t + 0.11], [tsite.center.x_m, tsite.center.y_m, tz_t + 0.18], 0.005, line_rgba)
 
 
 def run_demo(
@@ -324,10 +340,10 @@ def run_demo(
         frame = sim.reset(seed)
         start_wall = time.time()
         with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
-            viewer.cam.lookat[:] = [1.25, -0.08, 0.06]
-            viewer.cam.distance = 2.95
-            viewer.cam.elevation = -34.0
-            viewer.cam.azimuth = 112.0
+            viewer.cam.lookat[:] = [1.35, 0.0, 0.45]
+            viewer.cam.distance = 4.60
+            viewer.cam.elevation = -32.0
+            viewer.cam.azimuth = 118.0
             for _ in range(steps):
                 if not viewer.is_running():
                     break

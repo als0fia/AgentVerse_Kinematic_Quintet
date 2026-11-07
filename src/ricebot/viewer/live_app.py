@@ -118,7 +118,7 @@ LAYER_META: dict[str, tuple[str, float, float, str]] = {
     "plant_density": ("Plant Density ρ(x,y)", 0.0, 1.0, "density"),
     "uncertainty": ("Epistemic Uncertainty σ(x,y)", 0.0, 1.0, "uncertainty"),
     "traversability_risk": ("Mud / SLAM Risk R(x,y)", 0.0, 1.0, "risk"),
-    "elevation_m": ("Micro-Topography z(x,y) [m]", -0.035, 0.025, "elevation"),
+    "elevation_m": ("Stepped Terrace Elevation z(x,y) [m]", -0.10, 2.10, "elevation"),
 }
 
 
@@ -246,9 +246,9 @@ class LiveSwarmDashboardApp:
         self.renderer = mujoco.Renderer(self.sim.model, height=self.RENDER_H, width=self.RENDER_W)
         self.free_cam = mujoco.MjvCamera()
         mujoco.mjv_defaultFreeCamera(self.sim.model, self.free_cam)
-        self.free_cam.lookat[:] = [1.22, -0.05, 0.05]
-        self.free_cam.distance = 2.55
-        self.free_cam.elevation = -28.0
+        self.free_cam.lookat[:] = [1.35, 0.00, 1.00]
+        self.free_cam.distance = 4.80
+        self.free_cam.elevation = -32.0
         self.free_cam.azimuth = 118.0
 
         self.truth_grid = self.sim.world.continuous_terrain.sample_grid(
@@ -755,9 +755,9 @@ class LiveSwarmDashboardApp:
             self.free_cam.elevation = -14.0
             self.free_cam.azimuth = 128.0
         elif cam_id == "isometric":
-            self.free_cam.lookat[:] = [1.22, -0.05, 0.05]
-            self.free_cam.distance = 2.55
-            self.free_cam.elevation = -28.0
+            self.free_cam.lookat[:] = [1.35, 0.00, 1.00]
+            self.free_cam.distance = 4.80
+            self.free_cam.elevation = -32.0
             self.free_cam.azimuth = 118.0
         self._render_3d_view()
 
@@ -1119,18 +1119,18 @@ class LiveSwarmDashboardApp:
             )
             scn.ngeom += 1
 
-        # 1. Render 3D sunken wheel-mud rut tracks left behind by the rovers
+        # 1. Render 3D sunken wheel-mud rut tracks left behind by the rovers on their terrace tier
         for _rid, rx, ry, rz, z_sink in self.sim.mud_rut_history[-60:]:
             rut_alpha = min(0.85, 0.30 + 10.0 * z_sink)
             rut_w = min(0.055, 0.025 + 0.55 * z_sink)
             add_box(
-                [rx, ry - 0.11, max(0.002, rz * 0.5)],
-                [0.038, rut_w, 0.004 + 0.25 * z_sink],
+                [rx, ry - 0.11, rz - 0.008],
+                [0.038, rut_w, 0.003 + 0.20 * z_sink],
                 [0.18, 0.12, 0.07, rut_alpha],
             )
             add_box(
-                [rx, ry + 0.11, max(0.002, rz * 0.5)],
-                [0.038, rut_w, 0.004 + 0.25 * z_sink],
+                [rx, ry + 0.11, rz - 0.008],
+                [0.038, rut_w, 0.003 + 0.20 * z_sink],
                 [0.18, 0.12, 0.07, rut_alpha],
             )
 
@@ -1138,9 +1138,11 @@ class LiveSwarmDashboardApp:
         obs_by_id = {r.robot_id: r for r in self.frame.robots}
         for rid, r_obs in obs_by_id.items():
             sink = self.sim.latest_terramechanics.get(rid)
+            r_pt = self.sim.latest_terrain_points.get(rid)
             if sink is None:
                 continue
             z_s = sink.sinkage_z_m
+            r_tz = r_pt.elevation_m if r_pt is not None else 0.0
             collar_rgba = (
                 [0.95, 0.18, 0.15, 0.82]
                 if sink.bellied_out
@@ -1151,26 +1153,27 @@ class LiveSwarmDashboardApp:
                     wx = r_obs.pose.x_m + dx_w * cos(r_obs.pose.yaw_rad) - dy_w * sin(r_obs.pose.yaw_rad)
                     wy = r_obs.pose.y_m + dx_w * sin(r_obs.pose.yaw_rad) + dy_w * cos(r_obs.pose.yaw_rad)
                     add_cylinder(
-                        [wx, wy, max(0.006, 0.45 * z_s)],
+                        [wx, wy, r_tz + max(0.002, 0.35 * z_s)],
                         0.048 + 0.4 * z_s,
-                        max(0.005, 0.45 * z_s),
+                        max(0.004, 0.40 * z_s),
                         collar_rgba,
                     )
 
-        # 3. Render split dual-rover 3D belief spheres above each patch
+        # 3. Render split dual-rover 3D belief spheres above each patch at its terrace tier height
         planter_node = self.runtime.nodes.get("planter")
         scout_node = self.runtime.nodes.get("scout")
         for site_id, site in self.sim.sites.items():
             if not site.permitted:
                 continue
             cx, cy = site.center.x_m, site.center.y_m
+            site_tz = self.sim.world.evaluate_continuous_point(cx, cy).elevation_m
             is_planted = site_id in planted_sites
             if scout_node is not None:
-                add_sphere([cx, cy, 0.17], 0.036, site_rgba(scout_node.local_map.estimate(site_id), is_planted))
+                add_sphere([cx, cy, site_tz + 0.17], 0.036, site_rgba(scout_node.local_map.estimate(site_id), is_planted))
             if planter_node is not None:
                 p_rgba = site_rgba(planter_node.local_map.estimate(site_id), is_planted)
-                add_sphere([cx, cy, 0.26], 0.046, p_rgba)
-                add_line([cx, cy, 0.01], [cx, cy, 0.22], 0.005, p_rgba)
+                add_sphere([cx, cy, site_tz + 0.26], 0.046, p_rgba)
+                add_line([cx, cy, site_tz + 0.005], [cx, cy, site_tz + 0.22], 0.005, p_rgba)
 
         # 4. Render 3D SLAM hazard cells
         seen_slam: set[tuple[int, int]] = set()
@@ -1179,22 +1182,25 @@ class LiveSwarmDashboardApp:
                 if key in seen_slam:
                     continue
                 seen_slam.add(key)
+                cell_tz = self.sim.world.evaluate_continuous_point(cell.x_m, cell.y_m).elevation_m
                 if cell.kind == "obstacle":
-                    add_box([cell.x_m, cell.y_m, 0.04], [0.06, 0.06, 0.04], [1.0, 0.30, 0.10, 0.55])
+                    add_box([cell.x_m, cell.y_m, cell_tz + 0.04], [0.06, 0.06, 0.04], [1.0, 0.30, 0.10, 0.55])
                 else:
-                    add_box([cell.x_m, cell.y_m, 0.015], [0.07, 0.07, 0.012], [0.75, 0.15, 0.85, 0.45])
+                    add_box([cell.x_m, cell.y_m, cell_tz + 0.012], [0.07, 0.07, 0.010], [0.75, 0.15, 0.85, 0.45])
 
         # 5. Render UWB / Wi-Fi HaLow gossip link beam
         if "planter" in obs_by_id and "scout" in obs_by_id:
             p_pose = obs_by_id["planter"].pose
             s_pose = obs_by_id["scout"].pose
+            p_tz = self.sim.latest_terrain_points["planter"].elevation_m if "planter" in self.sim.latest_terrain_points else 0.0
+            s_tz = self.sim.latest_terrain_points["scout"].elevation_m if "scout" in self.sim.latest_terrain_points else 0.0
             recent_gossip = any(
                 abs(self.frame.time_s - pkt.sent_at_s) <= 0.6 for pkt in self.runtime.gossip_history
             )
             if recent_gossip:
                 add_line(
-                    [p_pose.x_m, p_pose.y_m, 0.19],
-                    [s_pose.x_m, s_pose.y_m, 0.16],
+                    [p_pose.x_m, p_pose.y_m, p_tz + 0.19],
+                    [s_pose.x_m, s_pose.y_m, s_tz + 0.16],
                     0.011,
                     [0.10, 0.98, 0.92, 0.92],
                 )
@@ -1205,6 +1211,7 @@ class LiveSwarmDashboardApp:
                 continue
             r = obs_by_id[intent.robot_id]
             rx, ry, ryaw = r.pose.x_m, r.pose.y_m, r.pose.yaw_rad
+            r_tz = self.sim.latest_terrain_points[intent.robot_id].elevation_m if intent.robot_id in self.sim.latest_terrain_points else 0.0
             beam_len = min(r.front_range_m if r.front_range_m is not None else 0.75, 0.75)
             bx = rx + beam_len * cos(ryaw)
             by = ry + beam_len * sin(ryaw)
@@ -1213,15 +1220,16 @@ class LiveSwarmDashboardApp:
                 if (r.front_range_m is not None and r.front_range_m <= 0.40)
                 else [0.25, 0.95, 0.55, 0.45]
             )
-            add_line([rx, ry, 0.08], [bx, by, 0.08], 0.004, beam_rgba)
+            add_line([rx, ry, r_tz + 0.08], [bx, by, r_tz + 0.08], 0.004, beam_rgba)
             if intent.target_site_id and intent.target_site_id in self.sim.sites:
                 tsite = self.sim.sites[intent.target_site_id]
+                t_tz = self.sim.world.evaluate_continuous_point(tsite.center.x_m, tsite.center.y_m).elevation_m
                 line_rgba = (
                     [0.98, 0.84, 0.15, 0.82]
                     if intent.mode == TaskMode.PLANT
                     else ([0.25, 0.68, 0.98, 0.65] if intent.robot_id == "planter" else [0.25, 0.92, 0.45, 0.65])
                 )
-                add_line([rx, ry, 0.11], [tsite.center.x_m, tsite.center.y_m, 0.18], 0.005, line_rgba)
+                add_line([rx, ry, r_tz + 0.11], [tsite.center.x_m, tsite.center.y_m, t_tz + 0.18], 0.005, line_rgba)
 
     def _render_3d_view(self) -> None:
         cam_choice = self.camera_var.get()

@@ -68,9 +68,12 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
     <texture name="paddy_soil_tex" type="2d" builtin="checker" rgb1="0.36 0.29 0.21" rgb2="0.32 0.25 0.18" width="256" height="256" mark="edge" markrgb="0.28 0.22 0.16"/>
     <material name="paddy_soil_mat" texture="paddy_soil_tex" texrepeat="6 6" reflectance="0.08" shininess="0.2"/>
     <material name="bund_earth_mat" rgba="0.46 0.37 0.25 1" roughness="0.9"/>
+    <material name="deep_earth_mat" rgba="0.28 0.22 0.16 1" roughness="0.95"/>
+    <material name="mountain_rock_mat" rgba="0.30 0.42 0.32 1" roughness="0.95"/>
     <material name="mud_hazard_mat" rgba="0.22 0.16 0.11 0.92" shininess="0.85" specular="0.6"/>
     <material name="viable_loam_mat" rgba="0.48 0.39 0.26 0.90" roughness="0.8"/>
     <material name="crop_bed_mat" rgba="0.20 0.42 0.18 0.85"/>
+    <material name="terrace_wall_mat" rgba="0.38 0.32 0.24 1" roughness="0.88"/>
     <material name="canal_water_mat" rgba="0.16 0.46 0.58 0.78" shininess="0.9" specular="0.8"/>
     <material name="wheel_rubber_mat" rgba="0.16 0.16 0.18 1"/>
     <hfield name="paddy_micro_relief" nrow="32" ncol="48" size="1.65 0.92 0.045 0.02"/>
@@ -78,7 +81,7 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
 
   <worldbody>
     {world_terrain_xml}
-    <geom name="paddy_relief_mesh" type="hfield" hfield="paddy_micro_relief" pos="1.35 0.0 -0.016" rgba="0.41 0.33 0.22 0.46" contype="0" conaffinity="0"/>
+    <geom name="paddy_relief_mesh" type="hfield" hfield="paddy_micro_relief" pos="1.35 0.0 -0.016" rgba="0.28 0.52 0.26 0.18" contype="0" conaffinity="0"/>
     {rovers_bodies_xml}
   </worldbody>
 
@@ -172,6 +175,11 @@ class MujocoPaddySimulation:
         self.data = mujoco.MjData(self.model)
 
         self._ground_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "field_ground")
+        self._ground_geom_ids = {self._ground_geom_id}
+        for gid in range(self.model.ngeom):
+            gname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, gid) or ""
+            if any(term in gname for term in ("ground", "terrace", "ramp", "bund", "bed", "patch")):
+                self._ground_geom_ids.add(gid)
         self._seed_geom_ids = [
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"seed_{i}_geom")
             for i in range(PLANTER_SPEC.initial_seeds)
@@ -351,14 +359,16 @@ class MujocoPaddySimulation:
                 self.data.qvel[vadr : vadr + 6] = 0.0
 
     def _check_seed_contact(self, seed_index: int) -> Pose2D | None:
-        """Return landing Pose2D if seed_index geom is physically touching field_ground."""
+        """Return landing Pose2D if seed_index geom is physically touching ground or terraced terrain."""
         target_geom = self._seed_geom_ids[seed_index]
         for i in range(self.data.ncon):
             c = self.data.contact[i]
-            if {c.geom1, c.geom2} == {target_geom, self._ground_geom_id}:
-                qadr = self._seed_qpos_adrs[seed_index]
-                sx, sy = float(self.data.qpos[qadr]), float(self.data.qpos[qadr + 1])
-                return Pose2D(round(sx, 4), round(sy, 4), 0.0)
+            if target_geom in (c.geom1, c.geom2):
+                other_geom = c.geom2 if c.geom1 == target_geom else c.geom1
+                if other_geom in self._ground_geom_ids:
+                    qadr = self._seed_qpos_adrs[seed_index]
+                    sx, sy = float(self.data.qpos[qadr]), float(self.data.qpos[qadr + 1])
+                    return Pose2D(round(sx, 4), round(sy, 4), 0.0)
         return None
 
     def step(self, commands: tuple[RobotCommand, ...]) -> ObservationFrame:
@@ -399,10 +409,10 @@ class MujocoPaddySimulation:
                     seed_idx = spec.initial_seeds - self._seeds_remaining[robot_id]
                     self._seeds_remaining[robot_id] -= 1
                     planter_xyz = self.data.sensor("planter_pos").data
-                    px, py = float(planter_xyz[0]), float(planter_xyz[1])
+                    px, py, pz = float(planter_xyz[0]), float(planter_xyz[1]), float(planter_xyz[2])
                     qadr = self._seed_qpos_adrs[seed_idx]
                     vadr = self._seed_qvel_adrs[seed_idx]
-                    self.data.qpos[qadr : qadr + 3] = [px, py, spec.hopper_drop_z_m]
+                    self.data.qpos[qadr : qadr + 3] = [px, py, pz - 0.012]
                     self.data.qpos[qadr + 3 : qadr + 7] = [1.0, 0.0, 0.0, 0.0]
                     self.data.qvel[vadr : vadr + 6] = [0.0, 0.0, -0.08, 0.0, 0.0, 0.0]
                     self._active_drops.append(

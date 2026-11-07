@@ -17,7 +17,7 @@ class ControlLimits:
     turn_rad_s: float = 0.75
     stop_range_m: float = 0.35
     site_reach_m: float = 0.15
-    max_pitch_roll_rad: float = 0.35
+    max_pitch_roll_rad: float = 0.80  # ~45.8 deg, allows traversing 40 deg terraced ramps
     max_slip_ratio: float = 0.60
     min_peer_distance_m: float = 1.0
     kp_row: float = 1.0
