@@ -38,6 +38,12 @@ Every candidate and its acceptance tests must address these five **onsite organi
 
 When scope is cut, maintain a demonstrable sensor → decision → action loop and measurable disturbance response ahead of optional media, multi-agent orchestration and marketing polish. Do not claim that CI/unit checks alone demonstrate any of these judge criteria. These constraints apply **only to this AgentVerse Robotics entry** and do not override the team-selected solution or unverified sponsor rules.
 
+## Execution ownership — local-first
+
+**Current team instruction:** application development, simulator debugging, test execution and feature branch pushes are done by **human-directed local coding agents** (primarily the Isaac Sim workstation/Argon where available). Each worker pulls current `main`, operates on an owned local branch/worktree, runs tests and the actual Isaac scene when claiming physical behaviour, then supplies a PR with local commands, observed output, tested commit, sensor/action/seed-contact traces and failures. The human integrator approves merges and checks combined `main`. **This connected ChatGPT session normally provides advice, read-only auditing and requested small documentation updates; do not push application code unless explicitly asked again.** Never infer local physics success from CI or source review. [TEAM](docs/TEAM.md#local-first-development-review-and-integration) and the [PR template](.github/PULL_REQUEST_TEMPLATE.md) own the detailed handoff.
+
+**Practical priority:** get a rover moving under real simulated sensor feedback and a seed proxy physically landing **before** sophisticated mapping/route models, recovery or flood mitigation. Field/map/evaluation owners can work in parallel on narrow fixtures, but must not change shared contracts without the integrator. The full final demo still shows measured coordination and response to a mid-episode surprise.
+
 ## Order of work
 
 1. Identify a real beneficiary, environment and observable outcome. Check closest non-LLM alternative/prior art; require actual AI-added judgement.
