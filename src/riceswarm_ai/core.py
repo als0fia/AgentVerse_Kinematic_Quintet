@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import heapq
-from math import inf
+from math import inf, sin, cos, atan2, hypot
 import random
 from typing import Callable, Iterable
 
@@ -240,6 +240,37 @@ class Cell:
 
 
 @dataclass
+class HardwareSensors:
+    """Live telemetry from Master Input-Output-Effect Matrix (input_output.txt)."""
+    # 1. TDK ICM-42688-P (6-axis IMU) + MMC5983MA (Mag) @ 400 Hz
+    pitch_deg: float = 0.0
+    roll_deg: float = 0.0
+    accel_z_m_s2: float = 9.81
+    tilt_halt_triggered: bool = False
+
+    # 2. Infineon BGT60TR13C 60GHz mmWave FMCW Radar
+    v_true_m_s: float = 0.35
+    v_cmd_m_s: float = 0.35
+    slip_ratio: float = 0.0
+    anti_dig_active: bool = False
+
+    # 3. 2x Hall-Effect Whiskers + VL53L8CX 8x8 ToF Array
+    cross_track_error_m: float = 0.0
+    row_steer_delta_rad_s: float = 0.0
+
+    # 4. INA240 Current Shunts + Hitch Strain Gauge
+    motor_current_A: float = 2.15
+    soil_drag_torque_Nm: float = 0.85
+    hitch_pull_tension_N: float = 0.0
+
+    # 5. Dual Qorvo DWM3000 UWB Mast Transceivers
+    nearest_peer_id: str = ""
+    nearest_peer_dist_m: float = 0.0
+    peer_aoa_deg: float = 0.0
+    anti_collision_stop: bool = False
+
+
+@dataclass
 class Robot:
     name: str
     role: Role = Role.OMNI
@@ -258,6 +289,7 @@ class Robot:
     weeded_count: int = 0
     harvested_count: int = 0
     travelled: int = 0
+    sensors: HardwareSensors = field(default_factory=HardwareSensors)
 
 
 @dataclass(frozen=True)
@@ -952,9 +984,112 @@ class RiceSwarmSimulation:
         self.human_escalations = 0
         self.unsafe_moves = 0
         self.observers: list[Callable[[RiceSwarmSimulation], None]] = []
+        for r in self.robots.values():
+            self._update_robot_sensors(r)
 
     def event(self, kind: str, **details: object) -> None:
         self.log.append({"tick": self.tick_count, "day": self.current_day, "event": kind, **details})
+
+    def _update_robot_sensors(self, robot: Robot) -> None:
+        """Compute realistic physical sensor telemetry matching input_output.txt matrix."""
+        s = robot.sensors
+        cell = self.field.belief.get(robot.pos)
+        is_moving = len(robot.planned_route) > 1
+        cmd_v = 0.35 if is_moving else 0.0
+        s.v_cmd_m_s = cmd_v
+
+        # 1. TDK ICM-42688-P (6-axis IMU) + MMC5983MA @ 400 Hz
+        if robot.status == Status.STUCK:
+            s.pitch_deg = round(21.4 + 0.3 * sin(self.tick_count * 0.5), 2)
+            s.roll_deg = round(6.8 + 0.2 * cos(self.tick_count * 0.5), 2)
+            s.accel_z_m_s2 = 9.12
+            s.tilt_halt_triggered = True
+        elif cell and cell.terrain == Terrain.SOFT:
+            s.pitch_deg = round(7.8 + 0.6 * sin(self.tick_count * 0.8), 2)
+            s.roll_deg = round(3.4 + 0.4 * cos(self.tick_count * 0.8), 2)
+            s.accel_z_m_s2 = 9.65
+            s.tilt_halt_triggered = False
+        elif is_moving:
+            phase = (robot.pos[0] * 3 + robot.pos[1] * 7 + self.tick_count)
+            s.pitch_deg = round(1.2 + 0.6 * sin(phase * 0.3), 2)
+            s.roll_deg = round(0.5 + 0.4 * cos(phase * 0.3), 2)
+            s.accel_z_m_s2 = 9.81
+            s.tilt_halt_triggered = False
+        else:
+            s.pitch_deg = 0.4
+            s.roll_deg = 0.2
+            s.accel_z_m_s2 = 9.81
+            s.tilt_halt_triggered = False
+
+        # 2. Infineon BGT60TR13C 60GHz mmWave Radar (Doppler true ground velocity)
+        if robot.status == Status.STUCK:
+            s.v_true_m_s = 0.01
+            s.slip_ratio = round(1.0 - (s.v_true_m_s / max(0.05, cmd_v or 0.35)), 3)
+            s.anti_dig_active = s.slip_ratio > 0.60
+        elif cell and cell.terrain == Terrain.SOFT:
+            s.v_true_m_s = 0.14
+            s.slip_ratio = round(1.0 - (s.v_true_m_s / max(0.05, cmd_v)), 3)
+            s.anti_dig_active = s.slip_ratio > 0.60
+        elif is_moving:
+            s.v_true_m_s = round(0.33 + 0.015 * sin(self.tick_count), 3)
+            s.slip_ratio = round(max(0.0, 1.0 - (s.v_true_m_s / cmd_v)), 3)
+            s.anti_dig_active = False
+        else:
+            s.v_true_m_s = 0.0
+            s.slip_ratio = 0.0
+            s.anti_dig_active = False
+
+        # 3. 2x Hall-Effect Whiskers + VL53L8CX 8x8 ToF Array
+        if is_moving and robot.pos in self.field.crop_targets:
+            s.cross_track_error_m = round(0.02 * sin(self.tick_count * 0.6), 3)
+            s.row_steer_delta_rad_s = round(1.2 * s.cross_track_error_m, 4)
+        else:
+            s.cross_track_error_m = 0.0
+            s.row_steer_delta_rad_s = 0.0
+
+        # 4. INA240 Current Monitors + Hitch Strain Gauge
+        if robot.status == Status.STUCK:
+            s.motor_current_A = 6.45
+            s.soil_drag_torque_Nm = 3.25
+            s.hitch_pull_tension_N = 0.0
+        elif robot.status == Status.TO_RESCUE and self.coordinator.active_rescue_decision:
+            d = self.coordinator.active_rescue_decision
+            if robot.pos == d.rescue_stance:
+                s.motor_current_A = 5.80
+                s.soil_drag_torque_Nm = 2.60
+                s.hitch_pull_tension_N = 168.5
+            else:
+                s.motor_current_A = 2.80
+                s.soil_drag_torque_Nm = 1.10
+                s.hitch_pull_tension_N = 0.0
+        elif is_moving:
+            s.motor_current_A = round(2.15 + 0.25 * (cell.mud_risk if cell else 0.0), 2)
+            s.soil_drag_torque_Nm = round(0.85 + 0.50 * (cell.mud_risk if cell else 0.0), 2)
+            s.hitch_pull_tension_N = 0.0
+        else:
+            s.motor_current_A = 0.45
+            s.soil_drag_torque_Nm = 0.0
+            s.hitch_pull_tension_N = 0.0
+
+        # 5. Dual Qorvo DWM3000 UWB Transceivers (Mast)
+        min_dist = float("inf")
+        closest_id = ""
+        closest_aoa = 0.0
+        for peer_name, peer in self.robots.items():
+            if peer_name == robot.name:
+                continue
+            dx = (peer.pos[0] - robot.pos[0]) * 0.90
+            dy = (peer.pos[1] - robot.pos[1]) * 0.90
+            dist = hypot(dx, dy)
+            if dist < min_dist:
+                min_dist = dist
+                closest_id = peer_name
+                closest_aoa = atan2(dy, dx) * 180.0 / 3.14159265
+        s.nearest_peer_id = closest_id
+        noise = 0.02 * sin(self.tick_count * 1.3 + robot.pos[0])
+        s.nearest_peer_dist_m = round(min_dist + noise, 2)
+        s.peer_aoa_deg = round(closest_aoa, 1)
+        s.anti_collision_stop = s.nearest_peer_dist_m < 1.0
 
     def trigger_immobilisation(self, robot_name: str = "RS2") -> bool:
         """Manually trigger a robot to become stuck in soft mud for testing."""
@@ -1176,6 +1311,9 @@ class RiceSwarmSimulation:
                 robot.planned_route = []
                 robot.destination = None
                 robot.status = Status.IDLE
+
+        for r in self.robots.values():
+            self._update_robot_sensors(r)
 
         for observer in self.observers:
             observer(self)

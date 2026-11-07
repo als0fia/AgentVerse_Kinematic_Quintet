@@ -133,6 +133,34 @@ class SensorReflexTests(unittest.TestCase):
         # Anti-digging throttle back
         self.assertLess(cmd_slipping.linear_m_s, cmd_good.linear_m_s)
 
+    def test_riceswarm_simulation_realistic_sensors(self) -> None:
+        from riceswarm_ai.core import RiceSwarmSimulation
+        sim = RiceSwarmSimulation()
+
+        # Step once to run sensor synthesis
+        sim.step()
+        rs1 = sim.robots["RS1"]
+        self.assertIsNotNone(rs1.sensors)
+        # Pitch within normal cruising limits (< 5 deg)
+        self.assertLess(rs1.sensors.pitch_deg, 5.0)
+        # Nominal slip ratio during cruise (< 0.15)
+        self.assertLess(rs1.sensors.slip_ratio, 0.15)
+        self.assertFalse(rs1.sensors.tilt_halt_triggered)
+        self.assertFalse(rs1.sensors.anti_dig_active)
+
+        # Trigger immobilisation on RS2
+        sim.trigger_immobilisation("RS2")
+        sim.step()
+        rs2 = sim.robots["RS2"]
+        # In belly-hang mud: pitch > 20 deg, tilt halt tripped
+        self.assertGreater(rs2.sensors.pitch_deg, 20.0)
+        self.assertTrue(rs2.sensors.tilt_halt_triggered)
+        # Radar detects true ground velocity near 0 -> high slip > 0.60 -> anti-dig engaged
+        self.assertGreater(rs2.sensors.slip_ratio, 0.60)
+        self.assertTrue(rs2.sensors.anti_dig_active)
+        # Motor current surges in mud (> 4.0 A)
+        self.assertGreater(rs2.sensors.motor_current_A, 4.0)
+
 
 if __name__ == "__main__":
     unittest.main()
