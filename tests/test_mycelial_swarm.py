@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ricebot.agent import DecentralizedMycelialRuntime
+from ricebot.agent import DecentralizedMycelialRuntime, evaluate_continuous_belief_field
 from ricebot.contracts import (
     ObservationFrame,
     Pose2D,
@@ -16,9 +17,10 @@ from ricebot.contracts import (
     SoilSample,
 )
 from ricebot.mujoco_sim import MujocoPaddySimulation
-from ricebot.robot import DEFAULT_CAPABILITIES
+from ricebot.robot import DEFAULT_CAPABILITIES, PLANTER_SPEC, evaluate_bekker_terramechanics
 from ricebot.runtime import EpisodeRunner
-from ricebot.world import DEFAULT_SITES, UNEXPECTED_BAD_SOIL_TRUTH
+from ricebot.viewer import SwarmBeliefDashboardRecorder, render_dashboard_html
+from ricebot.world import ContinuousPaddyTerrain, DEFAULT_SITES, UNEXPECTED_BAD_SOIL_TRUTH
 
 
 class MycelialSwarmUnitTests(unittest.TestCase):
@@ -107,6 +109,71 @@ class MycelialSwarmUnitTests(unittest.TestCase):
         self.assertNotIn("patch_b", planted_targets)
         self.assertTrue(planted_targets.issubset({"patch_c", "patch_d"}))
         self.assertGreaterEqual(len(sim.completed_drops), 1)
+
+    def test_continuous_terrain_and_bekker_terramechanics_and_dashboard_export(self) -> None:
+        terrain = ContinuousPaddyTerrain(sites=DEFAULT_SITES)
+        pt_mud = terrain.evaluate(0.85, -0.50)  # patch_a (Lannitian mud hazard)
+        pt_loam = terrain.evaluate(1.60, -0.50)  # patch_b (viable loam gap)
+        pt_crop = terrain.evaluate(0.85, 0.45)  # crop_nw (protected dense rice stand)
+
+        self.assertGreater(pt_mud.moisture, 0.85)
+        self.assertGreater(pt_mud.mud_depth_m, pt_loam.mud_depth_m)
+        self.assertGreater(pt_loam.firmness, pt_mud.firmness)
+        self.assertGreater(pt_crop.plant_density, 0.80)
+
+        # Bekker-Wong terramechanics: heavier machine or smaller wheels sinks deeper in mud
+        light_rover = evaluate_bekker_terramechanics(
+            PLANTER_SPEC,
+            moisture=pt_mud.moisture,
+            firmness=pt_mud.firmness,
+            mud_depth_m=pt_mud.mud_depth_m,
+            mass_override_kg=3.5,
+            wheel_radius_override_m=0.065,
+        )
+        heavy_rover = evaluate_bekker_terramechanics(
+            PLANTER_SPEC,
+            moisture=pt_mud.moisture,
+            firmness=pt_mud.firmness,
+            mud_depth_m=pt_mud.mud_depth_m,
+            mass_override_kg=14.0,
+            wheel_radius_override_m=0.042,
+        )
+        self.assertGreater(heavy_rover.sinkage_z_m, light_rover.sinkage_z_m)
+        self.assertGreater(heavy_rover.compaction_resistance_n, light_rover.compaction_resistance_n)
+        self.assertTrue(heavy_rover.bellied_out)
+        self.assertGreater(heavy_rover.immobilization_risk, light_rover.immobilization_risk)
+
+        # Verify ReadOnlyView dashboard recorder & HTML export
+        sim = MujocoPaddySimulation(sites=DEFAULT_SITES)
+        runtime = DecentralizedMycelialRuntime(
+            sites=DEFAULT_SITES,
+            capabilities=DEFAULT_CAPABILITIES,
+            comm_range_m=2.15,
+            comm_mode="normal",
+        )
+        recorder = SwarmBeliefDashboardRecorder(
+            runtime=runtime,
+            terrain=sim.world.continuous_terrain,
+            sites=DEFAULT_SITES,
+            grid_nx=12,
+            grid_ny=8,
+            snapshot_stride=10,
+        )
+        runner = EpisodeRunner(sim, runtime, view=recorder)
+        runner.run(seed=7, steps=35)
+
+        bundle = recorder.export_bundle("test_nominal")
+        self.assertEqual(bundle["schema_version"], "antenna.dashboard.v1")
+        self.assertGreater(len(bundle["frames"]), 0)
+        p_belief = evaluate_continuous_belief_field(runtime.nodes["planter"].local_map, 1.60, -0.50)
+        self.assertIn("moisture", p_belief)
+        self.assertIn("uncertainty", p_belief)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_html = Path(tmpdir) / "dash.html"
+            html_str = render_dashboard_html({"test_nominal": bundle}, output_path=out_html)
+            self.assertTrue(out_html.is_file())
+            self.assertIn("Bekker", html_str)
 
 
 if __name__ == "__main__":
