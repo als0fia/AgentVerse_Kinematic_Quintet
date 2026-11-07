@@ -1,6 +1,14 @@
-# Runtime architecture — cooperative rice planting (MuJoCo prototype; Isaac target)
+# Runtime architecture — Antenna rescue-first collective rice-field robotics
 
-**Canonical mission:** [PaddyPatch PRODUCT](PRODUCT.md), superseding RiceWatch alarm-only monitoring. **MuJoCo is the checked-in development adapter; Isaac Sim remains the user-selected integration target (not yet verified).** P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
+**Current canonical mission:** Antenna is **rescue-first**. Physical rice-field soil/stand sensing, map, navigation and seed placement supply a real useful task; the principal agent decision is risk-aware physical recovery or safe abstention. The new Paddy Ant rigid-dock MJCF and scripted towing test prove one **test-level** physical mechanism, but not automatically detected recovery and resumed field operations. MuJoCo is checked in; Isaac Sim remains unverified. See [PRODUCT](PRODUCT.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) and D-0009.
+
+**Update after merged PR #28 (7 Nov 2026):** `src/ricebot/agent/mycelial_swarm.py` now implements **simulated Policy B**: separate `LocalMycelialMap` and `LocalSlamGrid` instances for each rover, event-triggered `MycelialGossipPacket` exchanges with modelled distance/link blackout, provenance deduplication, and task bids. Tests include isolated vs connected maps, blackout recovery and changed planting target. It runs inside a shared Python/MuJoCo simulation; **no physical UWB or Wi-Fi HaLow radios, deployed distributed processes, Jetson inference or integrated autonomous physical rescue have been verified**. Policy A's `CooperativeSwarmPlanner` remains a centralised baseline. The merged PR #24 separate scripted MuJoCo rigid-docking/tandem extraction test is physical simulation mechanics, not the full sensed-rescue mission.
+
+## Rescue supervisor and existing docking mechanism: integration gap
+
+`CooperativeSwarmPlanner` still aggregates bids in one process from a single shared map. Existing `rescue_assist(...)` uses `SAMPLE` to route to a rendezvous. Separately, `src/ricebot/robot/rovers.py` models the homogeneous Paddy Ant rescue mechanism and `tests/test_world_and_robot.py::test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` scripts approach, latch, pitch-lift and reverse drive; it asserts physical victim displacement greater than 0.08 m. **These two components are not an integrated autonomous rescue loop.**
+
+Next ownership seam: physically observable fault → typed bounded evidence and incident → strategic rescue/investigate/abstain assessment → validator and a new **recovery skill command** driving the actual docking mechanism → independent contact/extraction result and safe resumption of rice tasks. One integrator updates shared schema; world owner supplies fault/soil; human robot designer validates clearance, latch, force and anchor; agent owner handles decision; evaluator owns hidden truth. A learned skill and P2P partial beliefs are separately testable extensions, not assumed.
 
 ## Current module ownership and mock/real replacement boundary
 
@@ -67,7 +75,7 @@ Develop the 3–6-site world against a *physically actuated* mock rover if the d
 - Use a fixed sim clock and timestamped per-robot sample provenance. Start with **inverse-distance/nearest-neighbour interpolation** for a small field, A*/Dijkstra or bounded graph search along actual traversable lanes. Gaussian processes/Kriging, RL or deliberative LLM reasoning only when baseline comparison supports it.
 - If running simulation on a shared/remote workstation, explicitly record **where physics, renderer, each robot controller, map and supervisor execute**; communication loss can't be claimed as onboard autonomy unless a local controller actually keeps working.
 - Never use `sim.get_true_soil`, future event flags or directly set seed landing site within policy. Planner may request `PLANT`; actuator releases a real proxy; physics determines landing; grader separately scores hidden synthetic benefit.
-- Low-priority options **only after P0 verified:** robot fault/rescue orchestration, flood-water monitoring/physical outlet intervention, reforestation or space domain adapters.
+- **Superseded planting-only note:** physical robot rescue is now the core priority; flood-water controls, reforestation/space domain transfers remain optional.
 
 ## Integration falsification
 

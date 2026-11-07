@@ -1,6 +1,12 @@
 # Reproducible setup, run and recovery
 
-**Selected project:** PaddyPatch cooperative rice-field stand-gap mapping and simulated seed placement. **Checked-in development backend:** MuJoCo 4.0.0 (rover/seed-contact prototype, testable headlessly). **Isaac Sim is the user-selected intended integration target, not yet implemented or verified.** A MuJoCo test is not agricultural validation or a completed judge demo; don't claim unseen resources or outcomes.
+**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
+**Current project direction:** **Antenna rescue-first** collective robotics, with checked-in MuJoCo rice-field sensing/physical seed placement as working task context and a scripted rigid-docking/tandem extraction physics test. **Not yet verified:** automatic sensed-fault→rescue reasoning→physical execution→mission-continuation loop, learned policy, distributed Jetson inference or Isaac Sim integration.
+
+## Recovery integration gate (separate from existing MuJoCo mechanical test)
+
+To claim the full product, demonstrate a **real detected fault**, contextual rescue/abstain decision, bounded command driving the merged `paddy_ant_rigid_rescue.xml` / `update_rigid_dock_latch` mechanism, independently checked target displacement/helper safety and continued actual fieldwork. The current `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` is scripted contact/extraction, not end-to-end. Research pooled offline inference only on verified hardware and trusted network; no public llama.cpp RPC or cloud charges without approval.
 
 ## New teammate or agent onboarding
 

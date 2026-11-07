@@ -1,6 +1,14 @@
 # Team ownership, parallel agents and integration
 
+**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
 The human team decides roles. **No named teammate assignments have been verified.** An AI agent is a worker within human-approved scope, not a new registered team member. The organiser's 3–5 human team size does not specify an AI-agent quota; no separate AI-agent cap has been verified. Use **one human-led integration path, with as many bounded specialist tasks as can be independently tested**, not one monolithic shared AI session.
+
+**Update after merged PR #28 (7 Nov 2026):** `src/ricebot/agent/mycelial_swarm.py` now implements **simulated Policy B**: separate `LocalMycelialMap` and `LocalSlamGrid` instances for each rover, event-triggered `MycelialGossipPacket` exchanges with modelled distance/link blackout, provenance deduplication, and task bids. Tests include isolated vs connected maps, blackout recovery and changed planting target. It runs inside a shared Python/MuJoCo simulation; **no physical UWB or Wi-Fi HaLow radios, deployed distributed processes, Jetson inference or integrated autonomous physical rescue have been verified**. Policy A's `CooperativeSwarmPlanner` remains a centralised baseline. The merged PR #24 separate scripted MuJoCo rigid-docking/tandem extraction test is physical simulation mechanics, not the full sensed-rescue mission.
+
+## Current rescue-first owner handoff
+
+Robot/mechanics owner has merged rigid docking MJCF and scripted towing test (#24); **do not rewrite that module** without their agreement. World owner supplies reproducible immobilisation and sensor health evidence; recovery/agent owner connects PR #23's **heuristic** verdicts to a typed bounded rescue action (sole contract integrator approval); evaluator validates physical latch/displacement/second-casualty and resumed rice work. ChatGPT/Gemini roles remain interchangeable. Optional Jetson model partitioning and actual P2P messaging are separate research, not blockers for a credible rescue-first physical demonstration. Earlier planting-first work breakdown below remains a useful baseline, not the current primary mission. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
 
 ## Simulation/robot co-development and recurring component audits
 
@@ -106,7 +114,7 @@ The first pure-Python `rice.v1` core is now present in `src/ricebot/`. **One hum
 2. **Gate B (planting capability next):** physically actuated seed-proxy release and actual landing/contact within an eligible stand gap. Do not delay this for distributed agent design, fancy soil maps or networking.
 3. **Gate C (split into independent features from latest `main`):** roles 2/3 can refine chassis/field/second rover and local probes; role 4 writes **pure map/route policy** against fixed sample fixtures; role 5 builds grader/UI against captured traces. Each task owns unique paths, exact input fixture and pass condition. Shared v1 schema changes go through role 1.
 4. **Gate D (end-to-end team behaviour):** two robots collect distinct measurements, a shared estimated map changes site/route choices and the planter physically deposits seeds while avoiding crops/obstacles. Inject one change *during* the episode and log the update.
-5. **Gate E (prove/record):** compare matched-seed deterministic baseline, run independent grader, collect ≤60s continuous sensor/action/placement recording, finish one-page PDF. **Only then** optional robot rescue or flood monitoring/mitigation.
+5. **Historical planting-only Gate E (superseded by rescue-first D-0009):** preserve planting evidence, but the current core demonstration needs measured fault→risk-sensitive physical recovery or safe refusal. Flood mitigation remains optional.
 
 ### How humans should prompt coding agents
 

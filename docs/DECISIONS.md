@@ -80,6 +80,34 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Falsification:** first real seed placement must occur early. A pretty soil heatmap, moving UI sprite, hard-coded ideal soil map, imagined sample, text-only planter, fake rescue, unvalidated soil yield claim or staged video fails selected scope. Compare against competent uniform/greedy and deterministic joint mapping/routing baselines on same hidden synthetic conditions.
 - **Revisit:** failed Isaac compatibility, inability to drop a seed physically, lack of distinct two-rover measurements, unrealistic soil model, no credible baseline or explicit later user/team directive.
 
+## D-0008 — Antenna is the canonical selected product name; do not fork scope
+
+- **Date:** 7 November 2026.
+- **Source:** direct human team instruction in ChatGPT project conversation: “Antenna is canonical.”
+- **Decision:** **Antenna** is the current official internal product name for the cooperative rice stand-gap mapping and targeted replanting submission. **PaddyPatch** was the earlier working name for the same P0 mission, not an alternative active entry. **RiceWatch** denotes superseded flood-warning investigation scope. The separately pushed **RiceSwarm AI** full-season/fleet concept is independent exploratory work, not the canonical application path.
+- **Implementation owner:** the integrated `main` source under `src/ricebot/` and the existing `rice.v1` interface; keep package/file names stable during the hackathon rather than renaming working code for branding.
+- **Branch authority:** merged historical branch heads and open research/experimental branches are not competing canonical product definitions. Integrate only specifically reviewed changes through a compatible PR. Do not mass-replace historical decision names, overwrite current simulator/CI setup, or merge an unrelated full farming simulation into P0.
+- **Scope remains unchanged:** measured local sensing → shared map → coordinated task/route selection → physically simulated planting and contact → response to an unexpected change. Recovery/flood mitigation optional; MuJoCo is the current tested development backend, Isaac Sim a separately unverified integration target.
+- **History:** D-0005, D-0006 and D-0007 are preserved verbatim as earlier decisions, not rewritten to imply that Antenna was a prior rejected inspection-only product.
+
+## D-0009 — Rescue-first Antenna mission; rice field stays useful work
+
+- **Date/source:** 7 November 2026, explicit user's later clarification. **Status:** new user-directed product/research priority; code integration, physical learned skill and full team signoff are not claimed.
+- **Decision:** the **primary feature is a robot collective that decides when and how to physically rescue a failed member** using sensor/health evidence, calculated traction/second-casualty risk, uncertain terrain/weather inputs, urgency and operator priorities. Rice-field local measurements, mapping and physical seed placement provide the first meaningful mission; preserve all working source and tests. This **supersedes D-0007's rescue-optional product priority** without overwriting historical records.
+- **Naming stays D-0008:** **Antenna** is canonical; PaddyPatch earlier working name; experimental RiceSwarm AI is not the authoritative main runtime. Do not renumber prior decisions.
+- **What already exists:** PR #23 single-process task bids + heuristic rescue triage + optional Gemini REST advisor, and PR #24 homogeneous Paddy Ant MJCF rigid docking/cam-latch/pitch-lift/tandem extraction. The latter has a **scripted MuJoCo test** that asserts victim displacement >0.08 m. There is **no yet verified integrated incident→contextual decision→physical recovery→continued fieldwork episode**, no trained extraction policy and no actual P2P/distributed Jetson LLM.
+- **Next gate:** distinguish true immobilisation from `front_range_m=None`; propose bounded typed recovery action/results via sole integrator; use physically valid dock mechanism to rescue only when risk/safety thresholds permit; independent hidden-truth grader compares never/always/deterministic risk/optional contextual model and post-incident mission value. Correct **not rescuing** matters.
+- **Optional deployment research:** independently operating local robot policies with no internet requirement; compare an offline small model and a larger quantised **one-model** split across verified Jetson devices. Split inference is not multi-LLM debate, may be slow, and breaks when a required shard/node disappears; always provide local safe fallback. Team Jetson ownership/cost/performance are unverified, no spending/creation authorised.
+- **Scope and prior art:** physical recovery, learned control, risk-aware planning, task auctions and model parallelism have predecessors; evidence against strong baselines and actual physics is necessary. [PRODUCT](PRODUCT.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md), [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md) are the up-to-date specification/research.
+
+## D-0010 — Policy B simulated partial beliefs and peer gossip, not yet hardware networking
+
+- **Date/source:** 7 Nov 2026, merged team PR #28, after D-0009 rescue-first scope decision.
+- **Implemented:** `DecentralizedMycelialRuntime`, per-rover `LocalMycelialMap`/`LocalSlamGrid`, event-triggered simulated `MycelialGossipPacket`, modelled range/link blackout, sample provenance deduplication and Policy A/B runner comparison tests. These run in the same Python simulation; no live UWB/HaLow radios or separate Jetson nodes are demonstrated. Policy A remains the one-process shared-map baseline.
+- **Current evaluation:** tests exercise isolated/connected map convergence, link reconnection, changed planting target and physical seed-drop scenarios. The PR's >95% radio byte-saving claim needs an explicitly defined equal-work continuous-streaming baseline before becoming an independently established performance result.
+- **Unchanged product:** rescue-first D-0009; a scripted mechanical tandem extraction test exists, but the fault detection, risk-aware decision and physical actuation have not yet been integrated into one autonomous recovery episode. No learned policy or distributed LLM demonstrated.
+- **Quality follow-up:** fixing the agent README reference to the renamed `input_output.txt` is a documentation-only CI repair. Real distributed inference and on-device radio/energy remain research questions.
+
 ## Decision template
 
 ```text
