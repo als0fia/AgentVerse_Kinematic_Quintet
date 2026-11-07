@@ -10,10 +10,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ricebot.contracts import RobotCommand
 from ricebot.control import ControlLimits, LocalController
 from ricebot.mission import MeasuredFieldMap, SimpleMissionPlanner
-from ricebot.mujoco_sim.adapter import DEFAULT_CAPABILITIES, DEFAULT_SITES, MujocoPaddySimulation
+try:
+    from ricebot.mujoco_sim.adapter import DEFAULT_CAPABILITIES, DEFAULT_SITES, MujocoPaddySimulation
+    HAS_MUJOCO = True
+except ImportError:
+    HAS_MUJOCO = False
+    DEFAULT_CAPABILITIES = ()  # type: ignore
+    DEFAULT_SITES = ()  # type: ignore
+    MujocoPaddySimulation = None  # type: ignore
 from ricebot.runtime import EpisodeRunner, MissionCore
 
 
+@unittest.skipUnless(HAS_MUJOCO, "mujoco not installed in environment")
 class MujocoPaddySimulationTests(unittest.TestCase):
     def test_nominal_episode_samples_both_rovers_and_physically_plants_seed(self) -> None:
         sim = MujocoPaddySimulation(sites=DEFAULT_SITES, probe_radius_m=0.28, substeps_per_tick=25)

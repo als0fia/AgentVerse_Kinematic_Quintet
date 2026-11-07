@@ -19,6 +19,9 @@ Supports two interchangeable coordination architectures over the identical `Simu
 - **Evaluation Matrix (`--compare-policies`):** Benchmarks Single-Rover, Policy A (Centralised),
   and Policy B (Decentralised Mycelial) across Normal Comms, Intermittent Comms, Unexpected Bad
   Soil Sample, and Mid-Episode Obstacle Surprise.
+- **Top-Down Belief & Terramechanics Dashboard (`--export-dashboard <path.html>`):** Exports an
+  interactive top-down HTML dashboard showing each robot's private continuous 2D belief heatmaps
+  and Bekker-Wong wheel-mud sinkage curves.
 """
 from __future__ import annotations
 
@@ -452,6 +455,51 @@ def run_policy_comparison_matrix(seed: int = 7) -> dict[str, object]:
     return results
 
 
+def export_multi_scenario_dashboard(output_path: str | Path, seed: int = 7) -> Path:
+    """Run the 4 key Mycelial scenarios and export a single interactive top-down HTML dashboard."""
+    from ricebot.viewer import SwarmBeliefDashboardRecorder, render_dashboard_html
+
+    scenarios_cfg = [
+        ("1. Nominal Comms (Mycelial SLAM + Gossip)", "nominal", "normal", 130),
+        ("2. Intermittent RF Blackouts (Diverge & Reconcile)", "nominal", "intermittent", 135),
+        ("3. Surprise Bad Soil (Scout Educates Planter)", "bad_soil", "normal", 145),
+        ("4. Mid-Episode Obstacle Surprise (SLAM Bypass)", "obstacle", "normal", 145),
+    ]
+    bundles: dict[str, dict[str, Any]] = {}
+    for label, scen, comm, st in scenarios_cfg:
+        inject_at = 1.6 if scen == "obstacle" else None
+        truth = UNEXPECTED_BAD_SOIL_TRUTH if scen == "bad_soil" else DEFAULT_HIDDEN_SOIL_TRUTH
+        sim = MujocoPaddySimulation(
+            sites=DEFAULT_SITES,
+            probe_radius_m=0.28,
+            substeps_per_tick=25,
+            inject_obstacle_at_s=inject_at,
+            obstacle_xy=(0.75, -0.25),
+            hidden_truth=truth,
+        )
+        runtime = DecentralizedMycelialRuntime(
+            sites=DEFAULT_SITES,
+            capabilities=DEFAULT_CAPABILITIES,
+            comm_range_m=2.15,
+            comm_mode=comm,
+        )
+        dash_rec = SwarmBeliefDashboardRecorder(
+            runtime=runtime,
+            terrain=sim.world.continuous_terrain,
+            sites=DEFAULT_SITES,
+            grid_nx=32,
+            grid_ny=22,
+            snapshot_stride=6,
+        )
+        runner = EpisodeRunner(sim, runtime, view=dash_rec)
+        runner.run(seed=seed, steps=st)
+        bundles[label] = dash_rec.export_bundle(scenario_name=label)
+
+    out = Path(output_path)
+    render_dashboard_html(bundles, output_path=out)
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", choices=("nominal", "obstacle", "bad_soil"), default="nominal")
@@ -462,7 +510,13 @@ def main() -> int:
     parser.add_argument("--headless", action="store_true", help="Run without launching interactive viewer")
     parser.add_argument("--viewer-seconds", type=float, default=0.0, help="Launch interactive 3D MuJoCo viewer for N seconds")
     parser.add_argument("--compare-policies", action="store_true", help="Run the Policy A vs Policy B evaluation matrix")
+    parser.add_argument("--export-dashboard", type=str, default=None, help="Export interactive top-down HTML belief & terramechanics dashboard to path")
     args = parser.parse_args()
+
+    if args.export_dashboard:
+        out = export_multi_scenario_dashboard(args.export_dashboard, seed=args.seed)
+        print(json.dumps({"dashboard_exported_to": str(out.resolve())}, indent=2))
+        return 0
 
     if args.compare_policies:
         matrix = run_policy_comparison_matrix(seed=args.seed)
