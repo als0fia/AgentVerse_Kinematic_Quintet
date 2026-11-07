@@ -1,6 +1,6 @@
 # Runtime architecture — Antenna rescue-first collective rice-field robotics
 
-**Current canonical mission:** Antenna is **rescue-first**. Physical rice-field soil/stand sensing, map, navigation and seed placement supply a real useful task; the principal agent decision is risk-aware physical recovery or safe abstention. The new Paddy Ant rigid-dock MJCF and scripted towing test prove one **test-level** physical mechanism, but not automatically detected recovery and resumed field operations. MuJoCo is checked in; Isaac Sim remains unverified. See [PRODUCT](PRODUCT.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) and D-0009.
+**Current canonical mission:** Antenna is **rescue-first**. Two robots do a small amount of useful fieldwork and must handle a genuine stranded teammate. The mission-level supervisor should reason across robot state, human priorities and calculated risk, use tools to dispatch/monitor a recovery, and adapt when its first plan fails; field mapping and planting remain context. The new Paddy Ant rigid-dock MJCF and scripted towing test prove one **test-level** physical mechanism, but not automatically detected recovery and resumed field operations. MuJoCo is checked in; Isaac Sim remains unverified. See [PRODUCT](PRODUCT.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) and D-0009.
 
 **Update after merged PR #28 (7 Nov 2026):** `src/ricebot/agent/mycelial_swarm.py` now implements **simulated Policy B**: separate `LocalMycelialMap` and `LocalSlamGrid` instances for each rover, event-triggered `MycelialGossipPacket` exchanges with modelled distance/link blackout, provenance deduplication, and task bids. Tests include isolated vs connected maps, blackout recovery and changed planting target. It runs inside a shared Python/MuJoCo simulation; **no physical UWB or Wi-Fi HaLow radios, deployed distributed processes, Jetson inference or integrated autonomous physical rescue have been verified**. Policy A's `CooperativeSwarmPlanner` remains a centralised baseline. The merged PR #24 separate scripted MuJoCo rigid-docking/tandem extraction test is physical simulation mechanics, not the full sensed-rescue mission.
 
@@ -16,35 +16,40 @@ The [canonical component guide](COMPONENTS.md) splits the world/field/probe owne
 
 Develop the 3–6-site world against a *physically actuated* mock rover if the designed rover is not ready. Swap the asset and motor/sensor mapping in the Isaac composition layer after human approval; **retest** clearance, wheel radius, turning limits, mounting frames, reach, release and contact. No second episode kernel, independent planner, direct world-truth read or teleporting seed. The full [mock-to-real acceptance checklist](COMPONENTS.md#mock-rover-first--approved-designed-rover-next) is the reference.
 
-## Physical simulation and task flow
+## Single runtime and one rescue episode (current design target)
 
 ```text
-                 ISAAC SIM OpenUSD + PhysX world
-    prepared/partly drained rice patch, gaps, synthetic soil,
-    existing plants, lanes/no-go, surprise obstacles, seed proxies
-       |                                        ^
-       | local sampled sensor readings          | actual wheel/seed-drop actions
-       v                                        |
-  [rover-1: planter]  [rover-2: scouting robot] |
-       |                   |                    |
-       +---- measured samples & pose estimates--+
-                           |
-                 SHARED BELIEF MAP
-          estimated moisture/firmness/stand gap
-         mean, uncertainty, provenance, freshness
-                           |
-                   MISSION PLANNER
-         choose SAMPLE vs PLANT vs HOLD,
-         which robot, site and safe route
-                           |
-             BOUNDED LOCAL CONTROLLERS ---------+
-                           |
-                independently observed landing
-                           |
-         READ-ONLY VIEWER + SEPARATE TRUTH GRADER
+              ONE MuJoCo simulation / reset+step loop
+ tiny rice-field mission + two homogeneous robots + one traction/fault event
+                          | sensed state / physics feedback
+                          v
+                  rice.v1 ObservationFrame
+                          |
+              fault evidence + fleet/field context
+                          v
+       ONE mission supervisor / coordination seam
+       - existing: numerical triage and Policy A task bids
+       - alternative implemented: simulated Policy B per-rover gossip
+       - proposed: LLM tool loop for inspect -> assess -> act -> monitor/revise
+                          |
+                     risk/safety gate
+                          v
+         typed recovery skill request (NOT YET IMPLEMENTED)
+                          |
+          bounded drive -> dock -> latch -> lift/tow
+                          |
+               MuJoCo physical outcome
+                          |
+            supervisor feedback + continued work
+                          |
+          independent evaluator / read-only viewer
 ```
 
-**Separation rule:** Isaac Sim owns all physics and hidden true synthetic soil/stand map. Sensors must be sampled at physical robot positions; an imaginary soil score or object-location oracle is not an observation. Each robot contributes independently timestamped samples to the same map. The mission planner acts on the **estimated** map, not hidden truth. Local controllers own high-rate wheel/obstacle/no-go safety. The planter needs a **physically simulated hopper/dropper and rigid-body seed proxy with observed contact/landing**, not text saying “planted”. UI is a subscriber, not a second world engine. Hidden truth exists only for evaluation.
+**Integration gaps:** the `SimulationPort`, rover hardware model, rice world, planting contact and scripted rigid-dock extraction already exist in the shared MuJoCo codebase; the autonomous sensed-fault → rescue decision → typed physical command → measured outcome → task continuation episode **does not**. `front_range_m=None` is sensor invalidity, not immobilisation; do not use hidden simulator truth in agent decisions. The optional Gemini advisor can currently suggest task intents, not execute a persistent tool loop. Do not show an LLM-generated rescue sentence as an actuated rescue.
+
+**One simulator, alternatives inside it:** use the checked-in MuJoCo composition for the hackathon. Isaac Sim remains a separate, unverified translation target and is **not** a parallel demo obligation. Policy A (central shared map) and Policy B (simulated independent maps/gossip) are alternative coordinators, not two worlds or two simultaneous products. Pick one physical rescue integration path and use the other as a baseline/optional comparison. Keep the same `rice.v1` seam and physics assets.
+
+**Scope/order:** P0 integrate one physically credible recovery skill and safety stop; monitor and react to its feedback (a limited second strategy or abort if genuinely executable). P1, using the **same** supervisor and telemetry, is a bounded start/end-of-day analysis → parameter experiment → validate/deploy/rollback cycle. Do not implement a separate training platform, multi-technique RL suite, realistic suction physics, live radio network, model-parallel Jetsons or a second simulator to prove this product. The 12-case adaptive mud-extraction benchmark described in an external conversation has **not** been located as an executable, committed `main` evaluation and is not currently validated product evidence.
 
 ## Human-led robot and farm design
 
