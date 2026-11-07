@@ -90,6 +90,16 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Scope remains unchanged:** measured local sensing → shared map → coordinated task/route selection → physically simulated planting and contact → response to an unexpected change. Recovery/flood mitigation optional; MuJoCo is the current tested development backend, Isaac Sim a separately unverified integration target.
 - **History:** D-0005, D-0006 and D-0007 are preserved verbatim as earlier decisions, not rewritten to imply that Antenna was a prior rejected inspection-only product.
 
+## D-0009 — Rescue-first Antenna mission; rice field stays useful work
+
+- **Date/source:** 7 November 2026, explicit user's later clarification. **Status:** new user-directed product/research priority; code integration, physical learned skill and full team signoff are not claimed.
+- **Decision:** the **primary feature is a robot collective that decides when and how to physically rescue a failed member** using sensor/health evidence, calculated traction/second-casualty risk, uncertain terrain/weather inputs, urgency and operator priorities. Rice-field local measurements, mapping and physical seed placement provide the first meaningful mission; preserve all working source and tests. This **supersedes D-0007's rescue-optional product priority** without overwriting historical records.
+- **Naming stays D-0008:** **Antenna** is canonical; PaddyPatch earlier working name; experimental RiceSwarm AI is not the authoritative main runtime. Do not renumber prior decisions.
+- **What already exists:** PR #23 single-process task bids + heuristic rescue triage + optional Gemini REST advisor, and PR #24 homogeneous Paddy Ant MJCF rigid docking/cam-latch/pitch-lift/tandem extraction. The latter has a **scripted MuJoCo test** that asserts victim displacement >0.08 m. There is **no yet verified integrated incident→contextual decision→physical recovery→continued fieldwork episode**, no trained extraction policy and no actual P2P/distributed Jetson LLM.
+- **Next gate:** distinguish true immobilisation from `front_range_m=None`; propose bounded typed recovery action/results via sole integrator; use physically valid dock mechanism to rescue only when risk/safety thresholds permit; independent hidden-truth grader compares never/always/deterministic risk/optional contextual model and post-incident mission value. Correct **not rescuing** matters.
+- **Optional deployment research:** independently operating local robot policies with no internet requirement; compare an offline small model and a larger quantised **one-model** split across verified Jetson devices. Split inference is not multi-LLM debate, may be slow, and breaks when a required shard/node disappears; always provide local safe fallback. Team Jetson ownership/cost/performance are unverified, no spending/creation authorised.
+- **Scope and prior art:** physical recovery, learned control, risk-aware planning, task auctions and model parallelism have predecessors; evidence against strong baselines and actual physics is necessary. [PRODUCT](PRODUCT.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md), [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md) are the up-to-date specification/research.
+
 ## Decision template
 
 ```text

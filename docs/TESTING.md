@@ -1,6 +1,12 @@
 # Testing, baseline and independent evidence
 
+**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
 **Current verification layers:** repository/tooling tests, Python `rice.v1` scripted tests, **and MuJoCo 4.0.0 prototype physics tests** (`tests/test_mujoco_sim.py`). Full CI installs [pinned optional MuJoCo](../requirements-mujoco.txt) with Python 3.11+ before discovery. These results **do not establish Isaac Sim integration, field agronomy or a complete judge demo**. Report CI and locally observed results separately.
+
+## Rescue-first test matrix (new direction)
+
+A **scripted physical rigid dock/extraction test** exists and asserts a >0.08 m backward victim shift in MuJoCo. Distinguish that result from full rescue autonomy. Integrate a true stalled robot (not sensor dropout or intentional HOLD), a risk-sensitive decision, physical dock/traction execution, actual recovery outcome and continuing soil mapping/planting. Compare no rescue, always rescue, calibrated risk-aware deterministic policy and optional contextual model on matched seeds: physical success, second helper stuck/damaged, false dispatch, travel/energy, remaining task utility and correct abstention. Model-parallel inference has its own separate real hardware failure/latency test. Keep physical safety deterministic even if a compute shard disappears. See [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
 
 ## Component/module audit and swap verification
 

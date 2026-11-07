@@ -1,112 +1,54 @@
-# Agentic Swarm & Edge Architecture Plan (`src/ricebot/agent/`)
+# Rescue-first collective robotics — swarm, edge and inference architecture
 
-**Scope owner:** Swarm Intelligence / Task & Rescue Coordination (`src/ricebot/agent/`)  
-**Branch:** `feature/agentic-swarm-intelligence`  
-**Status:** Local draft for teammate review — decoupled from Mapping (`field_map`) and Traversal (`controller`).
+**Updated 7 November 2026.** The user explicitly clarifies that the **core product is intelligent physical robot-to-robot rescue**; the rice-field operation is a useful, measurable mission (local soil/stand sensing, mapping, seed planting where demonstrated). This **supersedes the earlier planting-first/rescue-optional framing**. Preserve `rice.v1`, MuJoCo physics, and working agricultural features. [PRODUCT](PRODUCT.md) / [D-0009](DECISIONS.md) / [research](RESCUE_EDGE_RESEARCH.md).
 
----
+## Current implementation versus claimed capabilities
 
-## 1. Core Design Decisions for the Team
+**PR #23 (merged):** `src/ricebot/agent/planner.py` contains `SwarmRobotAgent.generate_bids`, `CooperativeSwarmPlanner`, `evaluate_rescue_worth` with `RESCUE_NOW / DEFER_RESCUE / ABANDON_ESCALATE`, `homogeneous_capabilities`, and optional `GeminiSwarmAdvisor`. Existing tests in `tests/test_agentic_swarm.py` use scripted observations and task-intent assertions.
 
-1. **Homogeneous Swarm (All Robots Are Identical):**
-   - Every rover in the swarm has the exact same hardware capabilities: both local soil/stand sensors (`can_sample=True`) and a seed hopper (`can_plant=True`), created via `homogeneous_capabilities(["rover-1", "rover-2", ...])`.
-   - Nobody is hardcoded as "Scout" or "Planter." Roles emerge dynamically on every decision cycle based on each robot's position, remaining seed count (`seeds_remaining`), and the shared map.
+**Not implemented/verified:** a true P2P wireless auction; independently maintained per-robot maps and gossip; **autonomous mission-triggered** physical extraction (a scripted MJCF test does exist); a learned physical extraction controller; Jetson-mounted LLMs; or a single LLM sharded across devices. The current planner centrally sorts bids against **one shared map in one process**. It is a useful deterministic baseline, not a fully decentralised swarm. **Separately**, PR #24 merged `src/ricebot/robot/rovers.py` and the `paddy_ant_rigid_rescue.xml` asset with an actual **scripted MuJoCo tandem extraction test**: dock/latch/pitch-lift/reverse results in >0.08 m victim movement. This is **physical test evidence**, not an autonomous rescue workflow. Software `can_plant=True` for all robots does not mean physical robots have identical rescue tools.
 
-2. **Clean Separation from Mapping & Traversal Teammates:**
-   - **Mapping Teammate -> Swarm Agent:** We only call `field_map.estimate(site_id)` to read `SiteEstimate` (`moisture`, `firmness`, `stand_gap`, `complete`, plus optional `.uncertainty` / `.confidence`).
-   - **Swarm Agent -> Traversal Teammate:** We output `tuple[TaskIntent, ...]` (`mode = SAMPLE | PLANT | HOLD`, `target_site_id`, `reason`). Traversal owns how the rover drives there and avoids obstacles (`RobotCommand`).
-   - **Optional Traversal Hook:** Traversal can pass `travel_cost_fn(robot_pose, site) -> distance_m | None` into `CooperativeSwarmPlanner` so task bids use real lane path distances instead of straight-line Euclidean distance.
+**Critical honesty:** `front_range_m=None` indicates a missing/invalid sensor, **not proof of stuck wheels**. A `rescue_assist(...)` reason still assigns only a nearby `SAMPLE` waypoint. The **separate scripted docking test** does physically attach and move a peer, but the planner and skill are **not wired together**. `GeminiSwarmAdvisor` is an optional **internet REST API** dependent on user configuration, not an offline Jetson inference result. Its fallback tests use mocked advice.
 
----
+## Proposed three-layer embodied architecture
 
-## 2. How We Handle Edge Compute, AI, and Commercial Viability
+**System 0 — local robot:** safety-critical motor limits, observed motion vs commanded motion, collision/traction monitoring, safe HOLD, and one approved helper recovery skill (bounded push/tow or attachment). Use a deterministic physical controller as baseline. A **learned** recovery policy requires actual training, checkpoint provenance, held-out friction/mass tests and measured extraction; never infer learning from a task label or scripted manoeuvre.
 
-Putting a $1,000 GPU on every small rice-field rover is too expensive and drains battery, while relying on a remote cloud LLM for every wheel tick fails rural connectivity and loses the **15% Operational Autonomy** judging criterion.
+**System 1 — cooperative belief:** local observations with provenance, timestamps and uncertainty, task/health/capability claims. The current central map/auction is the baseline. Proposed distributed form uses **independent partial belief maps**, limited-range event-triggered messages, duplicate-sample suppression, explicit task reservation and partition handling. No hidden simulator ground truth may enter mission logic.
 
-We solve this with a **2-Tier Hybrid Edge AI Architecture (System 1 + System 2)**:
+**System 2 — rare incident reasoner:** when a credible incident is detected, consider calculated probability/risk of rescue, possible second-casualty cost, available hardware/skills, remaining fieldwork and seed budget, qualitative operator priorities, and uncertain weather/terrain context. Decide **self-recover, investigate, send help, defer or abandon/escalate**. A deterministic safety/feasibility gate can reject every model suggestion; high-rate control never waits on an LLM.
 
-```text
-+-------------------------------------------------------------------------+
-| TIER 2: SHARED FIELD-EDGE HUB (1 per farm / solar box or farmer tablet) |
-| - Hardware: Single ~$150 edge AI box (Jetson Orin Nano / local Gemma 4) |
-|   or Gemini Flash API when connectivity permits ($0 extra per rover).   |
-| - Role (System 2 — Deliberative AI Brain):                              |
-|   Triggered ONLY on discrete events (stranded robot rescue triage,      |
-|   soil quality overturns, blocked routes, or task transitions).         |
-|   Reasons over swarm JSON state to reallocate tasks or approve rescue.  |
-+------------------------------------+------------------------------------+
-                                     |
-                   Low-bandwidth JSON intent / radio link
-                   (If link_ok=False, Tier 1 runs 100% standalone)
-                                     |
-                                     v
-+-------------------------------------------------------------------------+
-| TIER 1: ON-ROVER MICRO-EDGE (Runs onboard every homogeneous rover)      |
-| - Hardware: ~$20 sub-1W microcontroller / Pi Zero + local mesh radio.   |
-| - Role (System 1 — Fast Autonomous Utility Agent & Safety Gate):        |
-|   1. SwarmRobotAgent: Evaluates Explore (SAMPLE) vs. Exploit (PLANT)    |
-|      utility bids locally in <1 ms.                                     |
-|   2. Peer-to-Peer Auction: Resolves task bids without duplicate sites;  |
-|      auto-switches seed-depleted rovers (seeds=0) into full-time scouts.|
-|   3. Hard Safety Verifier: Rejects any unsafe AI hallucination (e.g.,   |
-|      planting on an unverified site) and provides instant fallback      |
-|      when offline (link_ok=False).                                      |
-+-------------------------------------------------------------------------+
-```
+## Optional offline reasoning: do not confuse three different concepts
 
----
+| Mode | Meaning | Key limitation |
+| --- | --- | --- |
+| Deterministic risk-aware optimiser | Offline numerical task and recovery policy | Strong mandatory baseline; may already solve the decision |
+| Single local small LLM | Quantised model hosted on an available verified onboard/farm computer | Capacity and reasoning quality |
+| **Model-parallel distributed LLM** | **One larger model**, layers/weights partitioned across several devices; activations pass between them during every generated token | Per-token communication, memory/KV overhead, worker loss |
+| Multiple independent small models | Several separate policies exchange bids, arguments and observations | **Not** one larger neural network; consensus challenges |
+| Farm-local PC | Optional offline hub | On-premise machine cost and dependency |
+| Cloud API | Optional reference comparator, not core dependency | Internet, privacy, billing; must be explicitly approved |
 
-## 3. What Makes the Swarm Agentic (4 Mechanisms)
+**Rescue paradox:** if a disabled rover loses power or radio, it may also lose a required LLM shard. For a two-device split model, **the remaining rover may be unable to run it when rescue is requested**. A physically stuck rover can still contribute if its radio/computer works, but this cannot be assumed. Keep a **self-contained deterministic triage and safe-stop fallback** on every functioning robot.
 
-### A. Autonomous Explore (`SAMPLE`) vs. Exploit (`PLANT`) Bidding (`SwarmRobotAgent`)
-Every rover runs its own `SwarmRobotAgent` and computes utility bids (`AgentBid`) for every candidate site:
-- **Exploit (`PLANT`):** High utility if the site is confirmed eligible (`complete=True` and within soil moisture/firmness/gap thresholds) and this rover has `seeds_remaining > 0`, minus travel cost.
-- **Explore (`SAMPLE`):** Value-of-Information (VoI) utility for inspecting unconfirmed sites—including a **cooperative proximity bonus** for scouting sites near teammates that still have seeds.
+## Jetson and inference research — verified sources, no team hardware claim
 
-### B. Emergent Role Switching via Decentralized Auction (`CooperativeSwarmPlanner`)
-- **Dynamic Role Split:** If only `site-a` is confirmed eligible, the closer rover wins the `PLANT` bid for `site-a`, while the second identical rover automatically pivots to its next-best bid (`SAMPLE` at `site-b`) instead of colliding or idling.
-- **Seed-Depletion Transition:** As soon as a rover drops its last seed (`seeds_remaining == 0`), it stops bidding on `PLANT` and boosts its `SAMPLE` utility, automatically becoming a dedicated **scout** for peers that still carry seeds.
+- [Original NVIDIA Jetson Nano](https://developer.nvidia.com/embedded/jetson-nano): **4 GB LPDDR4, Maxwell GPU with 128 CUDA cores, 25.6 GB/s**. Not interchangeable with Orin Nano.
+- [Orin Nano Super Developer Kit](https://www.nvidia.com/en-gb/autonomous-machines/embedded-systems/jetson-orin/nano-super-developer-kit/): **8 GB shared LPDDR5, 67 INT8 TOPS, 102 GB/s, 7–25 W**. NVIDIA's [current marketplace](https://marketplace.nvidia.com/en-us/enterprise/robotics-edge/jetson-orin-nano-super-developer-kit/) lists **US $399**; [December 2024 launch announcement](https://developer.nvidia.com/blog/nvidia-jetson-orin-nano-developer-kit-gets-a-super-boost/) described $249. Neither proves UK retail price or production robot economics. **Previous "$150 Jetson hub" claim was unsupported.**
+- [llama.cpp RPC](https://github.com/ggml-org/llama.cpp/blob/master/tools/rpc/README.md): remote `ggml` compute across hosts, explicitly **fragile and insecure proof-of-concept**. Never expose an RPC server on public/sensitive networks.
+- [CoSEI, IEEE TMC, published 11 Sep 2026](https://ieeexplore.ieee.org/abstract/document/11686281/): authors report up to **5.4× lower latency than conventional pipeline baselines** on an eight-node edge cluster; not a Jetson robot benchmark or a 5.4× gain over one large GPU.
+- [Prism / Qazi et al., May 2026](https://arxiv.org/abs/2605.25682): **Jetson Orin Nano over Wi-Fi**, noting CPU↔GPU staging/network bottlenecks and adaptive partitioning; not proof all larger LLMs are practical.
+- [RAYA, Sep 2026](https://raya-control.github.io/) investigates learned recoverability and bounded intervention; [IAOM, 2026](https://ieeexplore.ieee.org/abstract/document/11560910/) covers dynamic multi-robot task allocation. Both challenge novelty claims.
 
-### C. "Is the Robot Worth Saving?" Rescue Triage (`evaluate_rescue_worth`)
-When a rover gets stuck (`moved < 0.02m` while blocked for $N$ ticks) or suffers a range-sensor fault (`front_range_m is None`), the swarm evaluates whether diverting a healthy peer is worth it:
+**No actual team-owned Jetson SKU/count, split LLM inference run, on-robot power budget, trained autonomous rescue policy or production cost is verified in the repository.** Ask human operators for models/JetPack/RAM/radio and permission before installations or purchases. A desktop simulated node is not an Orin experiment.
 
-$$\text{NetRescueValue} = \text{RescueBenefit} \text{ (stranded seeds + offline data)} - \text{OpportunityCost} \text{ (active planting + travel)} - \text{HazardRisk} \text{ (near no-go zone)}$$
+## Rescue-first implementation and evidence gates
 
-This produces one of three autonomous verdicts (`RescueVerdict`):
-1. **`RESCUE_NOW`:** Stranded rover carries needed seeds (`seeds_remaining > 0`) in a safe zone while healthy peers lack seeds -> healthy peer diverts to the nearest safe site to assist (`rescue_assist`).
-2. **`DEFER_RESCUE`:** Stranded rover is worth saving, **but** the healthy peer has its own seeds and a confirmed crop gap ready right now -> **plant the confirmed crop gap first**, then rescue once planting is finished.
-3. **`ABANDON_ESCALATE`:** Stranded rover has `0` seeds left or is trapped inside a hazardous `permitted=False` zone where the rescuer could also get lost -> stranded rover stays in safe `HOLD` (beacon for human pickup after the mission) while healthy peers finish the field.
+1. **Actual physical incident:** field/world developer makes a reproducible immobilisation/traction/actuator failure, measured via permitted robot signals; test false sensor fault and stationary HOLD separately.
+2. **Physical ability:** robot/mechanical owner defines one safe helper manoeuvre and actuator; simulate actual contacts, forces, displacement and second-robot risk. A rendezvous alone fails.
+3. **Strategic decision:** agent owner compares no rescue, always rescue, and calibrated risk-aware deterministic policy with optional contextual model on matched incident inputs. Include cases in which refusal is correct.
+4. **Task continuity:** return to genuine rice mapping/planting after recovery and grade independently. Document whether low-level policy was **trained** or classical.
+5. **Optional parallel studies:** per-node partial beliefs/gossip with communication dropout; single local quantised model, then real split inference on approved Jetsons with tokens/s, RAM, watts, RTT, network bytes, node failure. Neither blocks the physical rescue demo.
+6. **Judge proof:** one continuous ≤60-second sensor → failure → evaluated intervention → actual physical assistance **or safe abstention** → measured mission consequence. A scripted physical dock/extraction check is verified by the merged test; no claim of a full rescue-first **autonomous mission** until perception, decision, command and recovered task are integrated and tested.
 
-### D. Event-Driven AI Supervisor with Safety Guardrails (`GeminiSwarmAdvisor`)
-- When a mid-episode surprise occurs (`quality_overturned`, `route_obstructed`, or `robot_stranded`), `GeminiSwarmAdvisor` prompts the AI model (Gemini REST API or local edge LLM) with the live JSON state of all robots, seed counts, and site estimates.
-- Every AI suggestion is checked by `_try_advisor`: it **rejects** planting on unmeasured sites, duplicate site assignments, or planting with `0` seeds, and immediately falls back to the Tier-1 auction if `link_ok=False`.
-
----
-
-## 4. How Teammates Plug This In
-
-No changes to [contracts.py](../src/ricebot/contracts.py) or [runtime.py](../src/ricebot/runtime.py) are required:
-
-```python
-from ricebot.agent import (
-    CooperativeSwarmPlanner,
-    GeminiSwarmAdvisor,
-    homogeneous_capabilities,
-)
-from ricebot.mission import MeasuredFieldMap
-from ricebot.runtime import EpisodeRunner, MissionCore
-
-caps = homogeneous_capabilities(["rover-1", "rover-2"])
-
-planner = CooperativeSwarmPlanner(
-    capabilities=caps,
-    advisor=GeminiSwarmAdvisor(),  # optional AI supervisor; safe offline fallback if no API key
-    travel_cost_fn=None,           # Traversal teammate can pass their path-distance function here
-)
-
-core = MissionCore(
-    field_map=MeasuredFieldMap(sites),  # Mapping teammate's map class plugs in here
-    planner=planner,
-    controller=controller,              # Traversal teammate's controller plugs in here
-)
-```
+**Owned paths:** retain current kernel integrator as sole shared-schema writer, world owner for fault/soil, robot owner for mechanical recovery tool, planner owner for triage/decision, evaluator for independent scoring. ChatGPT/Gemini developer ownership is interchangeable. [Research experiment packet](RESCUE_EDGE_RESEARCH.md).
