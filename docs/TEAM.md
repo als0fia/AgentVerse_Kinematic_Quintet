@@ -1,6 +1,6 @@
 # Team ownership, parallel agents and integration
 
-The human team decides roles. **No named teammate assignments have been verified.** An AI agent is a worker within human-approved scope, not a new registered team member.
+The human team decides roles. **No named teammate assignments have been verified.** An AI agent is a worker within human-approved scope, not a new registered team member. The organiser's 3–5 human team size does not specify an AI-agent quota; no separate AI-agent cap has been verified. Use **one human-led integration path, with as many bounded specialist tasks as can be independently tested**, not one monolithic shared AI session.
 
 ## One-writer ownership protocol
 
@@ -58,13 +58,49 @@ At each natural sync, show a runnable demo or explicit blocker, not a slide. Con
 
 If branches conflict: integration lead preserves both contributors' intended behaviour and reruns affected interface and end-to-end tests. If new work breaks the demo, revert the **specific** bad change on a new safe commit or switch back to known-good commit; never force/reset others' history without human approval. Keep demo-safe branch/tag only when the team actively uses it.
 
-## Working across Claude, Codex, Gemini and humans
+## Gemini-first model and context routing (adopted team workflow, not app architecture)
+
+**Goal:** use frontier reasoning for genuine synthesis, and smaller/faster isolated contexts for bounded work. **Do not** flood a lightweight worker with an entire repository or conversation. These are recommended *roles*, not a fixed model requirement, API access grant or one agent per person.
+
+| Job | Preferred route if accessible | Context/tools / escalation |
+| --- | --- | --- |
+| Human-facing coordination, engineering plan, cross-module decisions, hard debugging | **Gemini 4 Argon** (documented API model `gemini-4-argon`); MEDIUM ordinarily, HIGH when complexity justifies it | Brief + decision constraints + relevant files/contracts + tool-backed repo search/test results; can invoke CLI subagents when supported. **Never** ingest all chat history by default |
+| Bounded code comprehension, documentation lookup, narrow test proposals, short implementation reviews | **Gemini 3.8 Flash** (documented `gemini-3.8-flash`); LOW for light tasks, MEDIUM as needed | Only named files, diff, exact interface/test fixture; read-only tools for research/review; return a short evidence report and source/line references |
+| Optional private/offline narrow tasks | **Gemma 4** where hardware and licensed local weights **really exist** | Use for bounded classification/summarisation only after local capability test; not a substitute for complex review, and no assumed installation |
+| Live video, speech or presentation media | **Gemini Live / Speech, Banana, Veo etc only if selected product needs them** | Kept separate from coding-agent coordination; exact availability and API IDs require preflight |
+| Physics, control loops, evaluation, safety gating | **Deterministic controller/simulator/test harness** | LLM may propose, diagnose or choose experiments, but never be the unchecked high-rate actuator |
+
+**Execution route:** Gemini CLI is preferred when a teammate has it installed; `GEMINI.md` loads common instructions and `.agents/skills/` loads procedures on demand. Its built-in `codebase_investigator` / `generalist` and local `.gemini/agents/` definitions can have separate contexts and limited tools. CLI subagents are *not* independent teammates; official CLI docs indicate subagents cannot recursively call other subagents. Verify `/agents list`, `/skills list`, `/memory show`, the selected model, and actual available tools locally before relying on delegation. Do not assume a Gemini CLI session, remote A2A service, API key, Antigravity environment or a paid quota exists just because a file or slide names it.
+
+**API route, when implementing a real Gemini-backed product:** prefer Google's documented Interactions API if it fits the app and its privacy requirements. `previous_interaction_id` can resume the *same* conversation, **but tools, system instructions and generation settings must be supplied again on each new call**. Never share an interaction ID across unrelated worker roles to simulate a giant shared context. The provider stores state under its service/retention terms, and implicit caching can reduce reprocessing but does **not** guarantee a 95% hit rate. Validate actual SDK versions/model IDs and cost before coding; no API calls or cloud charges are authorised by this document.
+
+**Per-worker context packet (bounded):** goal and expected observable output; latest branch/commit; relevant 1–3 docs/interfaces and file paths; constraints and permitted tools; one test fixture; owner/contact issue or PR; time/budget limit; known uncertainties. A worker replies with **result + evidence + exact changed files/tests + blocker**, not pages of unreviewed chain-of-thought or all intermediate terminal logs. Pull additional context via search/read tools *as needed*, not blanket embedding. Escalate when a change touches shared contracts, architecture, spending or human approvals.
+
+## GitHub-native coordination surface (no new service required)
+
+The repo is public and **GitHub Discussions is disabled** as observed 7 Nov; do not presume access to enable it. Use GitHub **Issues for substantial independent tasks / decisions / blocking questions**, **issue comments for focused agent-to-agent threads**, and **PRs + review comments for source changes and handoffs**. Keep each conversation attached to the relevant issue/PR, with direct links and `@mentions` only for authorised human teammates. No `chat/`, `threads/`, `inbox/`, `messages/` or per-agent running transcript folders in Git: they create merge contention, noise and accidentally public logs.
+
+Start with an issue only when there are actual parallel workstreams, not an empty coordination board. Suggested concise issue body:
+
+```text
+Outcome / independent pass signal:
+Owner (human or assigned agent role):
+Exclusive paths and branch:
+Input contract/fixture; dependent issue/PR:
+Blocked on / approval needed:
+```
+
+For a blocked worker, comment on its issue with **decision required + options/evidence + branch/commit** and stop editing shared paths until the human/integrator resolves it. Worker PRs link the issue; the integrator merges only after checking current branch head, contracts and combined tests. Public repo means **never post private team chat, participant credentials, keys, unpublished restricted source or individual user data** to an issue or PR. If the team later opts for GitHub Discussions or a hosted A2A/message broker, reassess based on proven bottlenecks, hosting/auth/cost/visibility, not novelty. A2A permits remote-to-remote agent calls but would require a running service and secure authentication: **not needed just to coordinate Git branches**.
+
+**Availability:** issue/PR comments are persisted coordination records, not a live chat bus or autonomous scheduler. Each agent must be explicitly run and fetch current issue/PR state; a chat assistant cannot be a continuous background coordinator merely by being named “lead”. One named human integrator remains accountable for final merge and submission.
+
+## Active Gemini/Codex entrypoints and retained Claude compatibility
 
 All workers follow the same written contract and handoff template above; provider-specific agent/subagent facilities are **optional execution mechanisms**, not separate task owners. In particular:
 
-- **Claude Code:** `CLAUDE.md` imports `AGENTS.md`; `.claude/skills/` exposes complete skills; `.claude/agents/` provides the existing four Claude subagents. Check discovery with `/skills` and `/agents` in the actual Claude installation.
-- **Codex:** reads `AGENTS.md` and `.agents/skills/`. Invoke the matching skill via `$skill-name` if the environment supports it, or read the file directly.
-- **Gemini CLI:** `GEMINI.md` imports `AGENTS.md`; `.agents/skills/` is a documented workspace skills alias. Verify with `/memory show` and `/skills list` after trusting the workspace.
+- **Gemini CLI — primary:** `GEMINI.md` imports `AGENTS.md`, task skills are in `.agents/skills/`, and specialised read-only agent definitions can live under `.gemini/agents/`. Check `/memory show`, `/skills list` and `/agents list` in the actual installation. Main worker has a separate Git branch/worktree from any concurrent local CLI sessions.
+- **Codex — optional:** reads `AGENTS.md` and `.agents/skills/` when used by a teammate; same branch, fixture, scope and evidence contract.
+- **Claude — legacy compatibility, not team default:** existing `CLAUDE.md`, `.claude/agents/` and `.claude/skills/` remain intact to avoid silently breaking a teammate's setup or the present CI parity checker. **Do not configure new workflows to depend on Claude.** Remove/migrate legacy mirrors and associated CI only after ownership review and replacing the parity test; do not delete them as collateral of model routing.
 - **Ordinary hosted chats:** retrieve the repo and applicable skill explicitly; never assume a local CLI, subagent, worktree or shell exists.
 
 Pass the same exact contract version, test fixture and observed output regardless of which model was used. Do not make multiple models edit the same working tree simultaneously; isolate each concurrent assignment in a branch/worktree, review the PR and rerun integration tests after merging. The human team remains responsible for final decisions.
