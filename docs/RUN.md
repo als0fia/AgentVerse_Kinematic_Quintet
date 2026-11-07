@@ -1,6 +1,20 @@
 # Reproducible setup, run and recovery
 
-**Application runtime not yet chosen.** Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
+**Rice flood monitoring/mitigation is selected as a working direction; application runtime and robot design are not yet verified.** Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
+
+## Next agent first integration task — not yet implemented
+
+**First do this, before dividing feature code among teammates.** Human integrator owns one branch/worktree and the shared `v0` seam; human robot-design owner approves a simple rover body, wheels, and range-sensor placement. Read [PRODUCT](PRODUCT.md), [ARCHITECTURE](ARCHITECTURE.md), [CONTRACTS](CONTRACTS.md), [TEAM](TEAM.md#selected-rice-project-five-human-work-split-proposed-not-yet-assigned-by-name), and the `embodied-loop` / `contracts-first` skills.
+
+1. On a real workstation, verify an actual local MuJoCo installation and minimal moving scene (or document the exact failure and have the integrator approve a named alternative). Do not assume a GPU, cloud quota or already functional physics.
+2. Create a small `src/ricebot/` Python package with `contracts.py` defining/validating `ObservationV0`, `SensorSampleV0`, `TaskIntentV0`, `DriveCommandV0` and `StepResultV0`, as specified in CONTRACTS. Add narrow tests for wrong units, stale readings, invalid commands, reset and sequencing.
+3. Create `sim.reset(seed)` and `sim.step(command)` around one **physically actuated wheeled rover** on a field-service path, with a genuinely sampled simulated front range sensor and odometry. A changed velocity must cause actual physical movement and later sensed change.
+4. Make a simple **local** reactive controller move to an inspection point. Inject a new obstruction partway through a **single** episode; the controller must see it via sensor, change path or safely stop without privileged event truth. Keep an independent hidden-state grader and read-only optional viewer.
+5. Record a reproducible command, exact installation/version, seed, observation→action→observation trace, passing and failing checks, latency, honest limitations and actual results in this document. Merge this **known-good integration seam** before worker agents build independently against its frozen fixture.
+
+**Suggested future CLI shape, not currently implemented:** `python -m ricebot.runner --scenario blocked_route --seed 7 --headless`. The next agent must create and really execute a working command, or report the blocker. Do not mistake this planning string for a tested entry point.
+
+**Ready-for-parallel gate:** actual physics movement, actual range change, mid-run sensed obstacle, bounded local response, deterministic seed/reset, one typed fixture and human-reviewed physical robot choice. **After that:** rice-level flood detection/independent inspection → optional physically actuated gate with a labelled simplified water-flow model → optional second robot recovery. A digital alert alone is not physical mitigation; a dispatch command is not physical towing.
 
 ## Foundation checks — actually available
 
@@ -25,7 +39,7 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 | Route | First check | Risks and decision gate |
 | --- | --- | --- |
-| **Isaac Sim (organiser-recommended)** | Obtain actual organiser-shared setup GitHub link and credited GPU allocation. Confirm NVIDIA compatibility, GPU NVENC, operating system, memory and streaming path; launch a sample scene and connect to stream | [Isaac Sim hardware requirements](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html) are significant. [WebRTC docs](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/manual_livestream_clients.html) warn endpoints lack authentication/encryption; **never expose them publicly without an approved protected topology**. Do not assume all Modal GPU types support ray tracing/NVENC |
+| **Isaac Sim (older slide; stretch route)** | Obtain actual organiser-shared setup GitHub link and credited GPU allocation. Confirm NVIDIA compatibility, GPU NVENC, operating system, memory and streaming path; launch a sample scene and connect to stream | [Isaac Sim hardware requirements](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html) are significant. [WebRTC docs](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/manual_livestream_clients.html) warn endpoints lack authentication/encryption; **never expose them publicly without an approved protected topology**. Do not assume all Modal GPU types support ray tracing/NVENC |
 | **MuJoCo (now organiser-recommended first)** | In a local virtual environment: `python -m pip install mujoco` then `python -m mujoco.viewer` (correct module invocation; organiser email contains a line-break/space typo); verify window and sensor → action episode | [Official MuJoCo Python docs](https://github.com/google-deepmind/mujoco/blob/main/doc/python.rst) confirm installation/viewer. Run from actual workstation; pin version after smoke test. |
 | **PyBullet, Gazebo, Webots (organiser-authorised alternatives)** | Establish an actual tested scene and frame output before assigning dependent modules | Choose only when someone can get an executable loop quickly; versions/installation commands TBD |
 
