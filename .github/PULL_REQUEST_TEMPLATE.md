@@ -10,6 +10,13 @@
 - Integration dependencies / rollout:
 - Existing teammate changes preserved:
 
+### If this PR introduces, ports or supersedes an alternate simulator/feature implementation
+- Variant/feature ID or new row in [SIMULATOR-VARIANTS](../docs/SIMULATOR-VARIANTS.md) (otherwise N/A):
+- Original source branch + **exact** commit and unique diff relative to already integrated work:
+- Functionality **adopted / adapted / parked / rejected**, with reason and dependencies:
+- Single authoritative simulation/sensor/control/viewer boundary retained; tests for changed interface:
+- Human owner of overlapping source/contract contacted or coordination still needed:
+
 ## Local verification and evidence
 - Local host/environment (OS, Isaac Sim version, GPU/VRAM **if relevant**; otherwise N/A):
 - Exact commands **actually run on this checkout**, tested commit/seed and **observed result** (pass/fail output):
