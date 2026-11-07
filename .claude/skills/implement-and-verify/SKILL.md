@@ -5,7 +5,7 @@ description: Implement a scoped feature with a failing test, a minimal working c
 
 # Implement and verify
 
-1. Read root `AGENTS.md`, assigned issue/PR, `docs/PRODUCT.md`, relevant contract and current tests; inspect uncommitted teammate changes.
+1. Read root `AGENTS.md`, the assigned task (issue/PR or direct request), the **relevant** product/contract docs and current tests; inspect overlapping teammate changes. Do not require a new issue or unrelated reading for a tiny fix.
 2. Confirm branch/worktree and **exclusive owned paths**. Ask integrator before touching shared contract files.
 3. First run an existing known-good test/smoke command. For changed behaviour, add a failing test and observe the expected failure (RED); avoid false-positive mocks.
 4. Implement simplest behaviour that passes (GREEN). Refactor without moving the interface or expanding scope unnecessarily.
