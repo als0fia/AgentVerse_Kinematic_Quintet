@@ -54,18 +54,21 @@ Merge and integration steps:
 
 At each natural sync, show a runnable demo or explicit blocker, not a slide. Confirm: (a) latest integrated commit, (b) whether the main journey passes, (c) most important failing contract, (d) decision needed. Issues/PRs remain the task record; do not create a growing `STATUS-v7.md`.
 
+**Canonical branch hygiene:** `main` is the integrated source of truth, not a separate product branch. Create short-lived isolated task branches only for actual concurrent work, avoid stacked PRs unless an explicit dependency requires them, and merge prerequisites first. Never substitute a worker branch for published main instructions. After integration, read `main` back, check workflows and record the known-good SHA; retaining old branch names is not evidence work is missing from main.
+
 ## Conflict and rollback
 
 If branches conflict: integration lead preserves both contributors' intended behaviour and reruns affected interface and end-to-end tests. If new work breaks the demo, revert the **specific** bad change on a new safe commit or switch back to known-good commit; never force/reset others' history without human approval. Keep demo-safe branch/tag only when the team actively uses it.
 
-## Gemini-first model and context routing (adopted team workflow, not app architecture)
+## Model and context routing for human-led coding (not robot app architecture)
 
 **Goal:** use frontier reasoning for genuine synthesis, and smaller/faster isolated contexts for bounded work. **Do not** flood a lightweight worker with an entire repository or conversation. These are recommended *roles*, not a fixed model requirement, API access grant or one agent per person.
 
 | Job | Preferred route if accessible | Context/tools / escalation |
 | --- | --- | --- |
-| Human-facing coordination, engineering plan, cross-module decisions, hard debugging | **Gemini 4 Argon** (documented API model `gemini-4-argon`); MEDIUM ordinarily, HIGH when complexity justifies it | Brief + decision constraints + relevant files/contracts + tool-backed repo search/test results; can invoke CLI subagents when supported. **Never** ingest all chat history by default |
-| Bounded code comprehension, documentation lookup, narrow test proposals, short implementation reviews | **Gemini 3.8 Flash** (documented `gemini-3.8-flash`); LOW for light tasks, MEDIUM as needed | Only named files, diff, exact interface/test fixture; read-only tools for research/review; return a short evidence report and source/line references |
+| **ChatGPT with connected GitHub** — cross-component design, code editing, integration review, interface ownership | **ChatGPT** (currently available via the user's conversation/GitHub connector); a human remains merge/mission owner | Inspect latest GitHub branch and selected files; write scoped commits on owned branch with SHA lease; inspect CI and code diff. **This is API-backed GitHub editing, not a shell, robot runtime, or automatic dispatch to Gemini.** |
+| Hard cross-component reasoning, difficult debugging or architecture counter-review | **Gemini 4 Argon**, if entitled (API model `gemini-4-argon`); higher reasoning setting only if task justifies it | Focused brief, relevant files/contracts and actual test traces; run in an explicitly started Gemini session, never assumed to be reachable by this chat |
+| Bounded code comprehension, scoped implementation, documentation lookup, narrow test proposals, short code reviews | **Gemini 3.8 Flash** (documented `gemini-3.8-flash`); LOW for light tasks, MEDIUM as needed | Only named files, diff, exact interface/test fixture; read-only tools for research/review; return a short evidence report and source/line references |
 | Optional private/offline narrow tasks | **Gemma 4** where hardware and licensed local weights **really exist** | Use for bounded classification/summarisation only after local capability test; not a substitute for complex review, and no assumed installation |
 | Live video, speech or presentation media | **Gemini Live / Speech, Banana, Veo etc only if selected product needs them** | Kept separate from coding-agent coordination; exact availability and API IDs require preflight |
 | Physics, control loops, evaluation, safety gating | **Deterministic controller/simulator/test harness** | LLM may propose, diagnose or choose experiments, but never be the unchecked high-rate actuator |
@@ -75,6 +78,50 @@ If branches conflict: integration lead preserves both contributors' intended beh
 **API route, when implementing a real Gemini-backed product:** prefer Google's documented Interactions API if it fits the app and its privacy requirements. `previous_interaction_id` can resume the *same* conversation, **but tools, system instructions and generation settings must be supplied again on each new call**. Never share an interaction ID across unrelated worker roles to simulate a giant shared context. The provider stores state under its service/retention terms, and implicit caching can reduce reprocessing but does **not** guarantee a 95% hit rate. Validate actual SDK versions/model IDs and cost before coding; no API calls or cloud charges are authorised by this document.
 
 **Per-worker context packet (bounded):** goal and expected observable output; latest branch/commit; relevant 1–3 docs/interfaces and file paths; constraints and permitted tools; one test fixture; owner/contact issue or PR; time/budget limit; known uncertainties. A worker replies with **result + evidence + exact changed files/tests + blocker**, not pages of unreviewed chain-of-thought or all intermediate terminal logs. Pull additional context via search/read tools *as needed*, not blanket embedding. Escalate when a change touches shared contracts, architecture, spending or human approvals.
+
+## Communication protocol between developer agents (ChatGPT ↔ Gemini ↔ humans)
+
+**Coordination authority:** the human integrator chooses scope, owns approvals and merges. ChatGPT can act as an *active architect/programmer/reviewer* in its connected GitHub session, not as an always-running boss. A Gemini CLI worker must be explicitly started by a teammate or a separately authorised automation. **No current connector here can directly invoke a teammate's Gemini CLI session.** GitHub issue/PR comments are asynchronous evidence exchanges, not synchronous remote procedure calls.
+
+**CLI entrypoint when team member starts Gemini:** use the optional [scoped implementer](../.gemini/agents/scoped-implementer.md) only in that worker's own branch/worktree, e.g. `@scoped-implementer Implement the assigned sensor adapter using contract observation.v1; limit changes to src/sensors/ and tests/sensors/; run the specified fixture and return a handoff.` Confirm local availability with `/agents list`, `/skills list`, and `/tools`; if a pinned model is unavailable, the **human** must choose a supported option. The [independent reviewer](../.gemini/agents/independent-reviewer.md) stays read-only and should be invoked on a separate review pass. These definitions are not spawned automatically.
+
+**Example per-worker Git worktree (local machine, from a clean repo; replace placeholders):**
+```bash
+git fetch origin
+git worktree add -b feature/my-assigned-module ../kv-my-assigned-module origin/main
+cd ../kv-my-assigned-module
+gemini
+# In the CLI: /memory show, /skills list, /agents list, /tools
+# Paste the human-approved ASSIGN; optionally invoke @scoped-implementer
+```
+Do **not** run two writable agents inside the same checkout; if main lacks a needed contract, the human integrator merges the prerequisite first or supplies an explicit compatible base commit. A GitHub issue may be created with the optional [agent task template](../.github/ISSUE_TEMPLATE/agent-task.md) when several workers need a durable assignment.
+
+**Default no-orchestrator path:** if a single developer can deliver the vertical slice, do that. Parallelise only after a runnable seam has been established and two tasks can change non-overlapping files. Do not split a tightly coupled perception/control integration into multiple concurrent writers before the interface is tested.
+
+| Stage | Sender → receiver | Minimum message and action | Stop / escalation |
+| --- | --- | --- | --- |
+| 1. Select the slice | Human + integrator → builders | Named beneficiary, expected simulated action, baseline, one failing-world scenario; [PRODUCT](PRODUCT.md) and [EVENT](EVENT.md) are gates | No chosen product or simulator: no speculative robot implementation |
+| 2. Assign bounded work | Integrator → one developer-agent session | **Goal**, owner, **base commit**, unique branch/worktree, exclusive paths, input/output fixture, testable done criterion, limits and the issue/PR link if necessary | Two workers need same contract file: integrator resolves seam and sole writer first |
+| 3. Execute | Gemini/Codex/ChatGPT worker → own branch | Read scoped docs only; make code+test changes, capture exact commands, output and failures; don't alter other worker's paths | Shared contract/API change, unsafe action, credits or deployment: stop and ask |
+| 4. Block | Worker → issue/PR comment or human | **BLOCKED**: reproducible symptom; commit/seed; decision needed; 1–2 options and recommendation | No silent guesses, redundant chats or repeated polling without a human response |
+| 5. Handoff | Worker → integrator, as a PR or concise comment | **READY FOR REVIEW**: branch/commit; touched paths; observed tests **with results**; representative trace; interface version; residual risks | Model assertions without a real run are explicitly **not tested** |
+| 6. Review/integrate | Independent reviewer + human integrator | Review diff, check latest base, run merged contract + end-to-end scene; record current proven demo commit | **INTEGRATED** only after real checks, otherwise leave PR open; final submission requires human authorisation |
+
+**Minimal copy/paste exchange (for parallel work, not every tiny fix):**
+
+```text
+ASSIGN — goal: ... | owner: ... | base SHA: ... | branch: ... | owned paths: ...
+contract/fixture: ... | done when: ... | actual command: ... | constraints: ...
+BLOCKED — branch/SHA: ... | observed failure: ... | decision needed: ...
+HANDOFF — PR/SHA: ... | files: ... | commands run and results: ... | demo/fixture: ...
+           contract changed?: ... | untested claims/risks: ...
+```
+
+**What travels across models:** versioned repository files and explicit contracts, one fixture, a known base SHA and a short conclusion. Do **not** transmit entire chat histories, hidden reasoning, secret keys or raw private organiser/team content. The team repository is public. For actual source contributions, use the [PR handoff template](../.github/PULL_REQUEST_TEMPLATE.md); small direct fixes may stay lightweight.
+
+**When to call which model:** use ChatGPT for integrator-level code and reviews when it has GitHub access; route a **specific, isolated** inspection or implementation to Gemini 3.8 Flash; escalate genuinely ambiguous design/failure diagnosis to Argon after inspecting traces and baseline. Separate an independent evaluation pass from the implementing agent. The model allocation is a tested-*later* hypothesis, not proof any Gemini model is better for this project. Compare completion, code-review defects, integration rework, elapsed time, cost and tool availability across real tasks; use the smallest model meeting the verified bar. The rationale and first-party references live in [RESEARCH](RESEARCH.md#development-agent-communication-and-model-choice-evidence--7-november-2026).
+
+**No pretending to orchestrate:** a comment on GitHub doesn't start a worker; a Gemini subagent within one CLI session is not an autonomous server; the Interactions API doesn't synchronise Git branches; passing a synthetic test isn't a live robot. Never claim multi-agent collaboration ran just because definitions exist.
 
 ## GitHub-native coordination surface (no new service required)
 
@@ -90,7 +137,7 @@ Input contract/fixture; dependent issue/PR:
 Blocked on / approval needed:
 ```
 
-For a blocked worker, comment on its issue with **decision required + options/evidence + branch/commit** and stop editing shared paths until the human/integrator resolves it. Worker PRs link the issue; the integrator merges only after checking current branch head, contracts and combined tests. Public repo means **never post private team chat, participant credentials, keys, unpublished restricted source or individual user data** to an issue or PR. If the team later opts for GitHub Discussions or a hosted A2A/message broker, reassess based on proven bottlenecks, hosting/auth/cost/visibility, not novelty. A2A permits remote-to-remote agent calls but would require a running service and secure authentication: **not needed just to coordinate Git branches**.
+For a blocked worker, comment on its issue with **decision required + options/evidence + branch/commit** and stop editing shared paths until the human/integrator resolves it. Worker PRs link the issue if one exists and use [the concise PR handoff fields](../.github/PULL_REQUEST_TEMPLATE.md); the integrator merges only after checking current branch head, contracts and combined tests. Public repo means **never post private team chat, participant credentials, keys, unpublished restricted source or individual user data** to an issue or PR. If the team later opts for GitHub Discussions or a hosted A2A/message broker, reassess based on proven bottlenecks, hosting/auth/cost/visibility, not novelty. A2A permits remote-to-remote agent calls but would require a running service and secure authentication: **not needed just to coordinate Git branches**.
 
 **Availability:** issue/PR comments are persisted coordination records, not a live chat bus or autonomous scheduler. Each agent must be explicitly run and fetch current issue/PR state; a chat assistant cannot be a continuous background coordinator merely by being named “lead”. One named human integrator remains accountable for final merge and submission.
 

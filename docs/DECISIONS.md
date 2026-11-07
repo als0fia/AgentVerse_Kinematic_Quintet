@@ -20,8 +20,27 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Decision:** A submission must be evaluated as a closed simulated **sensor → decision → action → feedback** loop, including an observable unplanned change. Avoid a scripted sequence dressed as autonomy. Use local/inside-runtime core decisions where practical; isolate optional remote LLM deliberation from the short-horizon control loop.
 - **Options open:** Isaac Sim headless stream on verified suitable compute, or MuJoCo/PyBullet/Gazebo/Webots where team resources make a faster deterministic first episode possible. No hardware, GPU, model credits, simulator or project is selected or verified in this record.
 - **Engineering impact:** product selection needs a meaningful human problem; architecture must expose actual sensor and action interfaces; testing must compare fixed-path and disturbed episodes; demo needs one continuous ≤60s video and one-page technical PDF.
-- **Trade-off:** premature advanced engine/cloud integration could consume the whole hackathon; fallback simulator and network-off tests preserve an achievable demo. The five official Robotics percentages are resolved from the clearer attendee photograph; account/credit details and selected product remain unverified.
+- **Trade-off:** premature advanced engine/cloud integration could consume the whole hackathon; fallback simulator and network-off tests preserve an achievable demo. The earlier glare-related rubric uncertainty is **superseded by D-0003's full clear-slide evidence**; account/credit details remain unverified.
 - **Revisit:** once team selects mission, tests available compute and proves first simulated episode.
+
+## D-0003 — Full rubric verified; impact is an evidence and demonstration gate
+
+- **Date:** 7 November 2026
+- **Status:** evidence corrected from additional clearer organiser photograph; **not** a selected project
+- **Evidence:** attendee-supplied unobscured “How you'll be judged” slide; [EVENT](EVENT.md#confirmed-robotics-judging-rubric--clear-organiser-photograph-7-november-2026).
+- **Decision:** use the **actual** Robotics weights: perception 25%, adaptation 25%, autonomy 15%, **relevance and impact 20%**, ambition/technical quality 15%. A proposal must name a credible human need with source evidence, and its most important failure must be handled on screen. An exciting simulation without real utility is not enough.
+- **Effects:** [PRODUCT](PRODUCT.md) becomes the concept-selection evidence gate; [DEMO](DEMO.md) maps that evidence to the one-page PDF and continuous simulation recording. Existing algorithms and specialised models remain meaningful baselines.
+- **Open:** actual beneficiary, mission, resources and working demo; no scored team performance is asserted.
+
+## D-0004 — GitHub-mediated developer-agent communication; human integrator
+
+- **Date:** 7 November 2026
+- **Status:** process adopted in documentation; worker runtime/model entitlements not exercised
+- **Alternatives:** (a) single developer and human review, (b) GitHub branches/PRs with bounded Gemini CLI sessions, (c) hosted multi-agent messaging service.
+- **Decision:** start with (a); use (b) when independent modules genuinely exist. ChatGPT may actively implement/review via its GitHub connector; Gemini sessions/subagents must be started by authorised local operators. Each worker owns branch/paths, returns observed test results and a PR for shared code; human integrator merges and approves external actions. No automatic direct ChatGPT→Gemini calls or remote A2A service.
+- **Reasons:** first-party [engineering evidence](RESEARCH.md#development-agent-communication-and-model-choice-evidence--7-november-2026) favours simple workflows, context isolation, explicit handoff and independent verification. Model roles are provisional and must be measured on actual accessible tools.
+- **Testability:** the PR template and regression checks protect rubric consistency/skill mirrors; **none of this is a running robot or a measured multi-agent benchmark**.
+- **Revisit:** when two separately runnable module tasks exist or repeated communication failures justify automation.
 
 ## Decision template
 

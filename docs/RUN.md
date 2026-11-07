@@ -21,12 +21,12 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 ## Simulator/stream preflight — do this before writing agent code
 
-**Slide-based priority:** the organiser recommends proving a live stream in the first hour. The team has **not yet installed or proven** any of these routes.
+**Updated priority:** later organiser email (7 Nov 15:16) recommends **MuJoCo on a laptop first**; earlier slide recommends a live stream for Isaac. Prove a running scene and captured sensor/action output quickly. The team has **not yet installed or proven** either route.
 
 | Route | First check | Risks and decision gate |
 | --- | --- | --- |
 | **Isaac Sim (organiser-recommended)** | Obtain actual organiser-shared setup GitHub link and credited GPU allocation. Confirm NVIDIA compatibility, GPU NVENC, operating system, memory and streaming path; launch a sample scene and connect to stream | [Isaac Sim hardware requirements](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html) are significant. [WebRTC docs](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/manual_livestream_clients.html) warn endpoints lack authentication/encryption; **never expose them publicly without an approved protected topology**. Do not assume all Modal GPU types support ray tracing/NVENC |
-| **MuJoCo (organiser-authorised fallback)** | Verify Python package/renderer works on an actual teammate's computer, run a simple simulated sensor → action episode, and capture side-by-side observations/actions | [MuJoCo Python docs](https://mujoco.readthedocs.io/en/stable/python.html) supply supported bindings and rendering. Inspect platform/graphics compatibility and sensor semantics. |
+| **MuJoCo (now organiser-recommended first)** | In a local virtual environment: `python -m pip install mujoco` then `python -m mujoco.viewer` (correct module invocation; organiser email contains a line-break/space typo); verify window and sensor → action episode | [Official MuJoCo Python docs](https://github.com/google-deepmind/mujoco/blob/main/doc/python.rst) confirm installation/viewer. Run from actual workstation; pin version after smoke test. |
 | **PyBullet, Gazebo, Webots (organiser-authorised alternatives)** | Establish an actual tested scene and frame output before assigning dependent modules | Choose only when someone can get an executable loop quickly; versions/installation commands TBD |
 
 **No-cost permission gate:** No cloud, billing, remote streaming port, API token or public endpoint may be created before the team verifies account/credits, total quota, source/terms and spending/deployment approval. Recording a presentation claim is not a successful preflight. Do not accept a third-party setup script without reading its repo, version and security footprint.
