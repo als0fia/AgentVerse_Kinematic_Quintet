@@ -1,5 +1,7 @@
 # Method references and useful hackathon evidence
 
+**Latest user correction — rescue-first (7 Nov 2026):** The primary product is risk-aware robot-to-robot *physical recovery*, with rice sensing/mapping and planting as meaningful mission context. Earlier planting-first/rescue-optional language below is historical implementation guidance, not the current product priority. Existing physical code and tests are preserved. The merged swarm planner's triage and `rescue_assist` rendezvous do **not** implement actual physical recovery. [Current product](PRODUCT.md), [architecture/research plan](SWARM_EDGE_PLAN.md), [research](RESCUE_EDGE_RESEARCH.md), [D-0008](DECISIONS.md).
+
 **Reviewed and updated 7 November 2026.** These are adaptable engineering ideas, **not official AgentVerse judging rules** and not proof that one library makes teams win. This is a short methods reference; product-specific prior art belongs next to the product hypothesis after selection.
 
 | Reference | Adapted technique | What we deliberately avoid |
@@ -15,7 +17,7 @@
 
 ## PaddyPatch-specific prior art and Isaac Sim readiness — 7 Nov 2026
 
-**Current user-selected mission:** physics-embodied **cooperative rice stand-gap survey, shared uncertain soil/stand mapping, physical seed placement and changing-route adaptation**, not primary flood monitoring or rescue. See [PRODUCT](PRODUCT.md) for precise acceptance and [DECISIONS](DECISIONS.md) D-0007. All soil/establishment values in the hackathon will be **synthetic proxies until field calibrated**. No Isaac Sim installation, sensors, video or robot result has been verified in this research entry.
+**Earlier 7 November planting-first selection (now superseded):** physics-embodied rice surveying, planting and changing-route adaptation. Current principal research is **risk-aware physical peer rescue in this rice-field environment**, with optional offline local/sharded reasoning; see [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md) and [D-0008](DECISIONS.md). See [PRODUCT](PRODUCT.md) for precise acceptance and [DECISIONS](DECISIONS.md) D-0007. All soil/establishment values in the hackathon will be **synthetic proxies until field calibrated**. No Isaac Sim installation, sensors, video or robot result has been verified in this research entry.
 
 **Current strongest comparisons:**
 - [IRRI, Rice Production Manual, Plant Establishment](https://www.knowledgebank.irri.org/images/docs/planting-establishment.pdf): target population depends on seedbed, sowing technique, depth, seed quality and variety. This argues against treating every gap as a seed opportunity without crop-stage/context.

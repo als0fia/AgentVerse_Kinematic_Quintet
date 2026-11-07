@@ -1,6 +1,8 @@
-# Runtime architecture — cooperative rice planting (MuJoCo prototype; Isaac target)
+# Runtime architecture — rescue-first collective rice-field robotics (MuJoCo prototype; Isaac target)
 
-**Canonical mission:** [PaddyPatch PRODUCT](PRODUCT.md), superseding RiceWatch alarm-only monitoring. **MuJoCo is the checked-in development adapter; Isaac Sim remains the user-selected integration target (not yet verified).** P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
+**Latest user correction — rescue-first (7 Nov 2026):** The primary product is risk-aware robot-to-robot *physical recovery*, with rice sensing/mapping and planting as meaningful mission context. Earlier planting-first/rescue-optional language below is historical implementation guidance, not the current product priority. Existing physical code and tests are preserved. The merged swarm planner's triage and `rescue_assist` rendezvous do **not** implement actual physical recovery. [Current product](PRODUCT.md), [architecture/research plan](SWARM_EDGE_PLAN.md), [research](RESCUE_EDGE_RESEARCH.md), [D-0008](DECISIONS.md).
+
+**Current Antenna mission:** rescue-first collective robot recovery in a rice-field physical mission, with local soil/stand map and seed placement as working tasks. MuJoCo is checked in; Isaac Sim is a selected but unverified later integration target. Existing PR #23 contains heuristic triage but **no physically verified peer recovery**. See [PRODUCT](PRODUCT.md) and [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md).
 
 ## Current module ownership and mock/real replacement boundary
 
@@ -67,7 +69,7 @@ Develop the 3–6-site world against a *physically actuated* mock rover if the d
 - Use a fixed sim clock and timestamped per-robot sample provenance. Start with **inverse-distance/nearest-neighbour interpolation** for a small field, A*/Dijkstra or bounded graph search along actual traversable lanes. Gaussian processes/Kriging, RL or deliberative LLM reasoning only when baseline comparison supports it.
 - If running simulation on a shared/remote workstation, explicitly record **where physics, renderer, each robot controller, map and supervisor execute**; communication loss can't be claimed as onboard autonomy unless a local controller actually keeps working.
 - Never use `sim.get_true_soil`, future event flags or directly set seed landing site within policy. Planner may request `PLANT`; actuator releases a real proxy; physics determines landing; grader separately scores hidden synthetic benefit.
-- Low-priority options **only after P0 verified:** robot fault/rescue orchestration, flood-water monitoring/physical outlet intervention, reforestation or space domain adapters.
+- **Superseded planting-first priority:** robot rescue was previously optional. The current rescue-first requirement is [PRODUCT](PRODUCT.md); flood monitoring/physical outlet intervention, reforestation and space domain adapters remain optional.
 
 ## Integration falsification
 

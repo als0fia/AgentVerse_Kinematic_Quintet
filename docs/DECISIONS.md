@@ -80,6 +80,26 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Falsification:** first real seed placement must occur early. A pretty soil heatmap, moving UI sprite, hard-coded ideal soil map, imagined sample, text-only planter, fake rescue, unvalidated soil yield claim or staged video fails selected scope. Compare against competent uniform/greedy and deterministic joint mapping/routing baselines on same hidden synthetic conditions.
 - **Revisit:** failed Isaac compatibility, inability to drop a seed physically, lack of distinct two-rover measurements, unrealistic soil model, no credible baseline or explicit later user/team directive.
 
+## D-0008 — Antenna is the canonical selected product name; do not fork scope
+
+- **Date:** 7 November 2026.
+- **Source:** direct human team instruction in ChatGPT project conversation: “Antenna is canonical.”
+- **Decision:** **Antenna** is the current official internal product name for the cooperative rice stand-gap mapping and targeted replanting submission. **PaddyPatch** was the earlier working name for the same P0 mission, not an alternative active entry. **RiceWatch** denotes superseded flood-warning investigation scope. The separately pushed **RiceSwarm AI** full-season/fleet concept is independent exploratory work, not the canonical application path.
+- **Implementation owner:** the integrated `main` source under `src/ricebot/` and the existing `rice.v1` interface; keep package/file names stable during the hackathon rather than renaming working code for branding.
+- **Branch authority:** merged historical branch heads and open research/experimental branches are not competing canonical product definitions. Integrate only specifically reviewed changes through a compatible PR. Do not mass-replace historical decision names, overwrite current simulator/CI setup, or merge an unrelated full farming simulation into P0.
+- **Scope remains unchanged:** measured local sensing → shared map → coordinated task/route selection → physically simulated planting and contact → response to an unexpected change. Recovery/flood mitigation optional; MuJoCo is the current tested development backend, Isaac Sim a separately unverified integration target.
+- **History:** D-0005, D-0006 and D-0007 are preserved verbatim as earlier decisions, not rewritten to imply that Antenna was a prior rejected inspection-only product.
+
+## D-0008 — Rescue-first collective robotics in a rice-field mission
+
+- **Date and provenance:** 7 November 2026, explicit user clarification. **Status:** updated product/research direction, not implemented robot recovery or confirmed team-wide signoff.
+- **Purpose:** the core is a team of useful embodied robots that intelligently handles failure of one member by considering recovery risk, second-casualty risk, uncertainty, operator priorities, mission value and timeliness. Rice-field sensing/mapping/physical planting remains the first meaningful test environment and useful task. This supersedes D-0007's *rescue-is-optional* priority, while preserving actual field code and historical decisions.
+- **Implemented now:** PR #23's `CooperativeSwarmPlanner` computes local task bids and sorts centrally in one process against a shared map, applies heuristic `RESCUE_NOW/DEFER_RESCUE/ABANDON_ESCALATE` verdicts and optionally calls Gemini REST. The `rescue_assist` string assigns a `SAMPLE` rendezvous; no real robot-to-robot physical intervention or learned recovery skill is verified. Missing range values also arise from sensor failure, not necessarily being stuck.
+- **Proposed:** fault evidence typed separately from sensor validity, physically viable push/tow skill, deterministic safe feasibility gate and event-triggered strategic agent compared to risk-aware optimisation. Continue real fieldwork after a recovery, and demonstrate a correct safety abstention case.
+- **Optional compute research:** one quantised larger LLM may be partitioned across several **actual verified Jetson devices** on a secure local network; model parallelism is distinct from several independent small reasoners debating. A failed member can remove a model shard precisely when rescue is needed, so every remaining robot retains locally executable bounded safety/triage. No team Jetson, multi-node inference, production price, edge energy or hardware-assisted model is yet verified.
+- **Acceptance and falsification:** measure actual recovery contact/displacement and secondary robot failures versus no-rescue/always-rescue/calibrated risk-aware classical policy, and actual downstream soil mapping/planting. Do not infer a trained physical skill from hand-coded motion. Distributed LLM/P2P messaging must not block the rescue mission or be represented as implemented.
+- **Ownership:** shared contract owner, robot mechanics, world/soil/fault, agent/recovery, independent evaluator retain single-writer boundaries; preserve concurrent teammate code. Full direction in [PRODUCT](PRODUCT.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md), [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
 ## Decision template
 
 ```text

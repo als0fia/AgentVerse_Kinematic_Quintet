@@ -1,6 +1,8 @@
 # Reproducible setup, run and recovery
 
-**Selected project:** PaddyPatch cooperative rice-field stand-gap mapping and simulated seed placement. **Checked-in development backend:** MuJoCo 4.0.0 (rover/seed-contact prototype, testable headlessly). **Isaac Sim is the user-selected intended integration target, not yet implemented or verified.** A MuJoCo test is not agricultural validation or a completed judge demo; don't claim unseen resources or outcomes.
+**Latest user correction — rescue-first (7 Nov 2026):** The primary product is risk-aware robot-to-robot *physical recovery*, with rice sensing/mapping and planting as meaningful mission context. Earlier planting-first/rescue-optional language below is historical implementation guidance, not the current product priority. Existing physical code and tests are preserved. The merged swarm planner's triage and `rescue_assist` rendezvous do **not** implement actual physical recovery. [Current product](PRODUCT.md), [architecture/research plan](SWARM_EDGE_PLAN.md), [research](RESCUE_EDGE_RESEARCH.md), [D-0008](DECISIONS.md).
+
+**Selected current product direction:** Antenna (working name), a rescue-first multi-robot system with rice-field sensing/mapping and physical planting as the useful mission baseline. MuJoCo 4.0.0 is the checked-in prototype; Isaac Sim remains the unverified intended integration target. No end-to-end peer recovery, Jetson distributed model or learned rescue policy has been verified.
 
 ## New teammate or agent onboarding
 
