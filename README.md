@@ -1,6 +1,6 @@
 # The Kinematic Quintet — AgentVerse 2026
 
-**Selected hackathon product:** **PaddyPatch — cooperative rice-field soil mapping and targeted stand-gap replanting.** In a **prepared/direct-seeded or partially drained rice plot**, two physically simulated robots collect different local soil/stand evidence, fuse a **shared uncertainty-aware map**, coordinate traversable sample/plant routes, and **actually drop a seed proxy into a missing crop patch**. The system replans when a route or local soil reading changes unexpectedly. **Swarm rescue and flood monitoring/mitigation are optional future features, not the core.** **Isaac Sim is the user-selected simulator for now**, not yet verified running or compatible with a team machine.
+**Selected hackathon product:** **Antenna — cooperative rice-field soil mapping and targeted stand-gap replanting.** In a **prepared/direct-seeded or partially drained rice plot**, two physically simulated robots collect different local soil/stand evidence, fuse a **shared uncertainty-aware map**, coordinate traversable sample/plant routes, and **actually drop a seed proxy into a missing crop patch**. The system replans when a route or local soil reading changes unexpectedly. **Swarm rescue and flood monitoring/mitigation are optional future features, not the core.** **Isaac Sim is the user-selected simulator for now**, not yet verified running or compatible with a team machine.
 
 **Event:** UCL AI Society AgentVerse, 7–8 November 2026, Europe/London. The [official timetable](https://agentverse.uclai.co.uk/) lists the track reveal at **Saturday 12:30**, old-site final submissions **Sunday 14:00**, but latest authenticated BuilderBase dashboard explicitly says **Sunday 8 Nov 13:00 GMT**; **plan against 13:00** until clarified, and judging **Sunday 15:00–16:00**. Verify changes in the actual participant portal; official challenge details supersede these notes.
 
@@ -11,6 +11,8 @@
 Short-lived feature branches and PRs exist only for independent, reviewable changes. Merge approved prerequisites into `main` and branch new development from its current HEAD; do not treat a stacked PR or developer-agent branch as a second source of truth. Preserve real teammate contributions and don't force-update or delete branches without approval.
 
 ## Start here
+
+**New computer or new agent?** Use [Workstation onboarding](docs/WORKSTATION-SETUP.md) for a safe local clone, Python checks, optional MuJoCo toy-physics test, Isaac Sim hardware gate, Gemini/Antigravity instructions and actual evidence handoff. For any major feature or world-vs-robot handoff, use [Component ownership and audit](docs/COMPONENTS.md). These guides are reusable; don't create duplicate frameworks.
 
 1. **Agent and human instructions:** read [AGENTS.md](AGENTS.md), [PRODUCT](docs/PRODUCT.md), [ARCHITECTURE](docs/ARCHITECTURE.md), [CONTRACTS](docs/CONTRACTS.md), and [TEAM](docs/TEAM.md). A human integrator owns the shared seam and actual decisions; Gemini CLI workers start **only** in human-owned worktrees.
 2. **Confirm Isaac Sim:** follow [RUN](docs/RUN.md#isaac-sim-preflight--chosen-target-not-yet-proven); check actual GPU/VRAM/RAM/driver and physics startup on the intended workstation or approved compute. The organiser later suggested MuJoCo for laptop convenience, **but the user has explicitly chosen Isaac Sim for this project**; don't switch without human agreement.
@@ -59,6 +61,8 @@ The fixture comparison is **synthetic tooling data, not product performance**. O
 | [PRODUCT](docs/PRODUCT.md) | Real beneficiary, workflow, success criterion, alternative and selection rationale |
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | Modules, data/control flow, ownership and dependencies |
 | [CONTRACTS](docs/CONTRACTS.md) | Versioned inter-module messages, units, errors and invariants |
+| [COMPONENTS](docs/COMPONENTS.md) | World/robot/Isaac/kernel boundaries, mock swap, per-module documentation, independent audits |
+| [WORKSTATION-SETUP](docs/WORKSTATION-SETUP.md) | Every teammate/agent: safe Windows setup, core checks, optional MuJoCo, gated Isaac, account hygiene |
 | [TEAM](docs/TEAM.md) | Ownership protocol, parallel tasks, integration and handoff |
 | [RUN](docs/RUN.md) | Reproducible setup, start, smoke and recovery commands |
 | [TESTING](docs/TESTING.md) | Test matrix, baseline metrics, evaluation cases and failure taxonomy |

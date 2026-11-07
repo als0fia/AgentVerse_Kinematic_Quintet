@@ -7,7 +7,8 @@ The repo is public. It contains **shared submission engineering**, not personal 
 1. Follow this file as the single repository-wide instruction contract. Use `README.md` for orientation; inspect the current working tree/branch and relevant diffs, issues and PRs before changing code.
 2. For project selection or a changed brief, use the **complete, photo-verified five-category judging rubric** in `docs/EVENT.md` and the beneficiary/evidence gate in `docs/PRODUCT.md`; for parallel work use `docs/TEAM.md`. If the challenge or project is unresolved, work only on reusable infrastructure or explicitly requested research.
 3. For interface/runtime changes, use `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md`, `docs/RUN.md` and relevant tests. For evaluation/demo use `docs/TESTING.md` / `docs/DEMO.md`. For tiny fixes, do not read unrelated documents.
-4. Load only the **matching** `.agents/skills/<skill>/SKILL.md` when its workflow applies; do not inject all skills, histories and tool outputs into every prompt. Gemini CLI loads task skills on demand. Skills do not grant extra tools or authority.
+4. For a new developer computer use [WORKSTATION-SETUP](docs/WORKSTATION-SETUP.md); for ownership and implementation-specific documentation use [COMPONENTS](docs/COMPONENTS.md). Agent-onboarding must report real commands/results; the selected final simulator remains Isaac Sim.
+5. Load only the **matching** `.agents/skills/<skill>/SKILL.md` when its workflow applies; do not inject all skills, histories and tool outputs into every prompt. Gemini CLI loads task skills on demand. Skills do not grant extra tools or authority.
 
 ## Current selected project (7 November 2026)
 
@@ -44,11 +45,16 @@ When scope is cut, maintain a demonstrable sensor → decision → action loop a
 3. For any shared interface change, specify fields, types, units, frame, semantics, version, errors and fixtures **before** consumers implement against it. Integrator owns shared contracts.
 4. If others are working simultaneously, use a separate branch (and a separate local worktree/checkout if sharing a machine). Avoid two active writers to the same file or contract; coordinate shared changes through the integrator. Small non-overlapping solo work follows the current team branch convention.
 5. Test in layers: pure logic → module contract → integration → real end-to-end episode; compare the nearest meaningful baseline. Keep deterministic random seeds and environment details.
-6. Debug by reproducing, collecting exact traces/logs, locating root cause, applying the minimal correction, adding a regression test and rerunning relevant checks. No speculative patch stacking.
-7. Report changed paths, commands **actually** run, results, commit/PR, unknowns, blockers and rollback path. Never claim "tested" from code reading.
-8. Keep one canonical current-truth document per subject; link to it instead of copying. Git history retains earlier decisions.
+6. For a substantial feature, maintain a concise **component-local README once the component exists** (purpose, owner, supported API/units, run/test commands actually executed, limitations, extension/replace steps) per [COMPONENTS](docs/COMPONENTS.md). Do not create placeholder docs or additional AGENTS files for tiny fixes; keep all collaborators using the same source of truth.
+7. Debug by reproducing, collecting exact traces/logs, locating root cause, applying the minimal correction, adding a regression test and rerunning relevant checks. No speculative patch stacking.
+8. Report changed paths, commands **actually** run, results, commit/PR, unknowns, blockers and rollback path. Never claim "tested" from code reading.
+9. Keep one canonical current-truth document per subject; link to it instead of copying. Git history retains earlier decisions.
 
 ## Multi-agent cooperation
+
+- **Interchangeable collaborators:** ChatGPT and Gemini may swap **world/simulation** or **robot embodiment** ownership as assigned by human owners. Keep the single writer for the `rice.v1` kernel and shared Isaac composition. Actual package boundaries, one mock-to-real robot seam and component README requirements are specified in [COMPONENTS](docs/COMPONENTS.md).
+- On requests to "audit", "streamline" or "split" a program section, follow [module-audit](.agents/skills/module-audit/SKILL.md): assess actual code/tests and documentation **read-only by default**, with severity/evidence/owner and exact verification gaps. **Do not silently refactor** someone else's feature.
+
 
 - Team human/integration lead owns task allocation, merge order, integration and final demo. ChatGPT can write/review on an isolated GitHub branch; Gemini CLI workers are separately launched, not directly controllable from ChatGPT chat. For cross-agent communication use `docs/TEAM.md` and the PR template; never claim automatic model dispatch.
 - Implementation agents own isolated modules and corresponding tests; shared contracts change only through coordinated review.
@@ -76,6 +82,8 @@ When scope is cut, maintain a demonstrable sensor → decision → action loop a
 | Diagnose bug | `.agents/skills/root-cause-debug/SKILL.md` |
 | Coordinate parallel agents | `.agents/skills/parallel-handoff/SKILL.md` + `docs/TEAM.md` |
 | Compare evidence | `.agents/skills/evaluate-and-demo/SKILL.md` + `docs/TESTING.md` |
+| Set up a teammate's machine, optional MuJoCo or gated Isaac | `.agents/skills/workstation-setup/SKILL.md` + `docs/WORKSTATION-SETUP.md` |
+| Audit/split/streamline a subsystem | `.agents/skills/module-audit/SKILL.md` + `docs/COMPONENTS.md` |
 | Get a real simulated sensor/action loop working | `.agents/skills/embodied-loop/SKILL.md` + `docs/EVENT.md` and `docs/RUN.md` |
 
 ## Gemini-first entrypoints and scoped delegation

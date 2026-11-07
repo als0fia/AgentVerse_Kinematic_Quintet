@@ -14,11 +14,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL = Path('.agents/skills')
 CLAUDE = Path('.claude/skills')
-# Preserve the six original workflows plus one challenge-specific workflow: accidental removal is a regression.
+# Preserve existing workflows and register both focused onboarding/audit skills; accidental removal is a regression.
 EXPECTED_SKILLS = frozenset({
     'problem-first', 'contracts-first', 'implement-and-verify',
     'root-cause-debug', 'parallel-handoff', 'evaluate-and-demo',
-    'embodied-loop',
+    'embodied-loop', 'module-audit', 'workstation-setup',
 })
 
 

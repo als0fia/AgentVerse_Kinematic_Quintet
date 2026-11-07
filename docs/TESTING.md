@@ -2,6 +2,10 @@
 
 **Current tests cover repository scaffolding/evaluator plus a standard-library `rice.v1` **contract/baseline with scripted observations**. NO Isaac Sim rover, actual sensor physics, physical seed placement or end-to-end planting scenario has been tested.**
 
+## Component/module audit and swap verification
+
+For an explicit independent audit, use [module-audit](../.agents/skills/module-audit/SKILL.md) and [COMPONENTS](COMPONENTS.md#repeatable-independent-audit-any-feature-on-demand). Check ownership, matching code/docs/interfaces and **actual tests executed versus unavailable** before declaring a component merge-ready. World/robot mock-to-real swap must revalidate real physics motion, sensor/obstacle response, safety limits, seed release/contact and no hidden truth leakage on the **selected Isaac host**; pure Python `rice.v1` unit tests or optional [MuJoCo toy smoke](WORKSTATION-SETUP.md#c-optional-lightweight-local-physics-smoke-not-final-engine) are insufficient.
+
 ## Judge-aligned verification map — confirmed Robotics rubric
 
 The [official weight table and source photo provenance](EVENT.md#confirmed-robotics-judging-rubric--clear-organiser-photograph-7-november-2026) are authoritative. Tests should yield **objective observations**, not fabricated scores: (a) trace every bounded action to timestamped simulated sensor data; (b) surprise the running episode and capture perceived change, replan and actual downstream effect; (c) measure bounded/local behaviour, uncertainty and optional network loss; (d) show that the **real beneficiary's most critical failure mode is handled on screen** with an evidence-supported meaningful benefit; (e) record originality relative to a serious existing controller/robot and actual implementation quality. A single polished 60-second episode does not replace repeated seeds and independent baseline comparisons. Model-generated prose cannot grade its own performance.

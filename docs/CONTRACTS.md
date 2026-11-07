@@ -2,6 +2,10 @@
 
 **A narrow rice.v1 Python interface is now implemented and unit-tested; the Isaac Sim adapter and embodied product are NOT.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
 
+## World/robot/composition seam (developer agreement)
+
+Use [the implemented types](../src/ricebot/contracts.py) and [`SimulationPort`](../src/ricebot/runtime.py) as-is until the **single kernel integrator** approves a concrete schema delta. [COMPONENTS](COMPONENTS.md#the-actual-swap-boundary-do-not-invent-another-kernel) specifies the minimal shared fixture (IDs, metric frame/time, sample radius, motion safety limits, body clearance, sensor and hopper/release geometry). The world owner emits location-gated **observations**, the robot owner publishes physical body/actuator/sensor mappings, and the Isaac composition owner makes a real step produce the expected frame/contact. The engine holds evaluator-only soil truth: a mock rover is a substitute physical asset, **not** a fake observation/planting oracle. ChatGPT/Gemini assignments are interchangeable; package responsibility is not.
+
 ## Implemented rice.v1 Python core (actual code, NOT Isaac physics)
 
 The current importable implementation is `src/ricebot/contracts.py`, `mission.py`, `control.py` and `runtime.py`; its contract tests are `tests/test_ricebot_foundation.py`. The *broader* types below are still proposed refinements. Shared code is owned by **one human integrator**; don't introduce parallel incompatible message formats.

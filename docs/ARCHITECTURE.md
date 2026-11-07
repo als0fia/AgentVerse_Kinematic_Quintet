@@ -2,6 +2,12 @@
 
 **Canonical mission:** [PaddyPatch PRODUCT](PRODUCT.md), superseding RiceWatch alarm-only monitoring. **Isaac Sim is the user-selected simulator** (version/platform not yet verified). P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
 
+## Current module ownership and mock/real replacement boundary
+
+The [canonical component guide](COMPONENTS.md) splits the world/field/probe owner, human-led robot/seed-tool designer, one Isaac scene-composition/SimulationPort writer, kernel integrator, planner and independent evaluator. The human using ChatGPT and the human using Gemini can exchange the world/robot roles without changing this boundary. Keep `src/ricebot/runtime.py`'s **implemented** `SimulationPort.reset(seed)/step(commands)` interface as the only cross-engine mission seam; the actual Isaac implementation must drive real joints and detect real seed contact.
+
+Develop the 3–6-site world against a *physically actuated* mock rover if the designed rover is not ready. Swap the asset and motor/sensor mapping in the Isaac composition layer after human approval; **retest** clearance, wheel radius, turning limits, mounting frames, reach, release and contact. No second episode kernel, independent planner, direct world-truth read or teleporting seed. The full [mock-to-real acceptance checklist](COMPONENTS.md#mock-rover-first--approved-designed-rover-next) is the reference.
+
 ## Physical simulation and task flow
 
 ```text

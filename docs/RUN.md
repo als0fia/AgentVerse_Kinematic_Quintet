@@ -2,6 +2,10 @@
 
 **Selected project is PaddyPatch cooperative rice-field stand-gap mapping, targeted replanting and physical seed placement.** **Isaac Sim is the user-selected simulator for now**, but exact version, machine/container, scene performance and hardware are **not yet verified**. Do not claim a running robot, working seed drop, GPU credits, model or deployment. Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
 
+## New teammate or agent onboarding
+
+For **any fresh Windows/macOS/Linux machine**, start with [WORKSTATION-SETUP](WORKSTATION-SETUP.md): inspect/clone safely, create local `.venv`, run actual kernel checks, optionally verify a **toy MuJoCo physics joint/sensor** via `scripts/smoke_mujoco.py`, verify Antigravity/Gemini tool access, and gate Isaac Sim on real compatible GPU/RAM and permissions. Do not copy another teammate's private keys or assume their local prototype exists on this machine. Selected production target remains Isaac Sim; MuJoCo is optional local preflight/fallback by human decision. [COMPONENTS](COMPONENTS.md) owns world vs robot vs single Isaac integration writer and the module README standard.
+
 ## Implemented core check (no Isaac Sim required)
 
 From repo root with Python 3.10+:

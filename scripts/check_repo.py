@@ -13,7 +13,7 @@ REQUIRED = [
     "README.md", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "docs/EVENT.md", "docs/PRODUCT.md",
     "docs/ARCHITECTURE.md", "docs/CONTRACTS.md", "docs/TEAM.md", "docs/RUN.md",
     "docs/TESTING.md", "docs/DEMO.md", "docs/PROVENANCE.md", "docs/DECISIONS.md",
-    "docs/RESEARCH.md", "schemas/episode.schema.json", "scripts/evaluate.py",
+    "docs/RESEARCH.md", "docs/COMPONENTS.md", "docs/WORKSTATION-SETUP.md", "schemas/episode.schema.json", "scripts/evaluate.py",
     ".github/workflows/foundation-checks.yml", "scripts/sync_skills.py",
 ]
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
