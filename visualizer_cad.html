@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Kinematic Quintet — 1:1 Engineering Visualizer</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    canvas {
+      touch-action: none;
+      user-select: none;
+    }
+    input[type="range"] {
+      accent-color: var(--primary);
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-4 md:p-6">
+  <div class="max-w-6xl mx-auto space-y-4">
+    <!-- Header -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-0.5 text-xs font-semibold rounded bg-[var(--primary)] text-[var(--primary-foreground)]">1:1 METRIC CAD & KINEMATICS</span>
+          <h1 class="text-lg font-bold tracking-tight">4WISD Paddy Swarm Unit & Collinear Rescue Rig</h1>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mt-1">
+          Exact dimensional model: 450×212×380 mm chassis inside 300 mm rice rows | 100 mm water + 120 mm clay slurry over hardpan
+        </p>
+      </div>
+      <!-- View Mode Tabs -->
+      <div class="flex flex-wrap gap-1.5 bg-[var(--background)] p-1 rounded-lg border border-[var(--border)]">
+        <button onclick="setMode('3d')" id="btn-3d" class="px-3 py-1.5 rounded-md text-xs font-medium transition">3D Isometric (Drag to Orbit)</button>
+        <button onclick="setMode('top')" id="btn-top" class="px-3 py-1.5 rounded-md text-xs font-medium transition">Top View (Row & 4WS Steering)</button>
+        <button onclick="setMode('side')" id="btn-side" class="px-3 py-1.5 rounded-md text-xs font-medium transition">Side View (Mud & Pry-Winch Rescue)</button>
+      </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <!-- Interactive Canvas -->
+      <div class="lg:col-span-8 bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 shadow-sm flex flex-col">
+        <div class="flex items-center justify-between mb-2 px-1">
+          <span id="view-title" class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Interactive 3D Wireframe & Solid CAD</span>
+          <div class="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#38bdf8"></span> Hull / Pry Boom</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#f59e0b"></span> Star-Lug Wheels</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#ef4444"></span> Anchor / Hitch</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#22c55e"></span> Rice Rows (300mm)</span>
+          </div>
+        </div>
+
+        <div class="relative w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[#0f172a]" style="height: 440px;">
+          <canvas id="cadCanvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+          <!-- HUD Overlay -->
+          <div class="absolute bottom-3 left-3 bg-black/75 backdrop-blur-sm border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 space-y-0.5 pointer-events-none">
+            <div id="hud-line1">Row Clearance: <span class="text-emerald-400 font-mono">44.0 mm</span> per side (Safe)</div>
+            <div id="hud-line2">Ground Contact: <span class="text-amber-400 font-mono">Hardpan Engaged (-120 mm)</span></div>
+            <div id="hud-line3">Rescue Vector: <span class="text-sky-400 font-mono">Standby</span></div>
+          </div>
+          <div class="absolute top-3 right-3 flex gap-1.5">
+            <button onclick="togglePlay()" id="btn-play" class="px-2.5 py-1 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-100 border border-slate-600 text-xs font-medium">
+              Pause Wheel Spin
+            </button>
+            <button onclick="resetCamera()" class="px-2.5 py-1 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-100 border border-slate-600 text-xs font-medium">
+              Reset View
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls & Telemetry Panel -->
+      <div class="lg:col-span-4 space-y-4">
+        <!-- Steering & Kinematics Card -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-sm space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-bold">1. 4WISD Steering Kinematics</h2>
+            <span id="steer-badge" class="text-xs px-2 py-0.5 rounded bg-[var(--secondary)] text-[var(--secondary-foreground)] font-mono">Crab Mode</span>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)]">
+            See why 4-Wheel Independent Steering beats Skid-Steer in deep clay trenches:
+          </p>
+          <div class="grid grid-cols-3 gap-1.5">
+            <button onclick="setSteerPreset('crab')" id="st-crab" class="px-2 py-1.5 rounded border border-[var(--border)] text-xs font-medium hover:bg-[var(--secondary)]">In-Row Crab</button>
+            <button onclick="setSteerPreset('ackermann')" id="st-ack" class="px-2 py-1.5 rounded border border-[var(--border)] text-xs font-medium hover:bg-[var(--secondary)]">Headland Turn</button>
+            <button onclick="setSteerPreset('wiggle')" id="st-wig" class="px-2 py-1.5 rounded border border-[var(--border)] text-xs font-medium hover:bg-[var(--secondary)]">Mud Wiggle</button>
+          </div>
+
+          <div class="space-y-2 pt-1">
+            <div>
+              <div class="flex justify-between text-xs">
+                <span>Steering Angle (δ_front / δ_rear)</span>
+                <span id="val-steer" class="font-mono">0° / 0°</span>
+              </div>
+              <input id="sl-steer" type="range" min="-28" max="28" value="0" class="w-full" oninput="updateFromSliders()" />
+            </div>
+            <div>
+              <div class="flex justify-between text-xs">
+                <span>Lateral Offset in 300mm Row</span>
+                <span id="val-lat" class="font-mono">0 mm</span>
+              </div>
+              <input id="sl-lat" type="range" min="-44" max="44" value="0" class="w-full" oninput="updateFromSliders()" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Rescue Mechanism Card -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-sm space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-bold">2. "Medic Ant" Extraction Rig</h2>
+            <button onclick="triggerAutoRescue()" class="text-xs px-2.5 py-1 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-medium">
+              Run Rescue Demo
+            </button>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)]">
+            Test the Rear Danforth Anchor Spades, 4-Bar Nose Pry Lever, and Victim Sinkage recovery:
+          </p>
+
+          <div class="space-y-2">
+            <div>
+              <div class="flex justify-between text-xs">
+                <span>Rear Anchor Spade Deployment</span>
+                <span id="val-spade" class="font-mono">0% (Stowed)</span>
+              </div>
+              <input id="sl-spade" type="range" min="0" max="100" value="0" class="w-full" oninput="updateFromSliders()" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs">
+                <span>Front 4-Bar Pry Lift (Suction Breaker)</span>
+                <span id="val-pry" class="font-mono">0 mm</span>
+              </div>
+              <input id="sl-pry" type="range" min="0" max="75" value="0" class="w-full" oninput="updateFromSliders()" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs">
+                <span>Stranded Victim Distance & Sinkage</span>
+                <span id="val-winch" class="font-mono">Docked (0.0 m)</span>
+              </div>
+              <input id="sl-winch" type="range" min="0" max="100" value="25" class="w-full" oninput="updateFromSliders()" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Dimensional Spec Sheet Card -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3.5 shadow-sm">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)] mb-2">Verified Geometric Envelope</h3>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+            <div class="flex justify-between border-b border-[var(--border)] pb-1">
+              <span class="text-[var(--muted-foreground)]">Crop Lane:</span>
+              <span class="font-mono font-semibold">300 mm</span>
+            </div>
+            <div class="flex justify-between border-b border-[var(--border)] pb-1">
+              <span class="text-[var(--muted-foreground)]">Outer Width:</span>
+              <span class="font-mono font-semibold">212 mm</span>
+            </div>
+            <div class="flex justify-between border-b border-[var(--border)] pb-1">
+              <span class="text-[var(--muted-foreground)]">Hull Length:</span>
+              <span class="font-mono font-semibold">450 mm</span>
+            </div>
+            <div class="flex justify-between border-b border-[var(--border)] pb-1">
+              <span class="text-[var(--muted-foreground)]">Wheelbase:</span>
+              <span class="font-mono font-semibold">340 mm</span>
+            </div>
+            <div class="flex justify-between border-b border-[var(--border)] pb-1">
+              <span class="text-[var(--muted-foreground)]">Star Wheel:</span>
+              <span class="font-mono font-semibold">Ø260×32 mm</span>
+            </div>
+            <div class="flex justify-between border-b border-[var(--border)] pb-1">
+              <span class="text-[var(--muted-foreground)]">Belly Clear:</span>
+              <span class="font-mono font-semibold">150 mm</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('cadCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // State
+    let viewMode = '3d'; // '3d', 'top', 'side'
+    let steerMode = 'crab'; // 'crab', 'ackermann', 'wiggle'
+    let steerDeg = 0;
+    let latOffsetMm = 0;
+    let spadePct = 0;
+    let pryLiftMm = 0;
+    let winchDistPct = 25; // 0 = docked pry, 100 = 850mm standoff winch
+    let wheelSpin = 0;
+    let isPlaying = true;
+    let autoRescueActive = false;
+    let autoRescueTick = 0;
+
+    // 3D Camera Orbit
+    let camYaw = -0.65;
+    let camPitch = 0.42;
+    let camZoom = 0.72;
+    let isDragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    // Exact Robot Dimensions in mm
+    const DIM = {
+      hullLen: 450,
+      hullWidth: 164,
+      hullHeight: 120,
+      bellyClear: 150,
+      wheelbase: 340,
+      trackWidth: 180, // center-to-center of 32mm wheels -> 180 + 32 = 212mm outer width
+      wheelDia: 260,
+      wheelWidth: 32,
+      rowSpacing: 300,
+      mudDepth: 120,
+      waterDepth: 180 // 60mm water above 120mm mud
+    };
+
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width * window.devicePixelRatio;
+      canvas.height = rect.height * window.devicePixelRatio;
+      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // Mouse / Touch Orbit
+    canvas.addEventListener('pointerdown', (e) => {
+      isDragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      if (viewMode === '3d') {
+        camYaw += dx * 0.008;
+        camPitch = Math.max(0.08, Math.min(1.35, camPitch + dy * 0.008));
+      }
+    });
+    canvas.addEventListener('pointerup', () => { isDragging = false; });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      camZoom = Math.max(0.4, Math.min(1.4, camZoom - e.deltaY * 0.0006));
+    }, { passive: false });
+
+    function resetCamera() {
+      camYaw = -0.65;
+      camPitch = 0.42;
+      camZoom = 0.72;
+    }
+
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      document.getElementById('btn-play').textContent = isPlaying ? 'Pause Wheel Spin' : 'Resume Wheel Spin';
+    }
+
+    function setMode(m) {
+      viewMode = m;
+      ['3d', 'top', 'side'].forEach(id => {
+        const b = document.getElementById('btn-' + id);
+        if (id === m) {
+          b.className = 'px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] transition';
+        } else {
+          b.className = 'px-3 py-1.5 rounded-md text-xs font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition';
+        }
+      });
+      const titles = {
+        '3d': 'Interactive 3D Wireframe & Solid CAD (Drag to Rotate, Scroll to Zoom)',
+        'top': '1:1 Top Orthographic — 300mm Crop Row Clearance & 4WS Geometry',
+        'side': '1:1 Side Cross-Section — Hardpan Sinkage, Anchor Spades & 4-Bar Pry Rescue'
+      };
+      document.getElementById('view-title').textContent = titles[m];
+    }
+
+    function setSteerPreset(preset) {
+      steerMode = preset;
+      const badge = document.getElementById('steer-badge');
+      if (preset === 'crab') {
+        badge.textContent = 'Crab Mode (δF = +δR)';
+        document.getElementById('sl-steer').value = 12;
+      } else if (preset === 'ackermann') {
+        badge.textContent = 'Double-Ackermann (δF = -δR)';
+        document.getElementById('sl-steer').value = 22;
+      } else if (preset === 'wiggle') {
+        badge.textContent = 'Mud Wiggle Extraction (15Hz Osc)';
+      }
+      updateFromSliders();
+    }
+
+    function triggerAutoRescue() {
+      autoRescueActive = true;
+      autoRescueTick = 0;
+      if (viewMode === 'top') setMode('side');
+    }
+
+    function updateFromSliders() {
+      steerDeg = parseFloat(document.getElementById('sl-steer').value);
+      latOffsetMm = parseFloat(document.getElementById('sl-lat').value);
+      spadePct = parseFloat(document.getElementById('sl-spade').value);
+      pryLiftMm = parseFloat(document.getElementById('sl-pry').value);
+      winchDistPct = parseFloat(document.getElementById('sl-winch').value);
+
+      const rearDeg = (steerMode === 'crab') ? steerDeg : -steerDeg;
+      document.getElementById('val-steer').textContent = `${steerDeg > 0 ? '+' : ''}${Math.round(steerDeg)}° / ${rearDeg > 0 ? '+' : ''}${Math.round(rearDeg)}°`;
+      document.getElementById('val-lat').textContent = `${latOffsetMm > 0 ? '+' : ''}${Math.round(latOffsetMm)} mm`;
+      document.getElementById('val-spade').textContent = `${Math.round(spadePct)}% ${spadePct > 50 ? '(Locked in Hardpan)' : '(Stowed)'}`;
+      document.getElementById('val-pry').textContent = `+${Math.round(pryLiftMm)} mm (${Math.round(pryLiftMm * 0.22)}° Peel)`;
+
+      const gapMm = Math.round(winchDistPct * 5.5);
+      document.getElementById('val-winch').textContent = gapMm < 30 ? `Docked (Pry Mode)` : `Winch (${(gapMm / 1000).toFixed(2)} m)`;
+
+      // Update HUD
+      const minClearance = (DIM.rowSpacing - 212) / 2 - Math.abs(latOffsetMm);
+      const hud1 = document.getElementById('hud-line1');
+      if (minClearance > 15) {
+        hud1.innerHTML = `Row Clearance: <span class="text-emerald-400 font-mono">${minClearance.toFixed(1)} mm</span> min margin (Safe)`;
+      } else {
+        hud1.innerHTML = `Row Clearance: <span class="text-rose-400 font-mono">${minClearance.toFixed(1)} mm</span> WARNING: Near Rice Tiller!`;
+      }
+
+      const hud2 = document.getElementById('hud-line2');
+      hud2.innerHTML = spadePct > 50
+        ? `Anchor Spades: <span class="text-rose-400 font-mono">Engaged 75mm into Hardpan (Max Pull: 350N)</span>`
+        : `Locomotion: <span class="text-amber-400 font-mono">4WISD Star-Wheels on Hardpan (-120mm)</span>`;
+
+      const hud3 = document.getElementById('hud-line3');
+      if (pryLiftMm > 10 && gapMm < 60) {
+        hud3.innerHTML = `Rescue Action: <span class="text-sky-400 font-mono">4-Bar Lever Lifting Victim Nose +${Math.round(pryLiftMm)}mm (Vacuum Broken!)</span>`;
+      } else if (gapMm >= 60) {
+        hud3.innerHTML = `Rescue Action: <span class="text-sky-400 font-mono">Collinear Dyneema Winch Active (${gapMm}mm Separation)</span>`;
+      } else {
+        hud3.innerHTML = `Rescue Action: <span class="text-emerald-400 font-mono">Docked & Ready for Pry Lift</span>`;
+      }
+    }
+
+    // 3D Projection Helper
+    function project3D(x, y, z, cx, cy, scale) {
+      // Rotate around Z (Yaw)
+      const cosY = Math.cos(camYaw);
+      const sinY = Math.sin(camYaw);
+      const x1 = x * cosY - y * sinY;
+      const y1 = x * sinY + y * cosY;
+      // Rotate Pitch
+      const cosP = Math.cos(camPitch);
+      const sinP = Math.sin(camPitch);
+      const z2 = z * cosP - y1 * sinP;
+      const y2 = z * sinP + y1 * cosP;
+      return {
+        x: cx + x1 * scale,
+        y: cy - z2 * scale,
+        depth: y2
+      };
+    }
+
+    function drawLine3D(p1, p2, cx, cy, scale, color, width = 1.5, dash = []) {
+      const a = project3D(p1[0], p1[1], p1[2], cx, cy, scale);
+      const b = project3D(p2[0], p2[1], p2[2], cx, cy, scale);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      if (dash.length) ctx.setLineDash(dash);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawPoly3D(pts, cx, cy, scale, fill, stroke, width = 1.2) {
+      const proj = pts.map(p => project3D(p[0], p[1], p[2], cx, cy, scale));
+      ctx.save();
+      ctx.beginPath();
+      proj.forEach((p, idx) => idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+      ctx.closePath();
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      if (stroke) {
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = width;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawBox3D(x0, y0, z0, lx, ly, lz, cx, cy, scale, fill, stroke) {
+      const hx = lx / 2, hy = ly / 2;
+      const v = [
+        [x0 - hx, y0 - hy, z0],
+        [x0 + hx, y0 - hy, z0],
+        [x0 + hx, y0 + hy, z0],
+        [x0 - hx, y0 + hy, z0],
+        [x0 - hx, y0 - hy, z0 + lz],
+        [x0 + hx, y0 - hy, z0 + lz],
+        [x0 + hx, y0 + hy, z0 + lz],
+        [x0 - hx, y0 + hy, z0 + lz]
+      ];
+      const faces = [
+        [v[0], v[1], v[2], v[3]], // bottom
+        [v[4], v[5], v[6], v[7]], // top
+        [v[0], v[1], v[5], v[4]], // right
+        [v[2], v[3], v[7], v[6]], // left
+        [v[1], v[2], v[6], v[5]], // front
+        [v[3], v[0], v[4], v[7]]  // back
+      ];
+      faces.forEach(f => drawPoly3D(f, cx, cy, scale, fill, stroke, 1.2));
+    }
+
+    function drawWheel3D(wx, wy, wz, steerRad, spinRad, cx, cy, scale, isVictim = false) {
+      const r = DIM.wheelDia / 2;
+      const w = DIM.wheelWidth;
+      const segs = 16;
+      const cosS = Math.cos(steerRad);
+      const sinS = Math.sin(steerRad);
+
+      function toWorld(lx, ly, lz) {
+        return [
+          wx + lx * cosS - ly * sinS,
+          wy + lx * sinS + ly * cosS,
+          wz + lz
+        ];
+      }
+
+      // Draw outer rim rings
+      for (let side of [-w / 2, w / 2]) {
+        const ring = [];
+        for (let i = 0; i < segs; i++) {
+          const ang = (i / segs) * Math.PI * 2;
+          ring.push(toWorld(Math.cos(ang) * r, side, Math.sin(ang) * r));
+        }
+        drawPoly3D(ring, cx, cy, scale, isVictim ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)', isVictim ? '#f87171' : '#f59e0b', 1.5);
+      }
+
+      // 8 Star-Lug Cage Grousers + Open Spokes
+      for (let i = 0; i < 8; i++) {
+        const ang = spinRad + (i / 8) * Math.PI * 2;
+        const c = Math.cos(ang), s = Math.sin(ang);
+        // Spoke
+        drawLine3D(toWorld(0, 0, 0), toWorld(c * r, 0, s * r), cx, cy, scale, isVictim ? '#fca5a5' : '#fbbf24', 1.4);
+        // Star paddle across rim width
+        const p1 = toWorld(c * (r - 12), -w / 2, s * (r - 12));
+        const p2 = toWorld(c * (r + 14), -w / 2, s * (r + 14));
+        const p3 = toWorld(c * (r + 14), w / 2, s * (r + 14));
+        const p4 = toWorld(c * (r - 12), w / 2, s * (r - 12));
+        drawPoly3D([p1, p2, p3, p4], cx, cy, scale, isVictim ? 'rgba(239,68,68,0.4)' : 'rgba(245,158,11,0.45)', isVictim ? '#ef4444' : '#d97706', 1);
+      }
+
+      // Steerable Kingpin Strut
+      drawLine3D([wx, wy, wz], [wx, wy, wz + 95], cx, cy, scale, '#94a3b8', 2.5);
+    }
+
+    function render3DView(w, h) {
+      const cx = w * 0.44;
+      const cy = h * 0.62;
+      const scale = camZoom * 0.55;
+
+      // 1. Draw Hardpan Base Grid (z = 0) & Slurry Top Surface (z = 120)
+      for (let x = -500; x <= 950; x += 150) {
+        drawLine3D([x, -350, 0], [x, 350, 0], cx, cy, scale, 'rgba(148,163,184,0.18)', 1);
+      }
+      for (let y = -300; y <= 300; y += 150) {
+        drawLine3D([-500, y, 0], [950, y, 0], cx, cy, scale, 'rgba(148,163,184,0.18)', 1);
+      }
+
+      // Translucent Slurry Plane (z = 120mm)
+      drawPoly3D(
+        [[-480, -320, DIM.mudDepth], [920, -320, DIM.mudDepth], [920, 320, DIM.mudDepth], [-480, 320, DIM.mudDepth]],
+        cx, cy, scale, 'rgba(120, 83, 45, 0.16)', 'rgba(180, 130, 70, 0.35)', 1
+      );
+
+      // 2. Draw Rice Rows at Y = -150mm and Y = +150mm (300mm spacing)
+      for (let ry of [-150, 150]) {
+        drawLine3D([-480, ry, DIM.mudDepth], [920, ry, DIM.mudDepth], cx, cy, scale, 'rgba(34,197,94,0.5)', 2, [5, 5]);
+        for (let rx = -420; rx <= 880; rx += 140) {
+          // Rice hill bundle (3 stems per hill)
+          drawLine3D([rx, ry, DIM.mudDepth], [rx - 12, ry - 18, 390], cx, cy, scale, '#16a34a', 2.2);
+          drawLine3D([rx, ry, DIM.mudDepth], [rx + 8, ry + 16, 410], cx, cy, scale, '#22c55e', 2.2);
+          drawLine3D([rx, ry, DIM.mudDepth], [rx, ry, 425], cx, cy, scale, '#4ade80', 2);
+        }
+      }
+
+      // Calculate steering angles
+      const frontRad = (steerDeg * Math.PI) / 180;
+      const rearRad = ((steerMode === 'crab' ? steerDeg : -steerDeg) * Math.PI) / 180;
+
+      // 3. Draw Rescuer Robot (Centered at X = -140, Y = latOffsetMm)
+      const rx0 = -140;
+      const ry0 = latOffsetMm;
+      const wheelZ = DIM.wheelDia / 2; // 130mm (sits on z=0 hardpan!)
+
+      // Wheels (4WISD)
+      const wxOff = DIM.wheelbase / 2;
+      const wyOff = DIM.trackWidth / 2;
+      drawWheel3D(rx0 + wxOff, ry0 - wyOff, wheelZ, frontRad, wheelSpin, cx, cy, scale);
+      drawWheel3D(rx0 + wxOff, ry0 + wyOff, wheelZ, frontRad, wheelSpin, cx, cy, scale);
+      drawWheel3D(rx0 - wxOff, ry0 - wyOff, wheelZ, rearRad, wheelSpin, cx, cy, scale);
+      drawWheel3D(rx0 - wxOff, ry0 + wyOff, wheelZ, rearRad, wheelSpin, cx, cy, scale);
+
+      // HDPE Buoyant Belly Skid & Sealed IP68 Hull
+      drawBox3D(rx0, ry0, DIM.bellyClear, DIM.hullLen - 50, DIM.hullWidth, 28, cx, cy, scale, 'rgba(226,232,240,0.25)', '#cbd5e1');
+      drawBox3D(rx0, ry0, DIM.bellyClear + 28, DIM.hullLen, DIM.hullWidth, DIM.hullHeight - 28, cx, cy, scale, 'rgba(56,189,248,0.22)', '#38bdf8');
+
+      // Underbelly Rotary Finger Weeder (2 counter-rotating discs)
+      for (let wy of [-42, 42]) {
+        drawLine3D([rx0, ry0 + wy, DIM.bellyClear], [rx0, ry0 + wy, DIM.mudDepth - 15], cx, cy, scale, '#10b981', 2.5);
+        const disc = [];
+        for (let i = 0; i < 12; i++) {
+          const a = wheelSpin * 2 + (i / 12) * Math.PI * 2;
+          disc.push([rx0 + Math.cos(a) * 38, ry0 + wy + Math.sin(a) * 38, DIM.mudDepth - 15]);
+        }
+        drawPoly3D(disc, cx, cy, scale, 'rgba(16,185,129,0.35)', '#10b981', 1.2);
+      }
+
+      // RTK / UWB Arch Mast (Top at 380mm)
+      const hullTopZ = DIM.bellyClear + DIM.hullHeight;
+      drawLine3D([rx0 - 80, ry0 - 65, hullTopZ], [rx0 - 80, ry0 - 65, 380], cx, cy, scale, '#38bdf8', 2.5);
+      drawLine3D([rx0 - 80, ry0 + 65, hullTopZ], [rx0 - 80, ry0 + 65, 380], cx, cy, scale, '#38bdf8', 2.5);
+      drawLine3D([rx0 - 80, ry0 - 65, 380], [rx0 - 80, ry0 + 65, 380], cx, cy, scale, '#38bdf8', 3);
+
+      // Rear Deployable Danforth Anchor Spades
+      const spadeDepthZ = DIM.bellyClear - (spadePct / 100) * (DIM.bellyClear + 55); // Penetrates -55mm into hardpan
+      for (let sy of [-65, 65]) {
+        drawLine3D([rx0 - DIM.hullLen / 2, ry0 + sy, DIM.bellyClear + 20], [rx0 - DIM.hullLen / 2 - 70, ry0 + sy, spadeDepthZ], cx, cy, scale, '#ef4444', 3.5);
+        // Anchor Fluke Plate
+        drawPoly3D([
+          [rx0 - DIM.hullLen / 2 - 55, ry0 + sy - 18, spadeDepthZ + 12],
+          [rx0 - DIM.hullLen / 2 - 85, ry0 + sy - 18, spadeDepthZ - 10],
+          [rx0 - DIM.hullLen / 2 - 85, ry0 + sy + 18, spadeDepthZ - 10],
+          [rx0 - DIM.hullLen / 2 - 55, ry0 + sy + 18, spadeDepthZ + 12]
+        ], cx, cy, scale, 'rgba(239,68,68,0.75)', '#fca5a5', 1.2);
+      }
+
+      // Front Active 4-Bar Pry Lever & Funnel Coupler
+      const frontX = rx0 + DIM.hullLen / 2;
+      const pryTipX = frontX + 65;
+      const pryTipZ = DIM.bellyClear + 35 + pryLiftMm;
+      for (let py of [-32, 32]) {
+        // Lower & Upper parallel bars of 4-bar linkage
+        drawLine3D([frontX, ry0 + py, DIM.bellyClear + 25], [pryTipX, ry0 + py, pryTipZ - 10], cx, cy, scale, '#f43f5e', 2.5);
+        drawLine3D([frontX, ry0 + py, DIM.bellyClear + 55], [pryTipX, ry0 + py, pryTipZ + 20], cx, cy, scale, '#fb7185', 2.5);
+      }
+
+      // 4. Draw Stranded Victim Robot (Ahead in the same 300mm row)
+      const gapMm = winchDistPct * 4.5;
+      const vx0 = rx0 + DIM.hullLen + 65 + gapMm;
+      // Victim is sunk in mud pocket unless pried up!
+      const sinkMm = Math.max(0, 65 - pryLiftMm * 0.7);
+      const pitchRad = (pryLiftMm * 0.18 * Math.PI) / 180; // Nose lifted by pry lever!
+
+      const vRearZ = DIM.bellyClear - sinkMm + pryLiftMm * 0.85;
+      const vFrontZ = DIM.bellyClear - sinkMm;
+      const vMidZ = (vRearZ + vFrontZ) / 2;
+
+      // Winch Dyneema Cable between Rescuer 4-Bar Nose and Victim Rear Funnel
+      drawLine3D([pryTipX, ry0, pryTipZ], [vx0 - DIM.hullLen / 2, ry0, vRearZ + 35], cx, cy, scale, '#facc15', 2.5, [4, 3]);
+
+      // Victim Hull & Wheels
+      drawBox3D(vx0, ry0, vMidZ, DIM.hullLen * 0.88, DIM.hullWidth, DIM.hullHeight * 0.9, cx, cy, scale, 'rgba(239,68,68,0.18)', '#f87171');
+      drawWheel3D(vx0 - wxOff * 0.85, ry0 - wyOff, wheelZ - sinkMm * 0.7 + pryLiftMm * 0.5, 0, 0, cx, cy, scale, true);
+      drawWheel3D(vx0 - wxOff * 0.85, ry0 + wyOff, wheelZ - sinkMm * 0.7 + pryLiftMm * 0.5, 0, 0, cx, cy, scale, true);
+      drawWheel3D(vx0 + wxOff * 0.85, ry0 - wyOff, wheelZ - sinkMm * 0.7, 0, 0, cx, cy, scale, true);
+      drawWheel3D(vx0 + wxOff * 0.85, ry0 + wyOff, wheelZ - sinkMm * 0.7, 0, 0, cx, cy, scale, true);
+    }
+
+    function renderTopView(w, h) {
+      const cx = w * 0.42;
+      const cy = h * 0.5;
+      const s = 0.68; // px per mm
+
+      // Draw 300mm Crop Row Boundaries (Y = -150mm and Y = +150mm)
+      for (let ry of [-150, 150]) {
+        const yPx = cy + ry * s;
+        ctx.strokeStyle = '#22c55e';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.moveTo(40, yPx);
+        ctx.lineTo(w - 40, yPx);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Rice hills every 140mm
+        for (let rx = -380; rx <= 560; rx += 140) {
+          const xPx = cx + rx * s;
+          ctx.fillStyle = 'rgba(34, 197, 94, 0.28)';
+          ctx.beginPath();
+          ctx.arc(xPx, yPx, 24 * s, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#4ade80';
+          ctx.beginPath();
+          ctx.arc(xPx, yPx, 7 * s, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Dimension callout for 300mm row
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '12px monospace';
+      ctx.fillText('← 300 mm Standard Machine-Transplanted Row Width →', 48, cy - 150 * s - 10);
+
+      // Rescuer Robot Center
+      const rx = cx - 90 * s;
+      const ry = cy + latOffsetMm * s;
+
+      // Draw 4 Steerable Wheels
+      const frontRad = (steerDeg * Math.PI) / 180;
+      const rearRad = ((steerMode === 'crab' ? steerDeg : -steerDeg) * Math.PI) / 180;
+      const wxOff = (DIM.wheelbase / 2) * s;
+      const wyOff = (DIM.trackWidth / 2) * s;
+
+      const wheels = [
+        { x: rx + wxOff, y: ry - wyOff, ang: frontRad },
+        { x: rx + wxOff, y: ry + wyOff, ang: frontRad },
+        { x: rx - wxOff, y: ry - wyOff, ang: rearRad },
+        { x: rx - wxOff, y: ry + wyOff, ang: rearRad }
+      ];
+
+      // Draw velocity / slip-free rolling vectors
+      wheels.forEach(wh => {
+        ctx.save();
+        ctx.translate(wh.x, wh.y);
+        ctx.rotate(wh.ang);
+        // Wheel tire
+        ctx.fillStyle = '#f59e0b';
+        ctx.strokeStyle = '#fef3c7';
+        ctx.lineWidth = 1.5;
+        const wl = DIM.wheelDia * s;
+        const ww = DIM.wheelWidth * s;
+        ctx.fillRect(-wl / 2, -ww / 2, wl, ww);
+        ctx.strokeRect(-wl / 2, -ww / 2, wl, ww);
+        // Heading arrow
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(wl * 0.72, 0);
+        ctx.stroke();
+        ctx.restore();
+      });
+
+      // Sealed Hull (450 x 164 mm)
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.fillRect(rx - (DIM.hullLen / 2) * s, ry - (DIM.hullWidth / 2) * s, DIM.hullLen * s, DIM.hullWidth * s);
+      ctx.strokeRect(rx - (DIM.hullLen / 2) * s, ry - (DIM.hullWidth / 2) * s, DIM.hullLen * s, DIM.hullWidth * s);
+
+      // Tactile Whiskers (Front & Rear)
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 1.5;
+      [-1, 1].forEach(dir => {
+        [-1, 1].forEach(side => {
+          ctx.beginPath();
+          ctx.moveTo(rx + dir * (DIM.hullLen / 2) * s, ry + side * 55 * s);
+          ctx.quadraticCurveTo(
+            rx + dir * (DIM.hullLen / 2 + 45) * s,
+            ry + side * 115 * s,
+            rx + dir * (DIM.hullLen / 2 + 25) * s,
+            ry + side * 138 * s
+          );
+          ctx.stroke();
+        });
+      });
+
+      // Labels
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('SWARM UNIT A (4WISD Worker + Rescue Rig)', rx - 115, ry + 4);
+    }
+
+    function renderSideView(w, h) {
+      const groundY = h * 0.76; // Hardpan Z = 0
+      const s = 0.56; // px per mm
+      const mudTopY = groundY - DIM.mudDepth * s;
+      const waterTopY = groundY - DIM.waterDepth * s;
+
+      // 1. Draw Soil & Water Layers
+      // Water layer
+      ctx.fillStyle = 'rgba(14, 165, 233, 0.16)';
+      ctx.fillRect(20, waterTopY, w - 40, groundY - waterTopY);
+      // Clay Slurry layer (120mm)
+      ctx.fillStyle = 'rgba(120, 83, 45, 0.42)';
+      ctx.fillRect(20, mudTopY, w - 40, groundY - mudTopY);
+      // Compacted Hardpan Base
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(20, groundY, w - 40, h - groundY - 10);
+
+      // Layer Labels
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = '12px monospace';
+      ctx.fillText('Standing Water (+60mm)', 30, waterTopY + 16);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillText('Saturated Clay Slurry (120mm)', 30, mudTopY + 20);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText('Compacted Plow Pan / Hardpan (Traction & Anchor Base)', 30, groundY + 22);
+
+      // 2. Rescuer Robot (Left)
+      const rx = w * 0.30;
+      const wheelR = (DIM.wheelDia / 2) * s;
+      const wheelCy = groundY - wheelR;
+      const hullBottomY = groundY - DIM.bellyClear * s;
+      const hullH = DIM.hullHeight * s;
+      const hullW = DIM.hullLen * s;
+
+      // Rear Anchor Spades (Penetrating into Hardpan!)
+      const spadeAngle = (spadePct / 100) * 0.85; // rad
+      const spadePivotX = rx - hullW / 2 + 12;
+      const spadePivotY = hullBottomY - 10;
+      const spadeLen = 135 * s;
+      const spadeTipX = spadePivotX - Math.cos(spadeAngle) * spadeLen;
+      const spadeTipY = spadePivotY + Math.sin(spadeAngle) * spadeLen;
+
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(spadePivotX, spadePivotY);
+      ctx.lineTo(spadeTipX, spadeTipY);
+      ctx.stroke();
+
+      // Hull & Belly Skid
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.3)';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.fillRect(rx - hullW / 2, hullBottomY - hullH, hullW, hullH);
+      ctx.strokeRect(rx - hullW / 2, hullBottomY - hullH, hullW, hullH);
+
+      // Rescuer Wheels
+      for (let wx of [rx - (DIM.wheelbase / 2) * s, rx + (DIM.wheelbase / 2) * s]) {
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(wx, wheelCy, wheelR, 0, Math.PI * 2);
+        ctx.stroke();
+        // Spokes
+        for (let i = 0; i < 8; i++) {
+          const a = wheelSpin + (i / 8) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(wx, wheelCy);
+          ctx.lineTo(wx + Math.cos(a) * wheelR, wheelCy + Math.sin(a) * wheelR);
+          ctx.stroke();
+        }
+      }
+
+      // 4-Bar Pry Linkage on Rescuer Nose
+      const noseX = rx + hullW / 2;
+      const pryTipX = noseX + 65 * s;
+      const pryTipY = hullBottomY - (30 + pryLiftMm) * s;
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(noseX, hullBottomY - 18 * s);
+      ctx.lineTo(pryTipX, pryTipY);
+      ctx.moveTo(noseX, hullBottomY - 42 * s);
+      ctx.lineTo(pryTipX, pryTipY - 18 * s);
+      ctx.stroke();
+
+      // 3. Stranded Victim Robot (Right)
+      const gapPx = winchDistPct * 2.2;
+      const vx = noseX + 65 * s + gapPx + hullW / 2;
+      const sinkPx = Math.max(0, (68 - pryLiftMm * 0.75) * s);
+      const peelAngle = -(pryLiftMm * 0.22 * Math.PI) / 180;
+
+      // Winch Cable
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      ctx.moveTo(pryTipX, pryTipY - 8 * s);
+      ctx.lineTo(vx - hullW / 2, hullBottomY + sinkPx - (30 + pryLiftMm * 0.85) * s);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.save();
+      ctx.translate(vx, hullBottomY + sinkPx - hullH / 2);
+      ctx.rotate(peelAngle);
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.28)';
+      ctx.strokeStyle = '#f87171';
+      ctx.lineWidth = 2;
+      ctx.fillRect(-hullW / 2, -hullH / 2, hullW, hullH);
+      ctx.strokeRect(-hullW / 2, -hullH / 2, hullW, hullH);
+
+      ctx.fillStyle = '#fecaca';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('STRANDED UNIT (Pried +' + Math.round(pryLiftMm) + 'mm)', -hullW / 2 + 16, 4);
+      ctx.restore();
+    }
+
+    function animate() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      if (isPlaying) {
+        wheelSpin += 0.025;
+        if (steerMode === 'wiggle') {
+          const osc = Math.sin(wheelSpin * 6) * 20;
+          document.getElementById('sl-steer').value = osc;
+          updateFromSliders();
+        }
+      }
+
+      if (autoRescueActive) {
+        autoRescueTick += 1;
+        if (autoRescueTick <= 40) {
+          // Step 1: Deploy Rear Anchor Spades into Hardpan
+          document.getElementById('sl-spade').value = Math.min(100, autoRescueTick * 2.5);
+          document.getElementById('sl-winch').value = Math.max(0, 25 - autoRescueTick * 0.65);
+        } else if (autoRescueTick <= 95) {
+          // Step 2: Actuate 4-Bar Nose Pry Lever upward to break bottom suction
+          document.getElementById('sl-pry').value = Math.min(75, (autoRescueTick - 40) * 1.4);
+        } else if (autoRescueTick <= 150) {
+          // Step 3: Winch / Tow backwards along collinear row
+          document.getElementById('sl-winch').value = (autoRescueTick - 95) * 0.8;
+        } else {
+          autoRescueActive = false;
+        }
+        updateFromSliders();
+      }
+
+      if (viewMode === '3d') {
+        render3DView(w, h);
+      } else if (viewMode === 'top') {
+        renderTopView(w, h);
+      } else {
+        renderSideView(w, h);
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    resizeCanvas();
+    setMode('3d');
+    updateFromSliders();
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
