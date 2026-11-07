@@ -1,0 +1,6 @@
+{
+  "name": "Antenna Swarm Control Console",
+  "description": "Multi-robot field mapping, kinematic slip diagnostics, task planning, and emergency human teleoperation interface for the Antenna autonomous rice farming system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

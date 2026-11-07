@@ -1,0 +1,26 @@
+name: Foundation checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate repository references and skills
+        run: python scripts/check_repo.py
+      - name: Verify cross-agent skill parity
+        run: python scripts/sync_skills.py --check
+      # Full unittest discovery now includes real MuJoCo physics tests.
+      # Install only this optional backend here; the pure rice.v1 core stays stdlib-only.
+      - name: Install pinned MuJoCo physics-test dependency
+        run: python -m pip install -r requirements-mujoco.txt
+      - name: Confirm MuJoCo import and version
+        run: python -c "import mujoco; print('MuJoCo', mujoco.__version__)"
+      - name: Run foundation and MuJoCo integration tests
+        run: python -m unittest discover -s tests -v

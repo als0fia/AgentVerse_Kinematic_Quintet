@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/agentverse/episode.schema.json",
+  "title": "AgentVerse evaluation episode",
+  "description": "Evaluation metadata, not a robot control message. Same case_id and seed define a matched case.",
+  "type": "object",
+  "required": ["case_id", "seed", "success", "elapsed_ms"],
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "seed": {"type": "integer", "minimum": 0},
+    "success": {"type": "boolean"},
+    "elapsed_ms": {"type": "number", "minimum": 0},
+    "failure_reason": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

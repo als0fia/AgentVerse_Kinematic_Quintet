@@ -1,0 +1,5 @@
+# Copilot repository guidance
+
+Follow [AGENTS.md](../AGENTS.md) and the single-source documentation map in [README.md](../README.md). Respect assigned paths, interface-first integration, evidence-backed tests and the actual event constraints. No claims of passing tests without observed execution.
+
+Current team scope: **PaddyPatch P0** — cooperative rice stand-gap **survey, shared uncertain soil mapping, safe route/site allocation and actual physical seed drop**. The repository now has a MuJoCo 4.0.0 physics prototype; NVIDIA Isaac Sim remains the intended but unverified integration target. Begin with real rover/sensor physics, then verified hopper-release/ground contact; add second robot with a distinct sampled soil/stand observation. A mid-episode surprise changes the real task plan. **Robot rescue and flood control/mitigation are optional only**. Follow [PRODUCT](../docs/PRODUCT.md), [CONTRACTS](../docs/CONTRACTS.md) and [first integration task](../docs/RUN.md#next-agent-first-integration-task--isaac-sim-planting-first-skeleton-not-yet-implemented). Do not query hidden soil truth in agent code or replace physical planting with a UI animation.

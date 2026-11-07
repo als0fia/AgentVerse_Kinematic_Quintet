@@ -1,0 +1,5 @@
+# Optional development/CI backend
+# Standard-library rice.v1 core does not require MuJoCo.
+
+numpy
+mujoco==4.0.0
