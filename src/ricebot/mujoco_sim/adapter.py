@@ -16,7 +16,7 @@ Architectural Composition per `docs/COMPONENTS.md` & `docs/ARCHITECTURE.md`:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import asin, atan2, cos, hypot, sin
+from math import asin, atan2, cos, hypot, pi, sin
 
 import mujoco
 import numpy as np
@@ -25,6 +25,7 @@ from ..contracts import (
     ObservationFrame,
     PlantFeedback,
     Pose2D,
+    RecoveryFeedback,
     RobotCommand,
     RobotObservation,
     SensorKind,
@@ -38,6 +39,7 @@ from ..robot import (
     build_rovers_and_seeds_xml,
     compute_4wheel_skid_steer,
     evaluate_bekker_terramechanics,
+    update_rigid_dock_latch,
 )
 from ..world import (
     ContinuousTerrainPoint,
@@ -135,6 +137,21 @@ def _quat_to_yaw(quat_wxyz: np.ndarray) -> float:
     return _quat_to_rpy(quat_wxyz)[2]
 
 
+def _quat_to_pitch_roll(quat_wxyz: np.ndarray) -> tuple[float, float]:
+    """Extract (pitch_rad, roll_rad) from MuJoCo quaternion [w, x, y, z]."""
+    w, x, y, z = float(quat_wxyz[0]), float(quat_wxyz[1]), float(quat_wxyz[2]), float(quat_wxyz[3])
+    sinr_cosp = 2.0 * (w * x + y * z)
+    cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+    roll = atan2(sinr_cosp, cosr_cosp)
+    sinp = max(-1.0, min(1.0, 2.0 * (w * y - z * x)))
+    pitch = asin(sinp)
+    return round(pitch, 4), round(roll, 4)
+
+
+def _wrap_angle(angle: float) -> float:
+    return (angle + pi) % (2.0 * pi) - pi
+
+
 @dataclass(frozen=True)
 class SeedDropEvent:
     seed_index: int
@@ -157,6 +174,9 @@ class MujocoPaddySimulation:
         inject_obstacle_at_s: float | None = None,
         obstacle_xy: tuple[float, float] = (0.75, -0.25),
         hidden_truth: dict[str, dict[SensorKind, float]] | None = None,
+        trap_robot_id: str | None = None,
+        trap_site_id: str = "patch_a",
+        trap_radius_m: float = 0.24,
     ) -> None:
         self.world = PaddyTerraceWorld(
             sites=sites, probe_radius_m=probe_radius_m, hidden_truth=hidden_truth
@@ -166,6 +186,9 @@ class MujocoPaddySimulation:
         self.substeps_per_tick = substeps_per_tick
         self.inject_obstacle_at_s = inject_obstacle_at_s
         self.obstacle_xy = obstacle_xy
+        self.trap_robot_id = trap_robot_id
+        self.trap_site_id = trap_site_id
+        self.trap_radius_m = trap_radius_m
 
         mjcf_xml = compose_paddypatch_mjcf(obstacle_xy=obstacle_xy)
         self.model = mujoco.MjModel.from_xml_string(mjcf_xml)
@@ -182,6 +205,16 @@ class MujocoPaddySimulation:
         self._scout_qpos_adr = int(
             self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "scout_free")]
         )
+        self._planter_qvel_adr = int(
+            self.model.jnt_dofadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "planter_free")]
+        )
+        self._scout_qvel_adr = int(
+            self.model.jnt_dofadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "scout_free")]
+        )
+        self._body_ids: dict[str, int] = {
+            "planter": mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "planter_body"),
+            "scout": mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "scout_body"),
+        }
         self._seed_qpos_adrs = [
             int(self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"seed_{i}_free")])
             for i in range(PLANTER_SPEC.initial_seeds)
@@ -191,10 +224,13 @@ class MujocoPaddySimulation:
             for i in range(PLANTER_SPEC.initial_seeds)
         ]
 
-        # Optional active farming end-effector actuator IDs from PR #24 (dibber plunger + finger weeders)
+        # Optional active farming end-effector & rigid docking/latching actuator IDs from PR #24
         self._dibber_act_ids: dict[str, int] = {}
         self._weeder_l_act_ids: dict[str, int] = {}
         self._weeder_r_act_ids: dict[str, int] = {}
+        self._dock_pitch_act_ids: dict[str, int] = {}
+        self._latch_act_ids: dict[str, int] = {}
+        self._spade_act_ids: dict[str, int] = {}
         for rid in ("planter", "scout"):
             self._dibber_act_ids[rid] = mujoco.mj_name2id(
                 self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_dibber_act"
@@ -204,6 +240,15 @@ class MujocoPaddySimulation:
             )
             self._weeder_r_act_ids[rid] = mujoco.mj_name2id(
                 self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_weeder_r_act"
+            )
+            self._dock_pitch_act_ids[rid] = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_dock_pitch_act"
+            )
+            self._latch_act_ids[rid] = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_latch_act"
+            )
+            self._spade_act_ids[rid] = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_spade_act"
             )
 
         # Runtime-configurable vehicle sizing parameters for live Bekker-Wong wheel-mud sinkage physics
@@ -232,8 +277,12 @@ class MujocoPaddySimulation:
         }
         self._active_drops: list[SeedDropEvent] = []
         self._completed_drops: list[SeedDropEvent] = []
+        self._completed_recoveries: list[RecoveryFeedback] = []
         self._obstacle_injected: bool = False
         self._populate_hfield_from_continuous_terrain()
+        self._bogged_origins: dict[str, tuple[float, float]] = {}
+        self._rescued_robots: set[str] = set()
+        self._active_latched_pair: tuple[str, str] | None = None
 
     def _populate_hfield_from_continuous_terrain(self) -> None:
         """Populate MuJoCo's 3D `paddy_micro_relief` heightfield directly from `ContinuousPaddyTerrain`."""
@@ -258,6 +307,11 @@ class MujocoPaddySimulation:
     def completed_drops(self) -> tuple[SeedDropEvent, ...]:
         """Independent physics record of released seeds and verified ground contacts."""
         return tuple(self._completed_drops)
+
+    @property
+    def completed_recoveries(self) -> tuple[RecoveryFeedback, ...]:
+        """Independent physics record of verified rigid-latch extractions."""
+        return tuple(self._completed_recoveries)
 
     @property
     def obstacle_injected(self) -> bool:
@@ -315,8 +369,12 @@ class MujocoPaddySimulation:
         }
         self._active_drops = []
         self._completed_drops = []
+        self._completed_recoveries = []
         self._obstacle_injected = False
         self.mud_rut_history = []
+        self._bogged_origins = {}
+        self._rescued_robots = set()
+        self._active_latched_pair = None
 
         mujoco.mj_resetData(self.model, self.data)
         px, py, pz = PLANTER_SPEC.initial_xyz
@@ -333,7 +391,7 @@ class MujocoPaddySimulation:
         self._update_rover_terramechanics()
         self._apply_3d_terrain_and_mud_sinkage_pose()
         mujoco.mj_forward(self.model, self.data)
-        return self._build_observation_frame(plant_feedback=())
+        return self._build_observation_frame(plant_feedback=(), recovery_feedback=())
 
     def _sync_carried_seeds(self) -> None:
         """Keep unreleased seeds inside the planter's hopper frame."""
@@ -361,6 +419,21 @@ class MujocoPaddySimulation:
                 return Pose2D(round(sx, 4), round(sy, 4), 0.0)
         return None
 
+    def _update_mud_trap_state(self) -> None:
+        """Check if configured trap_robot_id has entered the deep mud basin at trap_site_id."""
+        if (
+            self.trap_robot_id is None
+            or self.trap_robot_id in self._bogged_origins
+            or self.trap_robot_id in self._rescued_robots
+            or self.trap_site_id not in self.sites
+        ):
+            return
+        site = self.sites[self.trap_site_id]
+        r_xyz = self.data.sensor(f"{self.trap_robot_id}_pos").data
+        rx, ry = float(r_xyz[0]), float(r_xyz[1])
+        if hypot(rx - site.center.x_m, ry - site.center.y_m) <= self.trap_radius_m:
+            self._bogged_origins[self.trap_robot_id] = (rx, ry)
+
     def step(self, commands: tuple[RobotCommand, ...]) -> ObservationFrame:
         now_s = round(float(self.data.time), 4)
         cmd_by_robot = {c.robot_id: c for c in commands}
@@ -375,7 +448,11 @@ class MujocoPaddySimulation:
             mujoco.mj_forward(self.model, self.data)
 
         self._update_rover_terramechanics()
+        self._update_mud_trap_state()
         self.data.ctrl[:] = 0.0
+        self.data.xfrc_applied[:] = 0.0
+
+        active_rescue_cmd: RobotCommand | None = None
         for spec, ctrl_offset in ((PLANTER_SPEC, 0), (SCOUT_SPEC, 4)):
             robot_id = spec.robot_id
             cmd = cmd_by_robot.get(robot_id)
@@ -385,6 +462,20 @@ class MujocoPaddySimulation:
             dib_id = self._dibber_act_ids.get(robot_id, -1)
             wl_id = self._weeder_l_act_ids.get(robot_id, -1)
             wr_id = self._weeder_r_act_ids.get(robot_id, -1)
+            pitch_id = self._dock_pitch_act_ids.get(robot_id, -1)
+            latch_id = self._latch_act_ids.get(robot_id, -1)
+            spade_id = self._spade_act_ids.get(robot_id, -1)
+
+            if cmd.recovery_target_id in ("planter", "scout") and cmd.recovery_target_id != robot_id:
+                active_rescue_cmd = cmd
+                continue
+
+            if pitch_id >= 0:
+                self.data.ctrl[pitch_id] = cmd.dock_pitch_rad
+            if latch_id >= 0:
+                self.data.ctrl[latch_id] = cmd.latch_rad
+            if spade_id >= 0:
+                self.data.ctrl[spade_id] = cmd.spade_rad
 
             if cmd.release_seed:
                 if (
@@ -422,7 +513,10 @@ class MujocoPaddySimulation:
                     abs(self.robot_mass_kg.get(robot_id, 4.2 if robot_id == "planter" else 3.6) - (4.2 if robot_id == "planter" else 3.6)) > 0.3
                     or abs(self.robot_wheel_radius_m.get(robot_id, 0.058) - 0.058) > 0.003
                 )
-                if sink_state is not None:
+                is_bogged_now = robot_id in self._bogged_origins and self._active_latched_pair is None
+                if is_bogged_now:
+                    traction_factor = 0.0
+                elif sink_state is not None:
                     if sink_state.bellied_out:
                         traction_factor = 0.0
                     elif is_custom_sizing:
@@ -481,12 +575,105 @@ class MujocoPaddySimulation:
                             self.mud_rut_history = self.mud_rut_history[-90:]
 
         new_feedback: list[PlantFeedback] = []
+        new_recovery: list[RecoveryFeedback] = []
+
         for substep_i in range(self.substeps_per_tick):
             self._sync_carried_seeds()
             if substep_i % 5 == 0:
                 self._apply_3d_terrain_and_mud_sinkage_pose()
+
+            # Apply physical mud suction damping to any unlatched bogged rover
+            for bog_id in list(self._bogged_origins.keys()):
+                if self._active_latched_pair is None:
+                    vadr = self._planter_qvel_adr if bog_id == "planter" else self._scout_qvel_adr
+                    self.data.qvel[vadr : vadr + 2] *= 0.15
+
+            # Execute closed-loop physical rigid-docking & tandem extraction if a RESCUE command is active
+            if active_rescue_cmd is not None and active_rescue_cmd.recovery_target_id is not None:
+                helper_id = active_rescue_cmd.robot_id
+                target_id = active_rescue_cmd.recovery_target_id
+                helper_spec = PLANTER_SPEC if helper_id == "planter" else SCOUT_SPEC
+                target_spec = PLANTER_SPEC if target_id == "planter" else SCOUT_SPEC
+                h_offset = 0 if helper_id == "planter" else 4
+                t_offset = 0 if target_id == "planter" else 4
+                h_latch_id = self._latch_act_ids[helper_id]
+                h_pitch_id = self._dock_pitch_act_ids[helper_id]
+                h_spade_id = self._spade_act_ids[helper_id]
+
+                front_pos = self.data.sensor(f"{helper_id}_front_dock_pos").data
+                rear_pos = self.data.sensor(f"{target_id}_rear_dock_pos").data
+                h_quat = self.data.sensor(f"{helper_id}_quat").data
+                h_yaw = _quat_to_yaw(h_quat)
+
+                dx = float(rear_pos[0] - front_pos[0])
+                dy = float(rear_pos[1] - front_pos[1])
+                dock_dist = hypot(dx, dy, float(rear_pos[2] - front_pos[2]))
+
+                self.data.ctrl[h_latch_id] = max(0.55, active_rescue_cmd.latch_rad)
+                latched = update_rigid_dock_latch(
+                    self.model,
+                    self.data,
+                    rescuer_id=helper_id,
+                    target_id=target_id,
+                    capture_radius_m=0.095,
+                )
+
+                if not latched:
+                    # Phase 1: SE(2) Terminal Funnel Alignment toward victim's rear strike bar
+                    heading_err = _wrap_angle(atan2(dy, dx) - h_yaw)
+                    ang_cmd = max(-1.35, min(1.35, heading_err * 2.4))
+                    lin_cmd = min(0.38, max(0.12, dock_dist * 0.85)) if abs(heading_err) < 0.55 else 0.03
+                    self.data.ctrl[h_pitch_id] = 0.0
+                    self.data.ctrl[h_spade_id] = 0.0
+                    w_h = compute_4wheel_skid_steer(helper_spec, lin_cmd, ang_cmd)
+                    self.data.ctrl[h_offset : h_offset + 4] = w_h
+                else:
+                    # Phase 2 & 3: Rigid Cam-Latch Engaged -> Pitch-Lift + 8-Wheel Synchronized Reverse Extraction
+                    self._active_latched_pair = (helper_id, target_id)
+                    self.data.ctrl[h_pitch_id] = max(0.38, active_rescue_cmd.dock_pitch_rad)
+                    self.data.ctrl[h_spade_id] = 0.25
+                    w_rev_h = compute_4wheel_skid_steer(helper_spec, -0.40, 0.0)
+                    w_rev_t = compute_4wheel_skid_steer(target_spec, -0.40, 0.0)
+                    self.data.ctrl[h_offset : h_offset + 4] = w_rev_h
+                    self.data.ctrl[t_offset : t_offset + 4] = w_rev_t
+
+                    t_xyz = self.data.sensor(f"{target_id}_pos").data
+                    tx, ty = float(t_xyz[0]), float(t_xyz[1])
+                    orig_x, orig_y = self._bogged_origins.get(target_id, (tx, ty))
+                    disp_m = hypot(tx - orig_x, ty - orig_y)
+
+                    if disp_m >= 0.18:
+                        # Phase 4: Extracted clear of mud trap -> Release cam-latch & resume autonomous fieldwork
+                        self.data.ctrl[h_latch_id] = 0.0
+                        self.data.ctrl[h_pitch_id] = 0.0
+                        self.data.ctrl[h_spade_id] = 0.0
+                        update_rigid_dock_latch(
+                            self.model,
+                            self.data,
+                            rescuer_id=helper_id,
+                            target_id=target_id,
+                            capture_radius_m=0.095,
+                        )
+                        self._active_latched_pair = None
+                        self._bogged_origins.pop(target_id, None)
+                        self._rescued_robots.add(target_id)
+                        step_t = round(float(self.data.time), 4)
+                        rec = RecoveryFeedback(
+                            helper_robot_id=helper_id,
+                            target_robot_id=target_id,
+                            task_id=active_rescue_cmd.task_id,
+                            latched=True,
+                            extracted=True,
+                            victim_displacement_m=round(disp_m, 4),
+                            observed_at_s=step_t,
+                            phase="extracted_and_unlatched",
+                        )
+                        self._completed_recoveries.append(rec)
+                        new_recovery.append(rec)
+                        active_rescue_cmd = None
             mujoco.mj_step(self.model, self.data)
             step_t = round(float(self.data.time), 4)
+            self._update_mud_trap_state()
             still_falling: list[SeedDropEvent] = []
             for drop in self._active_drops:
                 landing = self._check_seed_contact(drop.seed_index)
@@ -517,7 +704,34 @@ class MujocoPaddySimulation:
         self._update_rover_terramechanics()
         self._apply_3d_terrain_and_mud_sinkage_pose()
         mujoco.mj_forward(self.model, self.data)
-        return self._build_observation_frame(plant_feedback=tuple(new_feedback))
+
+        if (
+            not new_recovery
+            and active_rescue_cmd is not None
+            and active_rescue_cmd.recovery_target_id is not None
+            and self._active_latched_pair is not None
+        ):
+            target_id = active_rescue_cmd.recovery_target_id
+            t_xyz = self.data.sensor(f"{target_id}_pos").data
+            orig_x, orig_y = self._bogged_origins.get(target_id, (float(t_xyz[0]), float(t_xyz[1])))
+            disp_m = hypot(float(t_xyz[0]) - orig_x, float(t_xyz[1]) - orig_y)
+            new_recovery.append(
+                RecoveryFeedback(
+                    helper_robot_id=active_rescue_cmd.robot_id,
+                    target_robot_id=target_id,
+                    task_id=active_rescue_cmd.task_id,
+                    latched=True,
+                    extracted=False,
+                    victim_displacement_m=round(disp_m, 4),
+                    observed_at_s=round(float(self.data.time), 4),
+                    phase="latched_pulling",
+                )
+            )
+
+        return self._build_observation_frame(
+            plant_feedback=tuple(new_feedback),
+            recovery_feedback=tuple(new_recovery),
+        )
 
     def _read_min_front_range_m(self, prefix: str) -> float:
         """Read minimum distance across the 3-ray forward LiDAR fan (center, left, right)."""
@@ -528,7 +742,11 @@ class MujocoPaddySimulation:
                 vals.append(raw)
         return round(min(vals), 4) if vals else 4.0
 
-    def _build_observation_frame(self, plant_feedback: tuple[PlantFeedback, ...]) -> ObservationFrame:
+    def _build_observation_frame(
+        self,
+        plant_feedback: tuple[PlantFeedback, ...],
+        recovery_feedback: tuple[RecoveryFeedback, ...] = (),
+    ) -> ObservationFrame:
         sim_t = round(float(self.data.time), 4)
         planter_xyz = self.data.sensor("planter_pos").data
         planter_quat = self.data.sensor("planter_quat").data
@@ -551,6 +769,24 @@ class MujocoPaddySimulation:
 
         p_sink = self.latest_terramechanics.get("planter")
         s_sink = self.latest_terramechanics.get("scout")
+        p_speed = round(
+            hypot(
+                float(self.data.qvel[self._planter_qvel_adr]),
+                float(self.data.qvel[self._planter_qvel_adr + 1]),
+            ),
+            4,
+        )
+        s_speed = round(
+            hypot(
+                float(self.data.qvel[self._scout_qvel_adr]),
+                float(self.data.qvel[self._scout_qvel_adr + 1]),
+            ),
+            4,
+        )
+        inter_dist = round(
+            hypot(planter_pose.x_m - scout_pose.x_m, planter_pose.y_m - scout_pose.y_m),
+            4,
+        )
 
         adjusted_feedback = tuple(
             PlantFeedback(
@@ -561,6 +797,19 @@ class MujocoPaddySimulation:
                 landing=fb.landing,
             )
             for fb in plant_feedback
+        )
+        adjusted_recovery = tuple(
+            RecoveryFeedback(
+                helper_robot_id=rf.helper_robot_id,
+                target_robot_id=rf.target_robot_id,
+                task_id=rf.task_id,
+                latched=rf.latched,
+                extracted=rf.extracted,
+                victim_displacement_m=rf.victim_displacement_m,
+                observed_at_s=min(rf.observed_at_s, sim_t),
+                phase=rf.phase,
+            )
+            for rf in recovery_feedback
         )
 
         robots = (
@@ -574,7 +823,9 @@ class MujocoPaddySimulation:
                 link_ok=True,
                 pitch_rad=round(p_pitch, 4),
                 roll_rad=round(p_roll, 4),
-                is_bogged=bool(p_sink.bellied_out) if p_sink is not None else False,
+                true_speed_m_s=p_speed,
+                is_bogged=("planter" in self._bogged_origins or (p_sink is not None and bool(p_sink.bellied_out))),
+                peer_distances=(("scout", inter_dist),),
             ),
             RobotObservation(
                 robot_id="scout",
@@ -586,7 +837,9 @@ class MujocoPaddySimulation:
                 link_ok=True,
                 pitch_rad=round(s_pitch, 4),
                 roll_rad=round(s_roll, 4),
-                is_bogged=bool(s_sink.bellied_out) if s_sink is not None else False,
+                true_speed_m_s=s_speed,
+                is_bogged=("scout" in self._bogged_origins or (s_sink is not None and bool(s_sink.bellied_out))),
+                peer_distances=(("planter", inter_dist),),
             ),
         )
         return ObservationFrame(
@@ -594,4 +847,5 @@ class MujocoPaddySimulation:
             time_s=sim_t,
             robots=robots,
             plant_feedback=adjusted_feedback,
+            recovery_feedback=adjusted_recovery,
         )

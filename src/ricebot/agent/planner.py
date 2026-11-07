@@ -72,6 +72,7 @@ class AgentBid:
     utility: float
     distance_m: float
     reason: str
+    target_robot_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -373,19 +374,20 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 else 1.0
             )
             sensor_fault = robot.front_range_m is None
+            bogged_fault = bool(getattr(robot, 'is_bogged', False))
             blocked_immobile = (
                 prev_mode != TaskMode.HOLD
                 and moved < 0.02
                 and robot.front_range_m is not None
                 and robot.front_range_m <= self.obstacle_trigger_range_m
             )
-            if sensor_fault or blocked_immobile:
+            if sensor_fault or bogged_fault or blocked_immobile:
                 self._stuck_counts[robot.robot_id] = self._stuck_counts.get(robot.robot_id, 0) + 1
             else:
                 self._stuck_counts[robot.robot_id] = 0
             self._last_pose[robot.robot_id] = robot.pose
 
-            if sensor_fault or self._stuck_counts[robot.robot_id] >= self.stuck_ticks_threshold:
+            if sensor_fault or bogged_fault or self._stuck_counts[robot.robot_id] >= self.stuck_ticks_threshold:
                 stranded.add(robot.robot_id)
         return stranded
 
@@ -690,11 +692,12 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 ):
                     rescue_assignments[assessment.helper_robot_id] = AgentBid(
                         robot_id=assessment.helper_robot_id,
-                        mode=TaskMode.SAMPLE,
+                        mode=TaskMode.RESCUE,
                         site_id=assessment.nearest_site_id,
                         utility=950.0,
                         distance_m=0.0,
                         reason=f"rescue_assist({robot.robot_id}): {assessment.reason}",
+                        target_robot_id=robot.robot_id,
                     )
                     assigned_sites.add(assessment.nearest_site_id)
 
@@ -786,8 +789,9 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         intents: list[TaskIntent] = []
         for robot in robots_sorted:
             win = winning_bids.get(robot.robot_id)
-            if win is not None and win.mode != TaskMode.HOLD and win.site_id:
-                mode, target_id, reason = win.mode, win.site_id, win.reason
+            target_robot_id = None
+            if win is not None and win.mode != TaskMode.HOLD and (win.site_id or win.target_robot_id):
+                mode, target_id, reason, target_robot_id = win.mode, win.site_id or None, win.reason, win.target_robot_id
             elif win is not None and win.mode == TaskMode.HOLD:
                 mode, target_id, reason = TaskMode.HOLD, None, win.reason
             else:
@@ -815,6 +819,7 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                     robot_id=robot.robot_id,
                     mode=mode,
                     target_site_id=target_id,
+                    target_robot_id=target_robot_id,
                     issued_at_s=frame.time_s,
                     expires_at_s=frame.time_s + 1.0,
                     reason=reason,

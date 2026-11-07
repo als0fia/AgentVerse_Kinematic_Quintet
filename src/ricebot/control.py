@@ -1,10 +1,10 @@
-"""Bounded, deterministic waypoint control; Isaac owns wheel and drop physics."""
+"""Bounded, deterministic waypoint control; Isaac/MuJoCo owns wheel and drop physics."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from math import atan2, hypot, pi
 
-from .contracts import RobotCapability, RobotCommand, RobotObservation, Site, TaskIntent, TaskMode
+from .contracts import Pose2D, RobotCapability, RobotCommand, RobotObservation, Site, TaskIntent, TaskMode
 
 
 def _wrap(angle: float) -> float:
@@ -19,7 +19,7 @@ class ControlLimits:
     site_reach_m: float = 0.15
     max_pitch_roll_rad: float = 0.35
     max_slip_ratio: float = 0.60
-    min_peer_distance_m: float = 1.0
+    min_peer_distance_m: float = 0.24
     kp_row: float = 1.0
 
     def __post_init__(self) -> None:
@@ -48,8 +48,14 @@ class LocalController:
     def __init__(self, limits: ControlLimits = ControlLimits()):
         self.limits = limits
 
-    def command(self, robot: RobotObservation, task: TaskIntent,
-                sites: dict[str, Site], capability: RobotCapability) -> RobotCommand:
+    def command(
+        self,
+        robot: RobotObservation,
+        task: TaskIntent,
+        sites: dict[str, Site],
+        capability: RobotCapability,
+        peer_pose: Pose2D | None = None,
+    ) -> RobotCommand:
         if robot.robot_id != task.robot_id or robot.robot_id != capability.robot_id:
             raise ValueError("actor mismatch")
 
@@ -63,11 +69,44 @@ class LocalController:
             return RobotCommand(robot.robot_id, issued_at_s=robot.time_s, expires_at_s=robot.time_s + 0.2,
                                 task_id=task.task_id, linear_m_s=0.0, angular_rad_s=0.0, release_seed=False)
 
-        # 3. UWB Swarm Anti-Collision Brake: Emergency stop if peer distance < 1.0 m
-        for _pid, pdist in robot.peer_distances:
+        # 3. UWB Swarm Anti-Collision Brake: Emergency stop if peer distance < min_peer_distance_m
+        #    (Exempts an authorized RESCUE helper docking with its designated target_robot_id)
+        for pid, pdist in robot.peer_distances:
+            if task.mode == TaskMode.RESCUE and pid == task.target_robot_id:
+                continue
             if pdist < self.limits.min_peer_distance_m:
                 return RobotCommand(robot.robot_id, issued_at_s=robot.time_s, expires_at_s=robot.time_s + 0.2,
                                     task_id=task.task_id, linear_m_s=0.0, angular_rad_s=0.0, release_seed=False)
+
+        # 4. Bounded Physical Rescue Skill (SE(2) Approach -> Cam-Latch -> Spade + Pitch-Lift -> Reverse Tow)
+        if (
+            task.mode == TaskMode.RESCUE
+            and task.issued_at_s <= robot.time_s < task.expires_at_s
+            and robot.link_ok
+        ):
+            target_pt = peer_pose or (sites[task.target_site_id].center if task.target_site_id in sites else None)
+            if target_pt is not None and not _crosses_protected_area(robot.pose, target_pt, sites):
+                delta_x = target_pt.x_m - robot.pose.x_m
+                delta_y = target_pt.y_m - robot.pose.y_m
+                distance = hypot(delta_x, delta_y)
+                heading_error = _wrap(atan2(delta_y, delta_x) - robot.pose.yaw_rad)
+                angular = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, heading_error * 1.8))
+                linear = min(self.limits.speed_m_s, max(0.08, distance * 0.65)) if abs(heading_error) < 0.7 else 0.0
+                return RobotCommand(
+                    robot.robot_id,
+                    issued_at_s=robot.time_s,
+                    expires_at_s=robot.time_s + 0.2,
+                    task_id=task.task_id,
+                    linear_m_s=linear,
+                    angular_rad_s=angular,
+                    release_seed=False,
+                    target_site_id=task.target_site_id,
+                    recovery_target_id=task.target_robot_id,
+                    dock_pitch_rad=0.38 if distance <= 0.42 else 0.0,
+                    latch_rad=0.58,
+                    spade_rad=0.65 if distance <= 0.42 else 0.0,
+                )
+
         linear = angular = 0.0
         release = False
         target_id = task.target_site_id
@@ -91,7 +130,8 @@ class LocalController:
                 if abs(heading_error) < 0.5:
                     linear = min(self.limits.speed_m_s, distance * 0.5)
                     # Anti-Digging Traction (Doppler radar true speed vs linear command)
-                    if robot.true_speed_m_s is not None and linear > 0.05:
+                    # Only throttle if robot is already at cruising speed (> 0.03 m/s) to allow normal startup acceleration
+                    if robot.true_speed_m_s is not None and robot.true_speed_m_s > 0.03 and linear > 0.05:
                         slip = 1.0 - (robot.true_speed_m_s / linear)
                         if slip > self.limits.max_slip_ratio:
                             linear = max(0.04, linear * (1.0 - slip))
