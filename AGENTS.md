@@ -7,17 +7,18 @@ The repo is public. It contains **shared submission engineering**, not personal 
 1. Follow this file as the single repository-wide instruction contract. Use `README.md` for orientation; inspect the current working tree/branch and relevant diffs, issues and PRs before changing code.
 2. For project selection or a changed brief, use the **complete, photo-verified five-category judging rubric** in `docs/EVENT.md` and the beneficiary/evidence gate in `docs/PRODUCT.md`; for parallel work use `docs/TEAM.md`. If the challenge or project is unresolved, work only on reusable infrastructure or explicitly requested research.
 3. For interface/runtime changes, use `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md`, `docs/RUN.md` and relevant tests. For evaluation/demo use `docs/TESTING.md` / `docs/DEMO.md`. For tiny fixes, do not read unrelated documents.
-4. Load only the **matching** `.agents/skills/<skill>/SKILL.md` when its workflow applies; do not inject all skills, histories and tool outputs into every prompt. Gemini CLI loads task skills on demand. Skills do not grant extra tools or authority.
+4. For a new developer computer use [WORKSTATION-SETUP](docs/WORKSTATION-SETUP.md); for ownership and implementation-specific documentation use [COMPONENTS](docs/COMPONENTS.md). Agent-onboarding must report real commands/results; the selected final simulator remains Isaac Sim.
+5. Load only the **matching** `.agents/skills/<skill>/SKILL.md` when its workflow applies; do not inject all skills, histories and tool outputs into every prompt. Gemini CLI loads task skills on demand. Skills do not grant extra tools or authority.
 
 ## Current selected project (7 November 2026)
 
 **Superseding user decision:** **PaddyPatch — cooperative rice-field stand-gap mapping and targeted replanting.** The robots must **perform their field task**. P0 includes a physically simulated planter, a scout collecting independent local soil/stand proxy observations, shared uncertainty-aware field map, target selection, safe route allocation, a **real physically actuated seed-proxy drop/contact** and an unexpected mid-episode route/site change with adaptation. The earlier RiceWatch *flood-warning verification-only* scope is **historical**, not this submission's required mission. See [canonical PRODUCT](docs/PRODUCT.md), [Isaac Sim ARCHITECTURE](docs/ARCHITECTURE.md), [rice.v1 CONTRACTS](docs/CONTRACTS.md).
 
-**Chosen simulation engine for now: NVIDIA Isaac Sim.** Do not silently substitute MuJoCo as first choice. Confirm installed version, full compatibility/RAM/VRAM, physics and sensor APIs on the actual machine; **do not claim it works until an actual scene runs**. [RUN](docs/RUN.md#isaac-sim-preflight--chosen-target-not-yet-proven) owns first-agent startup and fallback escalation. Isaac Sim 5.1 system guidance lists 32 GB system RAM and 16 GB GPU VRAM minimum; reported 8 GB laptops may fail. No unapproved cloud spending, billable instances or open streaming endpoints.
+**Simulator status:** The committed, currently tested development backend is **MuJoCo 4.0.0** (merged PR #17); **NVIDIA Isaac Sim remains the user-selected target for later integration**, with no verified Isaac implementation yet. MuJoCo is an explicitly documented prototype, not a claim that Isaac compatibility is proven. Confirm installed version, full compatibility/RAM/VRAM, physics and sensor APIs on the actual machine; **do not claim it works until an actual scene runs**. [RUN](docs/RUN.md#isaac-sim-preflight--chosen-target-not-yet-proven) owns first-agent startup and fallback escalation. Isaac Sim 5.1 system guidance lists 32 GB system RAM and 16 GB GPU VRAM minimum; reported 8 GB laptops may fail. No unapproved cloud spending, billable instances or open streaming endpoints.
 
 **Build priority:** P0a one genuine actuated rover/sensor + surprise/contract; **immediately P0b physically release a seed proxy and verify ground contact**; P0c add second locally sensing robot and **shared estimated soil-quality/stand-gap map + task/route coordination**; P0d independent baseline, continuous ≤60-second video and one-page PDF. A simulation that only recovers from faults or draws soil-quality heatmaps **fails the planting mission**. Physical rescue and field flood-control/mitigation are **optional later features**, not P0 gates. Cross-domain reforestation/space examples are future hypotheses, not current demos.
 
-**Current implemented foundation:** `src/ricebot/contracts.py`, `mission.py`, `control.py` and `runtime.py` with `tests/test_ricebot_foundation.py` are **pure-Python unit-tested core interfaces**, not an Isaac Sim demo. The human integrator is the **sole shared contract/runtime writer**; specialist coding agents own physical adapters and separate tests. **Do not replace `rice.v1` with incompatible message schemas, query hidden true soil, or describe scripted tests as actual seed placement**. See `src/README.md` and `docs/CONTRACTS.md`.
+**Current implemented foundation:** `src/ricebot/contracts.py`, `mission.py`, `control.py` and `runtime.py` provide unit-tested pure-Python interfaces; **`src/ricebot/mujoco_sim/` now implements a MuJoCo prototype with physics integration tests**. Neither that code nor successful headless CI proves an Isaac Sim adapter, a real farm robot or field yield. The human integrator is the **sole shared contract/runtime writer**; specialist coding agents own physical adapters and separate tests. **Do not replace `rice.v1` with incompatible message schemas, query hidden true soil, or describe scripted tests as actual seed placement**. See `src/README.md` and `docs/CONTRACTS.md`.
 
 **Engineering routing:** [first coding assignment](docs/RUN.md#next-agent-first-integration-task--isaac-sim-planting-first-skeleton-not-yet-implemented), [five-human owner split](docs/TEAM.md#selected-rice-project-five-human-work-split-proposed-not-yet-assigned-by-name). Only integrator edits shared v1 schema/runner; human robotics lead approves body, sensor and hopper mechanics; agents do exclusive small feature/test passes and preserve teammate work. Read-only UI may not command physics; the policy never gets hidden soil/gap truth.
 
@@ -37,6 +38,12 @@ Every candidate and its acceptance tests must address these five **onsite organi
 
 When scope is cut, maintain a demonstrable sensor → decision → action loop and measurable disturbance response ahead of optional media, multi-agent orchestration and marketing polish. Do not claim that CI/unit checks alone demonstrate any of these judge criteria. These constraints apply **only to this AgentVerse Robotics entry** and do not override the team-selected solution or unverified sponsor rules.
 
+## Execution ownership — local-first
+
+**Current team instruction:** application development, simulator debugging, test execution and feature branch pushes are done by **human-directed local coding agents** (primarily the Isaac Sim workstation/Argon where available). Each worker pulls current `main`, operates on an owned local branch/worktree, runs tests and the actual Isaac scene when claiming physical behaviour, then supplies a PR with local commands, observed output, tested commit, sensor/action/seed-contact traces and failures. The human integrator approves merges and checks combined `main`. **This connected ChatGPT session normally provides advice, read-only auditing and requested small documentation updates; do not push application code unless explicitly asked again.** Never infer local physics success from CI or source review. [TEAM](docs/TEAM.md#local-first-development-review-and-integration) and the [PR template](.github/PULL_REQUEST_TEMPLATE.md) own the detailed handoff.
+
+**Practical priority:** get a rover moving under real simulated sensor feedback and a seed proxy physically landing **before** sophisticated mapping/route models, recovery or flood mitigation. Field/map/evaluation owners can work in parallel on narrow fixtures, but must not change shared contracts without the integrator. The full final demo still shows measured coordination and response to a mid-episode surprise.
+
 ## Order of work
 
 1. Identify a real beneficiary, environment and observable outcome. Check closest non-LLM alternative/prior art; require actual AI-added judgement.
@@ -44,11 +51,16 @@ When scope is cut, maintain a demonstrable sensor → decision → action loop a
 3. For any shared interface change, specify fields, types, units, frame, semantics, version, errors and fixtures **before** consumers implement against it. Integrator owns shared contracts.
 4. If others are working simultaneously, use a separate branch (and a separate local worktree/checkout if sharing a machine). Avoid two active writers to the same file or contract; coordinate shared changes through the integrator. Small non-overlapping solo work follows the current team branch convention.
 5. Test in layers: pure logic → module contract → integration → real end-to-end episode; compare the nearest meaningful baseline. Keep deterministic random seeds and environment details.
-6. Debug by reproducing, collecting exact traces/logs, locating root cause, applying the minimal correction, adding a regression test and rerunning relevant checks. No speculative patch stacking.
-7. Report changed paths, commands **actually** run, results, commit/PR, unknowns, blockers and rollback path. Never claim "tested" from code reading.
-8. Keep one canonical current-truth document per subject; link to it instead of copying. Git history retains earlier decisions.
+6. For a substantial feature, maintain a concise **component-local README once the component exists** (purpose, owner, supported API/units, run/test commands actually executed, limitations, extension/replace steps) per [COMPONENTS](docs/COMPONENTS.md). Do not create placeholder docs or additional AGENTS files for tiny fixes; keep all collaborators using the same source of truth.
+7. Debug by reproducing, collecting exact traces/logs, locating root cause, applying the minimal correction, adding a regression test and rerunning relevant checks. No speculative patch stacking.
+8. Report changed paths, commands **actually** run, results, commit/PR, unknowns, blockers and rollback path. Never claim "tested" from code reading.
+9. Keep one canonical current-truth document per subject; link to it instead of copying. Git history retains earlier decisions.
 
 ## Multi-agent cooperation
+
+- **Interchangeable collaborators:** ChatGPT and Gemini may swap **world/simulation** or **robot embodiment** ownership as assigned by human owners. Keep the single writer for the `rice.v1` kernel and shared Isaac composition. Actual package boundaries, one mock-to-real robot seam and component README requirements are specified in [COMPONENTS](docs/COMPONENTS.md).
+- On requests to "audit", "streamline" or "split" a program section, follow [module-audit](.agents/skills/module-audit/SKILL.md): assess actual code/tests and documentation **read-only by default**, with severity/evidence/owner and exact verification gaps. **Do not silently refactor** someone else's feature.
+
 
 - Team human/integration lead owns task allocation, merge order, integration and final demo. ChatGPT can write/review on an isolated GitHub branch; Gemini CLI workers are separately launched, not directly controllable from ChatGPT chat. For cross-agent communication use `docs/TEAM.md` and the PR template; never claim automatic model dispatch.
 - Implementation agents own isolated modules and corresponding tests; shared contracts change only through coordinated review.
@@ -76,6 +88,8 @@ When scope is cut, maintain a demonstrable sensor → decision → action loop a
 | Diagnose bug | `.agents/skills/root-cause-debug/SKILL.md` |
 | Coordinate parallel agents | `.agents/skills/parallel-handoff/SKILL.md` + `docs/TEAM.md` |
 | Compare evidence | `.agents/skills/evaluate-and-demo/SKILL.md` + `docs/TESTING.md` |
+| Set up a teammate's machine, optional MuJoCo or gated Isaac | `.agents/skills/workstation-setup/SKILL.md` + `docs/WORKSTATION-SETUP.md` |
+| Audit/split/streamline a subsystem | `.agents/skills/module-audit/SKILL.md` + `docs/COMPONENTS.md` |
 | Get a real simulated sensor/action loop working | `.agents/skills/embodied-loop/SKILL.md` + `docs/EVENT.md` and `docs/RUN.md` |
 
 ## Gemini-first entrypoints and scoped delegation

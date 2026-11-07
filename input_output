@@ -1,0 +1,138 @@
+Sensor Suite: Input, Output, and Closed-Loop Control Architecture
+
+Platform: AgentVerse Kinematic Quintet (Paddy Field Multi-Robot System)
+
+1. Executive Summary
+
+In flooded, mud-heavy rice paddies, conventional vision systems get blinded by
+spray and foliage, while GPS signals suffer severe attenuation under dense wet
+canopies. The Kinematic Quintet replaces heavy optical sensing with a ruggedized
+sensor fusion suite combining high-frequency inertial sensing, millimeter-wave
+radar, mechanical tactile whiskers, load strain gauges, and a dual-antenna
+UWB/RF mast. This document details every sensor's physical input, processed
+digital output, and the deterministic physical control action it triggers on the
+robot.
+
+2. Master Input-Output-Effect Matrix
+
+| Subsystem         | Hardware                                            | Physical Input                                                          | Processed Output                                                        | Closed-Loop Physical Action                                                                                                                                                                                                                                      |
+| ----------------- | --------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IMU + AHRS        | TDK ICM-42688-P (6-axis) + MMC5983MA (Mag) @ 400 Hz | Angular rates, linear accels, magnetic flux                             | Pitch, Roll, Yaw, vertical sink rate, vibration spectrum                | • Tip-Over Halt: If pitch/roll \> 20 deg, cuts motor drive immediately.<br>• Sink Trap Escape: If vertical sink drop occurs, triggers traction boost or winch tow request.<br>• Frame Transformation: Un-tilts the UWB antenna frame into true horizontal plane. |
+| True Ground Speed | Infineon BGT60TR13C 60GHz mmWave Radar              | FMCW radar reflection off subterranean soil bed beneath water/mud       | True ground velocity (v\_true) invariant to wheel spin                  | • Anti-Digging Traction: Computes Slip Ratio s = 1 - (v\_true / (w \* r)). If s \> 0.6, throttles down wheel RPM to prevent trenching into mud.<br>• Multipath Gating: Rejects phantom UWB distance spikes.                                                      |
+| Row Tracking      | 2x Hall-Effect Whiskers + VL53L8CX ToF Array        | Mechanical deflection against rice stalks and 8x8 multizone IR bounce   | Lateral cross-track error (e\_y) and foliage proximity envelope         | • Row-Centering PD Steer: Drives differential steering Delta\_w = Kp \* e\_y + Kd \* de\_y/dt to stay centered between crop rows without GPU vision.                                                                                                             |
+| Load & Effort     | INA240 Current Sensors + Hitch Strain Gauge         | Motor phase current shunt drops and hitch load pin micro-strain         | Mud drag torque (tau\_mud) and cable tow tension (F\_pull, up to 400 N) | • Tether Management: Follower maintains tension between 20 N \< F\_pull \< 250 N to prevent cable slack from wrapping into wheels.<br>• Emergency Release: Stops winch if F\_pull \>= 400 N.                                                                     |
+| Swarm Ranging     | 2x Qorvo DWM3000 UWB Transceivers (Mast)            | Two-Way Ranging (TWR) timestamps and Phase Difference of Arrival (PDoA) | Peer distance (d\_ij +/- 5 cm) and Angle-of-Arrival bearing (AoA)       | • Convoy Spacing: Modulates longitudinal cruise speed to maintain 2 to 3 m spacing.<br>• Anti-Collision Brake: Full halt if peer distance \< 1.0 m.<br>• Provides relative bearing for tow vectors.                                                              |
+| Swarm Comms       | Wi-Fi HaLow (802.11ah) / ESP-NOW (Sub-1GHz)         | Sub-1GHz RF telemetry packets penetrating wet vegetation                | Peer health flags, slip indices, consensus tokens, LLM state            | • Triage State Machine: When a peer broadcasts BOGGED\_DOWN, neighbor units halt and transition to winch anchor/recovery mode.                                                                                                                                   |
+
+3. Subsystem Deep-Dive
+
+3.1 IMU + AHRS (TDK ICM-42688-P + MMC5983MA)
+
+  - Physical Input: Dynamic tri-axial acceleration up to +/- 16g, rotational
+    rates up to +/- 2000 deg/s, and Earth-magnetic field flux down to
+    micro-Tesla resolution sampled at 400 Hz.
+  - Processed Output: High-rate 6-DOF orientation quaternion, filtered Euler
+    angles (pitch, roll, yaw), high-frequency shock/vibration profiles, and
+    vertical chassis displacement.
+  - Control Effect:
+    1.  Pitch/Roll Limit Trigger: If the robot encounters a mud sinkhole causing
+        pitch or roll to breach 20 deg, high-rate power cutoff engages to
+        prevent rollover.
+    2.  Sinkage Detection: Integrating vertical acceleration (a_z - g) detects
+        when the wheels have dug down and the chassis is resting flat on the mud
+        (belly hung).
+    3.  UWB Mast Gimbal Compensation: Mathematically rotates the dual UWB
+        antenna vector into the inertial horizontal plane, preventing pitch/roll
+        changes from distorting the calculated horizontal Angle-of-Arrival.
+
+3.2 True Ground Speed Radar (Infineon BGT60TR13C 60GHz)
+
+  - Physical Input: High-frequency 60GHz radio chirps reflected off the solid
+    soil floor beneath muddy standing water.
+  - Processed Output: Direct Doppler-derived true velocity vector (v_true).
+  - Control Effect:
+    1.  Slip Ratio Regulation: The controller compares true speed against wheel
+        speed: s = 1 - (v_true / (w * r)).
+    2.  Closed-Loop Traction Action: If s > 0.6, wheel torque is throttled back.
+        Unlike dry asphalt traction control (which maintains slip around 0.15),
+        wet paddy mud requires low-RPM high-torque crawling to prevent soil
+        liquefaction.
+    3.  Dead Reckoning & Gatekeeper: If the UWB ranging sensor suggests the
+        robot moved forward by 1 meter in 50 ms due to an RF multipath glitch,
+        the radar velocity flags this as physically impossible and rejects the
+        UWB update.
+
+3.3 Row Tracking (Hall-Effect Whiskers + VL53L8CX ToF)
+
+  - Physical Input: Mechanical deflection of flexible carbon-fiber tactile
+    whiskers brushing against sturdy rice hills, combined with 64-zone (8x8)
+    infrared time-of-flight distance returns from the canopy.
+  - Processed Output: Continuous signed lateral displacement error (e_y)
+    representing distance from the crop furrow center.
+  - Control Effect:
+    1.  Proportional-Derivative Row Centering: Feeds directly into differential
+        wheel speeds: Delta_w = Kp * e_y + Kd * (de_y / dt).
+    2.  Zero-Latency Crop Avoidance: If whisker deflection reaches maximum
+        mechanical limit on one side, an immediate steering override pulses the
+        opposing motor to prevent wheel cleats from crushing the rice root base.
+
+3.4 Load & Effort (INA240 Current Monitors + Tow Hitch Strain Gauge)
+
+  - Physical Input: Phase current draws across all 4 brushless hub motors, plus
+    resistive foil strain-gauge bridge output on the tow pin.
+  - Processed Output: Soil resistance torque (tau_mud) in N*m and hitch cable
+    pulling tension (F_pull) in Newtons.
+  - Control Effect:
+    1.  Active Tether Tension Control:
+          - If F_pull < 20 N, the winch motor automatically winds in line to
+            keep the tether off the muddy ground.
+          - If 20 N <= F_pull <= 350 N, tension is nominal for cooperative
+            formation towing.
+          - If F_pull >= 400 N, the winch brake slips or disengages to protect
+            cable integrity and prevent structural hitch shearing.
+    2.  Tethered Tow Coordination: When a trailing unit registers extreme soil
+        torque while stationary, the lead robot increases its forward tractive
+        effort to tow the trailing unit out of the mud trap.
+
+3.5 Swarm Ranging & Angle-of-Arrival (Dual Qorvo DWM3000 UWB)
+
+  - Physical Input: Timestamped RF pulse packets received across two matched
+    ceramic antennas separated by a fixed baseline on the top mast.
+  - Processed Output: Inter-robot distance (d_ij) with +/- 5 cm accuracy and
+    Phase Difference of Arrival (PDoA) yielding bearing angle (AoA).
+  - Control Effect:
+    1.  Longitudinal Convoy Spacing: Regulates cruise throttle to maintain a set
+        following distance behind the lead robot.
+    2.  Emergency Collision Envelope: If d_ij < 1.0 m, emergency braking is
+        commanded across all drive channels.
+    3.  Cooperative Pull Alignment: When pulling a neighbor via winch, the lead
+        unit aligns its drive axis along the measured AoA bearing vector to pull
+        directly inline with the cable.
+
+3.6 Swarm Communications (Wi-Fi HaLow 802.11ah / ESP-NOW)
+
+  - Physical Input: Long-range sub-1GHz radio packets capable of penetrating
+    high-moisture foliage.
+  - Processed Output: Decoded state packets containing peer health metrics, slip
+    flags, load states, and LLM consensus tokens.
+  - Control Effect:
+    1.  Distributed Fault Triage: If any robot broadcasts SLIP_CRITICAL or
+        PITCH_TRAP, the entire quintet transitions to a cooperative recovery
+        mode (lead unit stops, follower prepares winch line).
+    2.  LLM AgentVerse Coordination: Asynchronous exchange of high-level task
+        allocations across the mid-level onboard computers (Raspberry Pi 5 /
+        Jetson Orin Nano).
+
+4. Compute Distribution Hierarchy
+
+  - Low-Level Reflex Loop (STM32H7 @ 200 Hz):
+      - Direct SPI/ADC sampling of IMU, mmWave radar, tactile whiskers, and
+        strain gauges.
+      - Real-time slip calculation, row-centering PD output, and safety-critical
+        motor shutoffs.
+  - Mid-Level Swarm & Agent Loop (Raspberry Pi 5 / Jetson Orin Nano):
+      - Ingests filtered state vectors from STM32 over high-speed UART/CAN.
+      - Encapsulates state data into Sub-1GHz packets for Wi-Fi HaLow / ESP-NOW
+        transmission.
+      - Executes asynchronous multi-agent coordination (AgentVerse LLM client)
+        for field-level path planning and formation reassignment.

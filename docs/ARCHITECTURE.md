@@ -1,6 +1,12 @@
-# Runtime architecture — cooperative rice planting in Isaac Sim
+# Runtime architecture — cooperative rice planting (MuJoCo prototype; Isaac target)
 
-**Canonical mission:** [PaddyPatch PRODUCT](PRODUCT.md), superseding RiceWatch alarm-only monitoring. **Isaac Sim is the user-selected simulator** (version/platform not yet verified). P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
+**Canonical mission:** [PaddyPatch PRODUCT](PRODUCT.md), superseding RiceWatch alarm-only monitoring. **MuJoCo is the checked-in development adapter; Isaac Sim remains the user-selected integration target (not yet verified).** P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
+
+## Current module ownership and mock/real replacement boundary
+
+The [canonical component guide](COMPONENTS.md) splits the world/field/probe owner, human-led robot/seed-tool designer, one Isaac scene-composition/SimulationPort writer, kernel integrator, planner and independent evaluator. The human using ChatGPT and the human using Gemini can exchange the world/robot roles without changing this boundary. Keep `src/ricebot/runtime.py`'s **implemented** `SimulationPort.reset(seed)/step(commands)` interface as the only cross-engine mission seam; the actual Isaac implementation must drive real joints and detect real seed contact.
+
+Develop the 3–6-site world against a *physically actuated* mock rover if the designed rover is not ready. Swap the asset and motor/sensor mapping in the Isaac composition layer after human approval; **retest** clearance, wheel radius, turning limits, mounting frames, reach, release and contact. No second episode kernel, independent planner, direct world-truth read or teleporting seed. The full [mock-to-real acceptance checklist](COMPONENTS.md#mock-rover-first--approved-designed-rover-next) is the reference.
 
 ## Physical simulation and task flow
 
@@ -38,9 +44,9 @@
 
 **Field realism:** 4×4–6×6 candidate patches initially; existing stand gaps; synthetic ground moisture and firmness gradients; varying travel/access; limited planting inventory; known and newly revealed barriers. A soil measurement may be an explicit virtual probe with radius/noise and unit-specific sample, plus local vegetation/stand proxy; **a camera cannot directly know soil nutrients or compaction**. The hidden establishment-benefit model is an experiment scoring proxy, **not** an agronomic forecast of rice yield or survival. Record assumptions and compare to uniform/grid coverage as well as competent map-aware deterministic planning.
 
-## Implemented seam versus pending Isaac physics
+## Current MuJoCo prototype versus pending Isaac physics
 
-`src/ricebot/contracts.py`, `mission.py`, `control.py` and `runtime.py` now provide the **pure-Python** local observation → measured map → task → bounded drive/release command interface. The tests use **scripted observations**; they do not drive a physical Isaac articulation, render soil, or verify seed landing. The required Isaac Sim adapter, scene, second rover, actual range/soil sensors, hopper/dropper and contact observer remain **unimplemented**. The planner uses simple site means and a conservative straight-line HOLD rather than full spatial interpolation or a path planner. A human integration owner may refine this shared contract with tests; specialists should implement adapters/algorithms behind it.
+`src/ricebot/contracts.py`, `mission.py`, `control.py` and `runtime.py` form the **pure-Python** observation → measured map → task → bounded command seam. **`src/ricebot/mujoco_sim/` now implements it in MuJoCo** with articulated rover models, synthetic local probes, range/obstacle scenarios and a physical seed-contact test. Headless CI runs its physics tests with the pinned optional dependency. **The Isaac Sim implementation and cross-engine parity tests remain unimplemented.** The baseline still uses site-local means and conservative straight-line HOLD rather than a complete optimal route planner. One human integration owner controls shared contracts.
 
 ## Parallel module seams (proposed paths, partially implemented)
 

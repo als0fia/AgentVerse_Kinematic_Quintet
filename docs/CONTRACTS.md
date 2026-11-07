@@ -1,6 +1,10 @@
 # Contracts and invariants — PaddyPatch rice planting
 
-**A narrow rice.v1 Python interface is now implemented and unit-tested; the Isaac Sim adapter and embodied product are NOT.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
+**The Python `rice.v1` core is implemented and unit-tested, and a MuJoCo physics adapter tests the same `SimulationPort`. An Isaac Sim adapter and real agricultural deployment remain unverified.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
+
+## World/robot/composition seam (developer agreement)
+
+Use [the implemented types](../src/ricebot/contracts.py) and [`SimulationPort`](../src/ricebot/runtime.py) as-is until the **single kernel integrator** approves a concrete schema delta. [COMPONENTS](COMPONENTS.md#the-actual-swap-boundary-do-not-invent-another-kernel) specifies the minimal shared fixture (IDs, metric frame/time, sample radius, motion safety limits, body clearance, sensor and hopper/release geometry). The world owner emits location-gated **observations**, the robot owner publishes physical body/actuator/sensor mappings, and the Isaac composition owner makes a real step produce the expected frame/contact. The engine holds evaluator-only soil truth: a mock rover is a substitute physical asset, **not** a fake observation/planting oracle. ChatGPT/Gemini assignments are interchangeable; package responsibility is not.
 
 ## Implemented rice.v1 Python core (actual code, NOT Isaac physics)
 
@@ -15,10 +19,10 @@ The current importable implementation is `src/ricebot/contracts.py`, `mission.py
 | `PlantFeedback` | Physics adapter reports *observed* release/contact and task ID, not independently scored establishment success. Core blocks blind repeats while awaiting feedback. |
 | `MeasuredFieldMap` | Deduplicated local site means, sample counts and source IDs. Not interpolation, GP mapping or calibrated uncertainty yet. |
 | `SimpleMissionPlanner`, `LocalController`, `MissionCore` | Inspectable non-LLM baseline and one tick of measured-data → task → drive/release commands, with stop conditions. Not an obstacle-aware route planner or certified controller. |
-| `SimulationPort.reset(seed)`, `.step(commands)` | **Unimplemented Isaac Sim adapter boundary.** It must own actual articulation, range/odometry/soil sensing and rigid-body seed drop/contact; clamp physical limits and refuse stale commands. |
+| `SimulationPort.reset(seed)`, `.step(commands)` | Implemented in **MuJoCo** under `src/ricebot/mujoco_sim/`; **not yet in Isaac Sim**. Each backend owns actual motion/sensing/seed contact and independent command safety. |
 | `ReadOnlyView.consume`, `EpisodeRunner.run` | Optional viewer subscriber, small runner. Mock-port tests do not prove embodiment. |
 
-No new general swarm message bus, mitigation actuator, plant-growth model or cloud service is needed. The next owner supplies **real Isaac physics** before anyone claims the rice robot works.
+No new general swarm message bus, mitigation actuator, plant-growth model or cloud service is needed. The next owner must implement and verify **Isaac physics and parity** before claiming cross-engine readiness. The existing MuJoCo prototype has physical tests but does not prove field yields or a completed judge demo.
 
 ## Mission-visible messages (proposed, exclusive boundaries)
 
