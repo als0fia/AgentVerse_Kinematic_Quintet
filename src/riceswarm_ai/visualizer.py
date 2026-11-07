@@ -525,12 +525,14 @@ class RiceSwarmVisualizer:
             f"Harvested={sec_b.harvested_count}/6 ({sec_b.total_yield_kg:.2f}kg)"
         )
 
-        lines.append("\n=== 6 SWARM ROBOTS (Scan + Plant + Weed + Harvest + Rescue) ===")
+        lines.append("\n=== 6 EMBODIED SWARM ROBOTS: [PERCEIVE] → [DECIDE] → [ACT] (100% Offline, Nothing to Phone Home To) ===")
         for name, r in sorted(self.sim.robots.items()):
             action_desc = f"{r.current_action} @ {r.target_cell}" if r.target_cell else "scanning/idle"
+            cell = self.sim.field.belief.get(r.pos)
+            sense_info = f"W:{cell.water_depth or 0.08:.2f}m, Mud:{cell.mud_risk_tier.value[:3]}" if cell else "scanning"
             lines.append(
-                f"• {name} | pos={r.pos} | status={r.status.value:9s} | task={action_desc:15s} | "
-                f"bat={r.battery:4.1f}% | planted={r.planted_count} | weeded={r.weeded_count} | harv={r.harvested_count}"
+                f"• {name} | Pos:{r.pos} | PERCEIVE: [{sense_info}] | DECIDE: {r.status.value.upper():8s} | "
+                f"ACT: {action_desc:14s} | Bat:{r.battery:4.1f}%"
             )
 
         harvest_map = self.sim.coordinator.compute_priority_harvesting_map()
