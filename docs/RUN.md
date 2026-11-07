@@ -19,6 +19,22 @@ The repository does **not** require Gemini/Argon to run its foundation checks. W
 
 Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8-flash` IDs for API use. No workspace API keys, model quotas, AI Studio entitlements, Antigravity installation, cloud spend or extra agent runtimes are assumed here. Do not run presenter-suggested remote installer commands without reviewing source/version and required permissions. If an actual robotics app uses Gemini, record pinned dependencies, configuration names (never secret values), errors, cost, latency and a no-network or safe-failure path below.
 
+## Simulator/stream preflight — do this before writing agent code
+
+**Slide-based priority:** the organiser recommends proving a live stream in the first hour. The team has **not yet installed or proven** any of these routes.
+
+| Route | First check | Risks and decision gate |
+| --- | --- | --- |
+| **Isaac Sim (organiser-recommended)** | Obtain actual organiser-shared setup GitHub link and credited GPU allocation. Confirm NVIDIA compatibility, GPU NVENC, operating system, memory and streaming path; launch a sample scene and connect to stream | [Isaac Sim hardware requirements](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html) are significant. [WebRTC docs](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/manual_livestream_clients.html) warn endpoints lack authentication/encryption; **never expose them publicly without an approved protected topology**. Do not assume all Modal GPU types support ray tracing/NVENC |
+| **MuJoCo (organiser-authorised fallback)** | Verify Python package/renderer works on an actual teammate's computer, run a simple simulated sensor → action episode, and capture side-by-side observations/actions | [MuJoCo Python docs](https://mujoco.readthedocs.io/en/stable/python.html) supply supported bindings and rendering. Inspect platform/graphics compatibility and sensor semantics. |
+| **PyBullet, Gazebo, Webots (organiser-authorised alternatives)** | Establish an actual tested scene and frame output before assigning dependent modules | Choose only when someone can get an executable loop quickly; versions/installation commands TBD |
+
+**No-cost permission gate:** No cloud, billing, remote streaming port, API token or public endpoint may be created before the team verifies account/credits, total quota, source/terms and spending/deployment approval. Recording a presentation claim is not a successful preflight. Do not accept a third-party setup script without reading its repo, version and security footprint.
+
+**Minimal scene smoke criteria:** known seed/reset, one simulated sensor value sampled and timestamped, one bounded decision made from the observation, one visible action executed, and a later sensor sample showing the environment consequence. Add a basic mid-episode disturbance and safe stop before advancing to multi-agent sophistication. Measure actual frames per second, physics step, sensor-update rate, inference p50/p95 and recovery delay; never substitute guesses.
+
+**Runtime topology disclosure, once implemented:** where **simulation** executes, where **policy/decision loop** executes, where **video stream** terminates, external LLM call frequency, degraded-network behaviour, data/privacy/asset licensing and billed GPU time. “Locally autonomous” must describe the *decision loop* honestly even if rendering is on a cloud GPU.
+
 ## Fill immediately after selecting the product stack
 
 | Action | Exact command / requirement |
