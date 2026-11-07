@@ -1,5 +1,7 @@
 # Rescue-first collective robotics: falsifiable research and edge-compute preflight
 
+**Update after merged PR #28 (7 Nov 2026):** `src/ricebot/agent/mycelial_swarm.py` now implements **simulated Policy B**: separate `LocalMycelialMap` and `LocalSlamGrid` instances for each rover, event-triggered `MycelialGossipPacket` exchanges with modelled distance/link blackout, provenance deduplication, and task bids. Tests include isolated vs connected maps, blackout recovery and changed planting target. It runs inside a shared Python/MuJoCo simulation; **no physical UWB or Wi-Fi HaLow radios, deployed distributed processes, Jetson inference or integrated autonomous physical rescue have been verified**. Policy A's `CooperativeSwarmPlanner` remains a centralised baseline. The merged PR #24 separate scripted MuJoCo rigid-docking/tandem extraction test is physical simulation mechanics, not the full sensed-rescue mission.
+
 **Research synthesis 7 November 2026.** User's confirmed goal: the collective identifies a robot failure, integrates numerical risk and qualitative mission urgency, and selects/executes physical peer assistance or safe refusal. Rice-field mapping and planting provide realistic useful work rather than the primary invention. No Jetson hardware or pooled LLM has been proven. **PR #24 supplies a scripted MuJoCo rigid docking/cam-latch/tandem extraction test that asserts >0.08 m victim movement; a complete autonomous mission-triggered rescue is unverified.** [Plan](SWARM_EDGE_PLAN.md) / [product](PRODUCT.md).
 
 ## What merits research next
@@ -18,7 +20,7 @@
 
 ## State of the existing team code
 
-At the reviewed commit after PR #23, `CooperativeSwarmPlanner` centrally sorts all robot bids against one `MeasuredFieldMap`, not over peer radio. `evaluate_rescue_worth` uses hand-set seed/distance/hazard coefficients; `front_range_m=None` is treated as stranded despite missing range also meaning sensor failure. `rescue_assist` routes a helper via `SAMPLE`; there is **a separate scripted MuJoCo physical docking/extraction test** from PR #24, but **no planner-connected bounded recovery action or independent mission-level recovery-result contract**. Optional `GeminiSwarmAdvisor` calls the internet REST API when configured; mocked tests do not establish offline intelligence. No distributed Jetson inference, independent partial maps or **trained** extraction controller. Scripted rigid-dock mechanics exist. Treat those features as **unimplemented**, not bugs already repaired by this research doc.
+At the reviewed commit after PR #23, `CooperativeSwarmPlanner` centrally sorts all robot bids against one `MeasuredFieldMap`, not over peer radio. `evaluate_rescue_worth` uses hand-set seed/distance/hazard coefficients; `front_range_m=None` is treated as stranded despite missing range also meaning sensor failure. `rescue_assist` routes a helper via `SAMPLE`; there is **a separate scripted MuJoCo physical docking/extraction test** from PR #24, but **no planner-connected bounded recovery action or independent mission-level recovery-result contract**. Optional `GeminiSwarmAdvisor` calls the internet REST API when configured; mocked tests do not establish offline intelligence. No distributed Jetson inference, **real radio-connected** maps or **trained** extraction controller. Simulated Policy B partial maps and gossip now exist. Scripted rigid-dock mechanics exist. Treat those features as **unimplemented**, not bugs already repaired by this research doc.
 
 ## Technical sources and limits
 
@@ -43,6 +45,6 @@ At the reviewed commit after PR #23, `CooperativeSwarmPlanner` centrally sorts a
 1. **Immediately:** world+robot owners build physical stuck/traction/contact recovery; keep existing MuJoCo rice sensor/seed work. Independent grader compares a real recovered vs unrecovered robot.
 2. **Then:** integrator designs a *backwards-compatible* typed incident/recovery action-result seam. Agent owner builds numeric baseline then optional contextual reasoner; safety gate checks intervention feasibility.
 3. **Optional separate compute research:** confirm actual Jetson SKU/JetPack/device count/network and permission; first benchmark single-device offline model, then model partition over real devices. Record quantisation, compatible runtime, tokens/s, time to first token, RAM, link throughput and energy. Never pretend desktop emulation is verified Jetson.
-4. **Finally:** if real distribution is beneficial, develop per-robot partial maps/gossip and leader/partition protocols. Keep kernel and working physics uninterrupted.
+4. **Finally:** verify and profile the now-implemented **simulated** per-robot partial maps and gossip against Policy A, then research real radio/deployed-node semantics and leader/partition protocols. Keep kernel and working physics uninterrupted.
 
 **No hardware purchases, paid inference, public network service, deployment or final hackathon submission authorised by this document.**

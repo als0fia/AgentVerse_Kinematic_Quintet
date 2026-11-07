@@ -100,6 +100,14 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Optional deployment research:** independently operating local robot policies with no internet requirement; compare an offline small model and a larger quantised **one-model** split across verified Jetson devices. Split inference is not multi-LLM debate, may be slow, and breaks when a required shard/node disappears; always provide local safe fallback. Team Jetson ownership/cost/performance are unverified, no spending/creation authorised.
 - **Scope and prior art:** physical recovery, learned control, risk-aware planning, task auctions and model parallelism have predecessors; evidence against strong baselines and actual physics is necessary. [PRODUCT](PRODUCT.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md), [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md) are the up-to-date specification/research.
 
+## D-0010 — Policy B simulated partial beliefs and peer gossip, not yet hardware networking
+
+- **Date/source:** 7 Nov 2026, merged team PR #28, after D-0009 rescue-first scope decision.
+- **Implemented:** `DecentralizedMycelialRuntime`, per-rover `LocalMycelialMap`/`LocalSlamGrid`, event-triggered simulated `MycelialGossipPacket`, modelled range/link blackout, sample provenance deduplication and Policy A/B runner comparison tests. These run in the same Python simulation; no live UWB/HaLow radios or separate Jetson nodes are demonstrated. Policy A remains the one-process shared-map baseline.
+- **Current evaluation:** tests exercise isolated/connected map convergence, link reconnection, changed planting target and physical seed-drop scenarios. The PR's >95% radio byte-saving claim needs an explicitly defined equal-work continuous-streaming baseline before becoming an independently established performance result.
+- **Unchanged product:** rescue-first D-0009; a scripted mechanical tandem extraction test exists, but the fault detection, risk-aware decision and physical actuation have not yet been integrated into one autonomous recovery episode. No learned policy or distributed LLM demonstrated.
+- **Quality follow-up:** fixing the agent README reference to the renamed `input_output.txt` is a documentation-only CI repair. Real distributed inference and on-device radio/energy remain research questions.
+
 ## Decision template
 
 ```text

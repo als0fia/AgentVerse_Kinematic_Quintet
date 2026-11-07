@@ -1,5 +1,7 @@
 # Decentralised Mycelial SLAM, Gossip & Task Negotiation (`src/ricebot/agent/`)
 
+**Implementation scope:** the UWB ranging / Wi-Fi HaLow / ESP-NOW terminology refers to **simulated messages and distance/link models** within `DecentralizedMycelialRuntime`, not live radio hardware or separately deployed processors. Compare Policy A vs B only using tested same-seed scenarios and actual logged messages; the claimed >95% bandwidth saving in PR text requires a defined continuous-streaming baseline and comparable measurement before being treated as a verified result. No distributed LLM or integrated autonomous docking rescue is proven.
+
 ## 1. Purpose
 Implements **Policy B (`DecentralizedMycelialRuntime`)**: a zero-central-database, peer-to-peer collective intelligence architecture where each rover maintains its own private **2D SLAM Occupancy & Traversability Grid (`LocalSlamGrid`)** and **Gaussian Soil/Stand Belief Map (`LocalMycelialMap`)**, educates reachable peers via **event-triggered Wi-Fi HaLow / UWB gossip (`MycelialGossipPacket`)**, and negotiates task ownership via **capability-aware local auctions (`TaskBidProposal`)**.
 
