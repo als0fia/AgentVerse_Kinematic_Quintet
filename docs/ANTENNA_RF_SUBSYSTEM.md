@@ -1,6 +1,6 @@
 # Antenna & RF Subsystem — Sensor Fusion Architecture
 
-**Scope Note:** This specification defines the physical hardware and multi-sensor fusion architecture for the **Antenna** multi-robot paddy platform in the **AgentVerse Kinematic Quintet** architecture (target embodied hardware / physical subsystem specification; distinct from the pure-Python `rice.v1` contract tests in `src/ricebot/`). See [ARCHITECTURE](ARCHITECTURE.md) and [COMMERCIALIZATION_CHINA](COMMERCIALIZATION_CHINA.md).
+**Scope Note:** This specification defines the physical hardware and multi-sensor fusion architecture for the **Antenna** multi-robot paddy platform in the **AgentVerse Kinematic Quintet** architecture (target embodied hardware / physical subsystem specification; distinct from the pure-Python `rice.v1` contract tests in `src/ricebot/`). See [ARCHITECTURE](ARCHITECTURE.md), [IMMOBILIZATION_SCENARIOS](IMMOBILIZATION_SCENARIOS.md), and [COMMERCIALIZATION_CHINA](COMMERCIALIZATION_CHINA.md).
 
 ---
 
