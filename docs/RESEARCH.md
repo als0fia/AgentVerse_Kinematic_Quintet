@@ -13,6 +13,18 @@
 | [Devpost AI hackathon guide](https://www.devpost.com/) and public rules/examples | Value of idea, implementation and real-world impact as common dimensions | Claiming any generic 20/30% weights are AgentVerse's rubric |
 | [Official AgentVerse](https://agentverse.uclai.co.uk/) | Actual event timetable and current event authority | Treating last year's event or public guess as current track brief |
 
+## PaddyPatch-specific prior art and Isaac Sim readiness — 7 Nov 2026
+
+**Current user-selected mission:** physics-embodied **cooperative rice stand-gap survey, shared uncertain soil/stand mapping, physical seed placement and changing-route adaptation**, not primary flood monitoring or rescue. See [PRODUCT](PRODUCT.md) for precise acceptance and [DECISIONS](DECISIONS.md) D-0007. All soil/establishment values in the hackathon will be **synthetic proxies until field calibrated**. No Isaac Sim installation, sensors, video or robot result has been verified in this research entry.
+
+**Current strongest comparisons:**
+- [IRRI, Rice Production Manual, Plant Establishment](https://www.knowledgebank.irri.org/images/docs/planting-establishment.pdf): target population depends on seedbed, sowing technique, depth, seed quality and variety. This argues against treating every gap as a seed opportunity without crop-stage/context.
+- [Nguyen et al., Computers and Electronics in Agriculture (2025)](https://www.sciencedirect.com/science/article/pii/S0168169925010385): robot + RF + handheld soil probes with Gaussian-process spatial moisture fusion. **Prior art**, not our novelty; authors report 97% autonomous robot sampling in their experiments. Don't import their field numbers into this simulation.
+- [Roberts-Elliott et al., Robotics (2025)](https://www.mdpi.com/2218-6581/14/6/77): active Kriging-variance-informed multi-robot soil mapping, task allocation and route planning already published. **Shared-map routing alone is not new**; our distinct claim must involve *embodied seed placement, changing-site decisions and measurable cost/quality trade-offs*, compared against this strong family of deterministic methods.
+- [NVIDIA Isaac Sim official requirements (5.1)](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html): 32 GB workstation RAM / 16 GB VRAM minimum; teammates' reported 8 GB-VRAM laptops cannot be treated as verified compatible. [Official Isaac Sim physics raycast sensors](https://docs.isaacsim.omniverse.nvidia.com/latest/sensors/isaacsim_sensors_physics_raycast.html) are a suitable low-complexity initial obstacle sensor. Actual installation/version pin and host performance require a real test. The same version may expose distinct module namespaces; don't paste version-ambiguous imports.
+
+**Research/test plan:** sample sparse local moisture/firmness and vegetation-gap proxies with explicit measurement radius/noise, fuse shared map with uncertainty, choose whether information gain or planting is worth travel, assign two robots safe routes, physically release a rigid-body seed proxy, then independently score landings against hidden synthetic quality. Compare grid seeding, capable deterministic map-guided planner and optional model-driven investigator on identical worlds and cost budgets. Check if conventional approach wins in uniform plots. Do **not** claim tree/rice survival, yield, flooding prevention, learned soil analytics or real autonomous field deployment.
+
 ## Real-world win discipline
 
 - **Usefulness:** name one concrete beneficiary and action they would choose to use, not a fictional persona.

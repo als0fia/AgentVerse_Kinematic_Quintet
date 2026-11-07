@@ -1,74 +1,65 @@
-# Runtime architecture
+# Runtime architecture — cooperative rice planting in Isaac Sim
 
-**Selected P0 application:** RiceWatch physical water-alert **verification and diagnosis**, plus safe rover adaptation. **Physical gate/flood mitigation is optional P1 only, NOT an initial capability or acceptance criterion.** **The robot body, simulator, models and actuator are design proposals, not built or proven.** This is the canonical architecture; the mission is in [PRODUCT](PRODUCT.md), shared wire contracts in [CONTRACTS](CONTRACTS.md), observed tests in [TESTING](TESTING.md).
+**Canonical mission:** [PaddyPatch PRODUCT](PRODUCT.md), superseding RiceWatch alarm-only monitoring. **Isaac Sim is the user-selected simulator** (version/platform not yet verified). P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
 
-## End-to-end system: a monitoring decision with physical consequences
+## Physical simulation and task flow
 
 ```text
-Field gauges / rover sensors -> belief + incident triage -> pick next informative task
-       ^                                                       |
-       |                                                       v
-Independent outcome verifier <- physical simulated environment <- safe local rover controller
-       ^                                                       ^
-       |                                                       |
-Mid-run disturbance injector                      optional gate/contact mitigation skill
+                 ISAAC SIM OpenUSD + PhysX world
+    prepared/partly drained rice patch, gaps, synthetic soil,
+    existing plants, lanes/no-go, surprise obstacles, seed proxies
+       |                                        ^
+       | local sampled sensor readings          | actual wheel/seed-drop actions
+       v                                        |
+  [rover-1: planter]  [rover-2: scouting robot] |
+       |                   |                    |
+       +---- measured samples & pose estimates--+
+                           |
+                 SHARED BELIEF MAP
+          estimated moisture/firmness/stand gap
+         mean, uncertainty, provenance, freshness
+                           |
+                   MISSION PLANNER
+         choose SAMPLE vs PLANT vs HOLD,
+         which robot, site and safe route
+                           |
+             BOUNDED LOCAL CONTROLLERS ---------+
+                           |
+                independently observed landing
+                           |
+         READ-ONLY VIEWER + SEPARATE TRUTH GRADER
 ```
 
-For P0, a **single physically simulated rover** receives an ambiguous fixed-gauge alert, chooses an inspection site, physically travels using its local range/odometry and takes a **new independent location-dependent water-level observation**. The station gauge may be faulty and the rover may encounter an unannounced route obstruction; it diagnoses `verified abnormal` / `likely false alarm` / `unresolved` from observations and adapts its route or safely abstains. **It does not alter water flow, operate a gate, pump or mitigate the flood.** Only **if time permits after P0 is proven**, P1 introduces a separately validated physical drainage/gate actor and a synthetic water-change model, with an independent after-action reading; no P0 module may depend on its existence. No scripted UI gate, magically cleared obstruction, oracle truth passed to the planner or mandatory cloud servo loop.
+**Separation rule:** Isaac Sim owns all physics and hidden true synthetic soil/stand map. Sensors must be sampled at physical robot positions; an imaginary soil score or object-location oracle is not an observation. Each robot contributes independently timestamped samples to the same map. The mission planner acts on the **estimated** map, not hidden truth. Local controllers own high-rate wheel/obstacle/no-go safety. The planter needs a **physically simulated hopper/dropper and rigid-body seed proxy with observed contact/landing**, not text saying “planted”. UI is a subscriber, not a second world engine. Hidden truth exists only for evaluation.
 
-| Functional component | Input → output | Candidate method | Status |
-| --- | --- | --- | --- |
-| **Field / sensors** | Timed water/flow *measurements*, RGB/depth/range/contacts, time, noise → observations | Transparent simplified water-balance model and simulated sensors | Design only |
-| **Rover perception** | Local measured ranges, image/depth, odometry → obstacles and pose *estimates* | Classical perception/state estimation, small classifier only if necessary | Design only |
-| **Incident investigator** | Gauge/robot evidence → hypothesis and next useful observation | Bayesian belief + information gain; optional bounded LLM when it improves the baseline | Design only |
-| **Task coordinator** | Candidate inspection/response, battery, risk → approved robot task | Constrained planner/allocator; single robot to start | Design only |
-| **Robot control / safety** | Target task + fresh local sensing → bounded wheel/steering/contact forces | Deterministic navigation / motion planning / safety stop | Design only |
-| **Mitigation interface (P1 OPTIONAL)** | Additional capability plugin for an *actual* separate gate/lever actor, no dependency in P0 | Simple contact actuation plus synthetic water-balance proxy **only if time permits** | Optional stretch; not part of P0 tests |
-| **Independent evaluator** | Hidden simulator state + trace → measurements and failed attempts | Scripted world disturbance, automatic physical result checker, same-seed baseline | Design only |
+## Human-led robot and farm design
 
-## Robot embodiment is a real engineering decision
+**Human robot lead chooses and approves** the body, wheel/contact setup, mass/inertia, service-lane width, sample probe placement, hopper release location/reach, motor bounds and collision/no-go limits. Two similar small wheeled rovers in a **prepared dry/direct-seeded or drained plot** are a plausible first approximation; the scout reuses body assets and need not carry a hopper. Flooded paddies, planting live seedlings with realistic roots, mud deformation and exact agronomic soil dynamics are excluded until separately modelled and validated.
 
-**P0 needs physically credible rover movement and independently sampled water-level readings, not a drainage actuator.** A robot must have a physically plausible body and mechanisms; a moving map icon isn't enough. For the first demo, the *recommended reference concept* is a compact wheeled inspection rover **travelling on a relatively firm rice-field bund/service edge**, looking into adjacent paddies and visiting an outlet. This is a deliberately restricted **simulated operating envelope**, not a claim a conventional rover can drive through flooded paddy crops.
+**Field realism:** 4×4–6×6 candidate patches initially; existing stand gaps; synthetic ground moisture and firmness gradients; varying travel/access; limited planting inventory; known and newly revealed barriers. A soil measurement may be an explicit virtual probe with radius/noise and unit-specific sample, plus local vegetation/stand proxy; **a camera cannot directly know soil nutrients or compaction**. The hidden establishment-benefit model is an experiment scoring proxy, **not** an agronomic forecast of rice yield or survival. Record assumptions and compare to uniform/grid coverage as well as competent map-aware deterministic planning.
 
-**Human-led design review is required before implementation commitments**: a teammate should approve where it operates, whether wheels/tracks/flotation are appropriate, approximate chassis dimensions, mass/centre of mass, wheelbase/track footprint, traction and clearance assumptions, motor/steering layout, battery and return reserve, sensor position (including where it samples local water), water ingress/splash limits and crop/no-go clearance; **gate reach/contact-force limits matter only for optional P1**. The AI may help generate concept options, parametrised models and tests but **must not invent a fabricated robot design as finished hardware** or autonomously decide to procure/modify hardware.
+## Parallel module seams (proposed paths, not present yet)
 
-| Design alternative | Benefit | Principal burden and suitability |
+| Module | What to implement | Owner |
 | --- | --- | --- |
-| **Bund / field-edge wheeled rover (provisional P0)** | Simple reproducible physics, visual line of sight to drain, low crop disturbance, reachable outlet | Edges may be narrow, sloped or slippery; must confirm sufficient clear width and no-fall boundaries in the simulated scene |
-| **Tracked muddy-ground rover** | Potential traction on softer soil | Higher turning resistance, disturbance to rice roots/soil, track physics; P2 only if field access demands it |
-| **Floating / amphibious rice-row platform** | Can directly inspect submerged field and adapt to water level | Buoyancy, water propulsion, clearance around plants, contact realism and greater simulation complexity; P2 research path |
-| **Fixed station + small mobile rover** | Grounded water monitor and mobile verification, with local/offline control | Distributed sensors and possibly radio model; start with a local message interface, not a required second physical robot |
+| `src/ricebot/contracts.py`, `runner.py` | tested `rice.v1` observation/sample/map/task/drive/drop/result contracts, Isaac launcher/step and logging; only one integration writer | 1 Integrator |
+| `src/ricebot/robot/` | human-approved rover bodies, wheel articulated motion, local no-go/collision safe controls, **hopper/dropper physics** | 2 Mechanical + control |
+| `src/ricebot/world/`, `sim/` | OpenUSD field, hidden synthetic soil distribution, sample-radius sensor bridge, stand gaps, second rover/scout, injected surprise | 3 World/physics |
+| `src/ricebot/agent/` | shared map interpolation/uncertainty, site scoring, active sample-vs-plant decision, robot/site assignment and route planning | 4 Agent/planning |
+| `src/ricebot/evaluation/`, `viewer/` | hidden-truth grader, uniform/greedy/map-aware baselines, seed contact outcomes, telemetry and ≤60s continuous demo | 5 Evaluation/UI |
 
-**Mechanical simulation acceptance:** actuated joints/wheels; real collision geometries; reasonable mass and inertia; traversable/non-traversable surfaces, obstacle and crop-protection zones; locally sampled sensors with timestamps; a measurable stop/replan after surprising contact or obstacle; and a clearly modelled route obstruction or safe-stop failure. Blocked-gate failures belong to optional P1 only. A later manipulator must physically reach and operate the outlet with collision/force limits; if it does not, label the mitigation as a *recommendation* only.
+**First freeze:** smallest running Isaac scene + one moving rover + range sensor and `rice.v1` fixture. **Second:** physically drop a seed proxy and prove landing before chasing complex intelligence. **Third:** second moving scout and distinct local samples, shared mean/uncertainty map and route allocation. **Fourth:** inject an unannounced obstruction or locally discovered unsuitable patch; alter actual plant location/route safely; run baselines and record. Merge components in these dependency stages and keep the latest `main` runnable.
 
-**Relevant engineering precedents:** [2026 paddy chassis review](https://pmc.ncbi.nlm.nih.gov/articles/PMC12901939/) reports tracked versus wheeled terrain/soil-disturbance trade-offs; a [2026 floating two-wheel paddy weeding robot](https://www.fujipress.jp/jrm/rb/robot003800020404/?lang=ja) uses floats and a four-bar wheel mechanism. Neither design is automatically our hardware or a ready-made MuJoCo asset. Do not extrapolate demonstrated paddy-row capability from an unverified bund-rover model.
+## Isaac Sim implementation choices and limits
 
-## Generalisable intervention framework, without claiming transfer
+- Verify the **actual installed version** and exposed API before importing version-specific extensions. NVIDIA offers OpenUSD scenes, PhysX articulations, raycast/contact/IMU sensors and standalone scripting; use **simpler physics sensors** before heavy multi-camera RTX perception. [Isaac Sim documentation](https://docs.isaacsim.omniverse.nvidia.com/latest/py/index.html).
+- Official requirements list **32 GB RAM / 16 GB VRAM minimum** on an RTX GPU for supported full usage; several discussed 8 GB laptop GPUs may be below spec. Run the compatibility checker on the actual host, then measure an actual physics/render episode. Do not promise that an 8 GB machine or remote streaming is functional. Cloud host requires explicit provisioning/cost approval. [Official requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
+- Use a fixed sim clock and timestamped per-robot sample provenance. Start with **inverse-distance/nearest-neighbour interpolation** for a small field, A*/Dijkstra or bounded graph search along actual traversable lanes. Gaussian processes/Kriging, RL or deliberative LLM reasoning only when baseline comparison supports it.
+- If running simulation on a shared/remote workstation, explicitly record **where physics, renderer, each robot controller, map and supervisor execute**; communication loss can't be claimed as onboard autonomy unless a local controller actually keeps working.
+- Never use `sim.get_true_soil`, future event flags or directly set seed landing site within policy. Planner may request `PLANT`; actuator releases a real proxy; physics determines landing; grader separately scores hidden synthetic benefit.
+- Low-priority options **only after P0 verified:** robot fault/rescue orchestration, flood-water monitoring/physical outlet intervention, reforestation or space domain adapters.
 
-Domain-neutral core: **detect uncertain event → decide inspect / wait / intervene / escalate → assign constrained physical skill → verify consequence / replan**. Rice-specific water-level interpretation, bund geometry, crop protection and outlet mechanism are **adapters**; forest restoration and space/construction would need *different bodies, sensors, safety and effect models*. They are pitch-level potential applications until separately simulated and evaluated.
+## Integration falsification
 
-**Explicit scope boundary:** P0 finishes at observation, incident diagnosis and safe abstention; **never mark a gate/valve/pump or flood-control effect as required for the first build**. The agent's potential generic actor-dispatch interface should support optional future capabilities without instantiating them now.
+The product fails its core claim if no seed physically contacts a legitimate planting patch, if map values come from hidden truth instead of measured rover samples, if second rover has no distinct contribution, if a changed route triggers a scripted scene swap, or if apparent success is an unverified UI animation. One self-contained actual runnable episode with *physical seed placement and task-driven replanning* matters more than additional agents.
 
-**Robot-to-robot rescue (P2 optional):** when the rover becomes trapped, disconnected or low on reserve, a future fleet agent weighs wait/self-recovery versus human contact versus safe helper dispatch and lost task productivity. A genuine rescue demo would require another physics-enabled robot physically assisting, not only a text assignment. It must not delay P0/P1.
-
-## Build ownership
-
-The human integrator should first verify that one candidate robot model can **move from sensor-conditioned commands in the actual local simulator**. Only then freeze a minimal observation/action schema, assign distinct perception/controller/mission/evaluator modules, and measure each. Core controller stays local; optional LLM reasoning may be offline/unavailable without causing unsafe motion. Record actual simulator/robot choices and tested parameters in [RUN](RUN.md) and versioned message contracts in [CONTRACTS](CONTRACTS.md).
-
-## Required details to confirm as the build proceeds
-
-- **Data and control flow:** observation → optional AI decision → validation → bounded execution → measured outcome; show retries, human override and failure exits.
-- **Runtime topology:** executable entrypoints, model/server/process placement, data sources, simulator/robot if any, ports, external APIs and trust boundaries.
-- **Units and frames:** metres vs centimetres, radians vs degrees, body/world/camera frames, timestamp origin, coordinate handedness, seed format. Never assume a convention.
-- **Performance budgets:** intended latency for control loops vs deliberation, compute and monetary budgets; measure observed values separately.
-- **Safety:** tool allowlist, action limits, invalid-state handling, timeouts, permission boundary, kill switch for physical motion.
-- **Operational recovery:** expected failures, restart/reset path, deterministic fixtures, fallback seed, clean reproduction command.
-- **Versioning:** any incompatible inter-module change updates `docs/CONTRACTS.md`, fixtures/tests, callers, and the integration owner before merge.
-
-## Engineering principles
-
-1. Start with a walking skeleton: input → at least one actual operation → independent observable result.
-2. Hide optional LLMs, VLMs and simulation behind narrow replaceable interfaces; they may fail or be offline.
-3. Keep hard realtime/safety control in a deterministic controller rather than an unbounded language-model loop.
-4. Make state transitions and errors machine-inspectable (structured logs, IDs, timestamps and seeds), not just natural-language narration.
-5. Test the seams between modules before polishing internal implementations.
