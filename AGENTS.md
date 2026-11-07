@@ -7,7 +7,7 @@ The repo is public. It contains **shared submission engineering**, not personal 
 1. Follow this file as the single repository-wide instruction contract. Use `README.md` for orientation; inspect the current working tree/branch and relevant diffs, issues and PRs before changing code.
 2. For project selection or a changed brief, use `docs/EVENT.md` and `docs/PRODUCT.md`; for parallel work use `docs/TEAM.md`. If the challenge or project is unresolved, work only on reusable infrastructure or explicitly requested research.
 3. For interface/runtime changes, use `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md`, `docs/RUN.md` and relevant tests. For evaluation/demo use `docs/TESTING.md` / `docs/DEMO.md`. For tiny fixes, do not read unrelated documents.
-4. Load the **matching** `.agents/skills/<skill>/SKILL.md` when its workflow applies. Claude Code discovers the byte-identical `.agents/skills/` mirror. Skills do not grant extra tools or authority.
+4. Load only the **matching** `.agents/skills/<skill>/SKILL.md` when its workflow applies; do not inject all skills, histories and tool outputs into every prompt. Gemini CLI loads task skills on demand. Skills do not grant extra tools or authority.
 
 ## Order of work
 
@@ -49,12 +49,14 @@ The repo is public. It contains **shared submission engineering**, not personal 
 | Coordinate parallel agents | `.agents/skills/parallel-handoff/SKILL.md` + `docs/TEAM.md` |
 | Compare evidence | `.agents/skills/evaluate-and-demo/SKILL.md` + `docs/TESTING.md` |
 
-## Model-agnostic entrypoints and skill parity
+## Gemini-first entrypoints and scoped delegation
 
-- `AGENTS.md` is authoritative for every human and coding agent. Claude Code imports it through `CLAUDE.md`; Gemini CLI through `GEMINI.md`; Codex reads it natively. Do not add another competing team rulebook.
-- The **canonical** six skills live in `.agents/skills/`, the **full-content Claude-compatible mirror** in `.claude/skills/`. Edit only `.agents/skills/` and run `python scripts/sync_skills.py --write` before committing. The consistency check rejects missing, extra or altered mirrors. Never replace Claude's complete skills with a weaker link-only wrapper.
-- Claude-native `.claude/agents/` remains available. The reusable responsibility/branch/contract/handoff model in `docs/TEAM.md` applies to Codex, Gemini, other assistants and humans without implying a common subagent API.
-- Chat-based agents without workspace-native discovery must read this document and applicable skill explicitly. No file naming convention grants remote execution, filesystem access or GitHub write permission.
-- The coordination rules are **guardrails, not an orchestration framework**: do not require a design review, ticket, rigid handoff fields or parallel agents for a trivial change. Only share and freeze an interface where independent modules actually depend on it.
+- **Primary:** Gemini CLI imports `AGENTS.md` through `GEMINI.md`. The six canonical on-demand skills live in `.agents/skills/`; optional specialised Gemini subagents are under `.gemini/agents/`. Run `/memory show`, `/skills list`, `/agents list` to verify actual discovery when locally installed. No file automatically starts a worker.
+- **Model/context routing:** follow [team coordination](docs/TEAM.md). Prefer Gemini 4 Argon for complex cross-module reasoning and Gemini 3.8 Flash for bounded specialist work, *if the team has access*. Supply the smallest relevant files, latest commit, interface and test fixture, not every chat or full repo. Use measured results, not marketing cache-hit guarantees.
+- **Coordination:** GitHub issue/PR threads and owned branches/worktrees are the default shared interface. No automatic live agent messenger or global inbox. Human integrator approves priorities and merging, and each AI run must be invoked explicitly.
+- **Other tooling:** Codex may follow the same neutral source `AGENTS.md` and skills. Claude-native entrypoints, agents and full skill mirrors are **retained as legacy compatibility only**, not the preferred route; existing CI currently checks their parity. Do not delete them or change shared CI without reconciling the team. Any assistant without workspace-native discovery must read relevant files explicitly.
+- Do not impose multi-agent ceremony on tiny solo changes. Create independent subagents only when a bounded task actually benefits; Gemini CLI subagents do not recursively delegate.
+
+The role/routing guidance above is for **developer agents**, not a commitment to use a particular model inside the eventual robotics product.
 
 The existence of an agent file or automation does **not** mean any assistant has access to multiple runtimes, is executing in background, or has passed a test.
