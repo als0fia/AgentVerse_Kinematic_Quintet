@@ -1,16 +1,22 @@
 # The Kinematic Quintet — AgentVerse 2026
 
-**State:** Repository engineering foundation only. The organiser's onsite Robotics theme is now captured in [event constraints](docs/EVENT.md), but the exact scored problem statement, team solution, runtime stack, hardware, and working demo are **not yet confirmed, selected or implemented**. Do not describe this as a functioning submission.
+**State:** **Robotics challenge and deliverables now captured** in [event constraints](docs/EVENT.md): build an agent that perceives via simulated sensor(s), decides from observations, and acts in a changing simulated world. The team solution, simulator/runtime, hardware/credits and working demo are **not yet selected, validated or implemented**. Do not describe this as a functioning submission.
 
 **Event:** UCL AI Society AgentVerse, 7–8 November 2026, Europe/London. The [official timetable](https://agentverse.uclai.co.uk/) lists the track reveal at **Saturday 12:30**, final submissions **Sunday 14:00**, and judging **Sunday 15:00–16:00**. Verify changes in the actual participant portal; official challenge details supersede these notes.
 
 ## Start here
 
 1. **Humans and coding agents:** follow [AGENTS.md](AGENTS.md) and [team coordination/model routing](docs/TEAM.md). **Gemini CLI is the primary development route** through [GEMINI.md](GEMINI.md), with isolated optional project subagents. Codex remains optional; legacy Claude files are preserved without being the default.
-2. **Challenge and resources:** Read the photographed onsite [Robotics theme and model announcements](docs/EVENT.md), obtain any exact written challenge/eligibility requirements, then choose the [product/mission](docs/PRODUCT.md) with the team. Neither examples nor advertised models imply a selected project or granted access.
+2. **Challenge and resources:** Read [Robotics organiser slides 35–38 captured in EVENT](docs/EVENT.md). Before choosing the [product mission](docs/PRODUCT.md), verify access to a simulator and stream ([RUN](docs/RUN.md)); then build the smallest real **simulated sensor → decision → action → changed-scene recovery** episode ([TESTING](docs/TESTING.md)). Exact scoring text is partly obscured, and credits are not verified.
 3. **Before parallel coding:** agree the smallest shared interface needed for a runnable end-to-end path in [architecture](docs/ARCHITECTURE.md) and [contracts](docs/CONTRACTS.md). Divide **independent** modules by branch/owner (an issue, PR or short message suffices).
 4. **Build:** implement a smallest complete user-visible journey, then expand with tests and real [evaluation](docs/TESTING.md).
-5. **Demonstrate:** follow [demo and submission](docs/DEMO.md), verify all claims and keep adequate buffer before the real portal deadline.
+5. **Deliver:** follow [the actual Robotics submission brief](docs/DEMO.md): one-page technical PDF, **≤1-minute continuous** simulation video showing perception beside actions and one unexpected scene change, plus a **five-minute pitch if shortlisted**. Keep a buffer before the real portal deadline.
+
+## Hard constraint from the revealed challenge
+
+**The coding-agent workflow and the robot's autonomy are separate systems.** Gemini can help develop/test the entry, but judges want core simulated decisions to respond to real simulated sensors, re-plan when the scene changes, and avoid being dependent on cloud LLM calls at every step. NVIDIA Isaac Sim/Modal streaming is **optional** and separate from policy placement. The presenter explicitly allowed MuJoCo/PyBullet/Gazebo/Webots as alternatives. Simulator/stream readiness comes before fancy agent orchestration.
+
+**Judging visibility:** perception-driven action, adaptation to an unscripted change, operational autonomy/local decision-making and originality/quality. The photographed weight bar is partly obscured; do not invent a fully weighted rubric.
 
 ## Foundation commands
 
