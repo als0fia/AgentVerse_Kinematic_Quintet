@@ -1,62 +1,60 @@
 # Product mission and acceptance criteria
 
-**Selection status: NOT DECIDED.** This template is not a selected hackathon entry. Event brief and team decision take precedence over prior idea research.
+**Selected project direction — 7 November 2026:** Rice-field flood monitoring, investigation and adaptive response. The team's chosen application is **rice**, not Firewatch or precision tree/rice planting. The selected research architecture is reusable monitoring → active investigation → targeted intervention → outcome verification, with robot recovery as an **optional** extension. This is an authorised project direction, **not** evidence of a working robot, fixed simulator or final team-tested implementation.
 
-## The one-sentence job
+## One-sentence mission
 
-> For [specific human / organisation] who needs [concrete action] in [actual environment], the system [performs observable work], verified by [independent result].
+For rice growers and irrigation-field operators facing **unusually deep or prolonged water rise**, a sensor-driven mobile robot investigates the cause, selects a safe response, and checks whether the action helped while limiting battery use, crop damage and unnecessary deployments.
 
-**Beneficiary and firsthand evidence:** undecided. Record interviews or external references, not imagined pain points.
+**Why it matters:** lowland rice normally grows in intentionally shallow standing water; not all water is an emergency. Uncontrolled flash flooding, deep/extended submergence and drainage failures can nevertheless harm crops. The farmer currently has water-level monitoring, irrigation/drainage management, periodic inspection and human-operated controls; our project must show an advantage over these or a capable reactive planner, not invent an absence of existing techniques. Sources: [IRRI ecosystem constraints, including blocked drainage and flash floods](https://books.irri.org/TechnicalBulletin16_content.pdf), [2025 rice submergence physiology review](https://academic.oup.com/plphys/article/197/2/kiaf029/7989433).
 
-**Current alternative:** identify the real workflow, numerical optimiser, controller, VLM, off-the-shelf service or human process. State exactly how it performs and what it does not handle.
+**Not our product:** inspecting every rice planting position, precision rice transplantation, guaranteed yield improvement, or autonomous flood prevention under real farm conditions. Water depth alone does not prove flooding damage, and actual agronomic outcomes require field trials.
 
-**Why AI is necessary:** specify the ambiguous perception, uncertainty, diagnosis, experiment design or language reasoning that deterministic tools cannot cheaply handle. A tool-calling LLM is not itself differentiation.
+## Selected intelligence system
 
-## Candidate system families (not selected)
+**Monitoring, Investigation & Targeted Mitigation** is the main system. It should support both stationary sensor warnings and mobile robot observations. It must distinguish *normal ponding* from a credible **abnormal rise**, decide whether another measurement is worth taking, deploy/route a capable robot, and select a bounded mitigation or safe abstention. The same domain-neutral functions could later be reused in reforestation (inspect → protect/seed), lunar/space construction (inspect → stabilise/repair), Firewatch (suspected hazard → verify/mitigate under human authority) or infrastructure inspection. **These are possible transfers, not working demos or independent products.**
 
-**These are two reusable systems, not five separate products.** The team has not yet chosen either or verified a working simulation. Applications are examples to help select **one testable embodied task**, not promises of simultaneous implementation.
+**Swarm Recovery & Assistance** is a compatible *secondary capability*: when the dispatched rover itself becomes immobilised, the fleet can decide whether to self-recover, wait, send another robot, reallocate tasks or alert a human. It shares state estimation, allocation, safety and verification. **Do not make a rescue robot or multi-agent swarm a prerequisite for the first runnable rice demo.**
 
-| System | Specific job / user | Minimum embodied demonstration | Difficult comparison |
-| --- | --- | --- | --- |
-| **Swarm Recovery & Assistance** | For field fleet operators, restore operation when one robot's ordinary self-recovery fails | A simulated disabled rover is assessed; one mobile helper investigates/reaches it and physically performs a bounded recovery or justified safe refusal after an unexpected scene change | Nearest-helper and deterministic rescue rules versus resource/risk-aware cooperative diagnosis and dispatch |
-| **Monitoring, Investigation & Targeted Mitigation** | For environmental/infrastructure monitors, turn uncertain alerts into safe, justified physical investigation or action | A fixed lookout detects an ambiguous event; a simulated scout chooses a useful observation point, physically travels, verifies sensor evidence and replans after a surprise | Fixed-sensor alarm, nearest-scout rule and Bayesian information-gain / risk-aware planner versus proposed agent |
+## Build priority: commit to one embodied result first
 
-**Application focus:** Firewatch is the clearest current example of System 2: verify a suspected wildfire without unsafe or unnecessary deployments, and keep the scout safe during communications loss. Rice **drainage-failure inspection** and reforestation **restoration triage** are alternative uses of monitoring/mitigation, **not extra systems**. Simple precision rice planting has no established advantage over competent mechanised planting. A simulated forest-survival score cannot substantiate real tree establishment. Swarm Rescue is System 1 and may be a future optional fallback for a stranded scout, **not a required integration this weekend**.
+| Priority | What the robot demonstrably does | Success evidence / exit |
+| --- | --- | --- |
+| **P0 — Required working spine** | One simulated mobile rover reads at least one **simulated** environmental/robot sensor, navigates to inspect an abnormal water or drainage alert, and responds to an unexpected **mid-episode** obstruction, new observation or changed route. It must physically move and revisit its decision from new observations. | Timestamped sensor → decision → physical actuation → later observation, real collision/obstacle handling, safe stop, identical-seed baseline |
+| **P1 — Preferred mitigation, only after P0 runs** | After diagnosing a plausible blocked/closed drainage outlet or abnormal inflow, the rover reaches an explicitly modelled safe control point and **physically actuates a small gate/lever or other feasible simulated mechanism**; a separate simplified water-balance model changes flow/depth, and the robot measures whether it helped. If that physical manipulation is too costly to implement, demonstrate **inspection and justified mitigation recommendation**, labelling fixed infrastructure actuation separately rather than claiming robot manipulation. | Verified gate/flow change not a scripted UI label; before/after water-level proxy, force/collision constraints, jam/no-effect detection and bounded escalation |
+| **P2 — Optional transferable framework** | Add a second rover, dispatch/relay, swarm rescue for a stranded rover, and/or one alternative environment/configuration using the **same** planner/skill interfaces. | One independent working second scenario, never a re-skinned animation; only after core, baseline and video are secure |
+| **Out of scope for the initial submission** | Accurate hydrodynamics, crop survival modelling, trained VLA/RL policy from scratch, full robot towing/swarm consensus, real farm intervention, cloud GPU dependency | These are future work, not demo claims |
 
-**First slice for either:** one physically actuated simulated robot, one genuine simulated sensor, one observation-conditioned decision, one surprise *during the same episode*, a bounded local controller and independent grader. Add a second robot, environmental actuator or deliberative model only after this works. Capture the real user benefit and nearest published/current alternative in [RESEARCH](RESEARCH.md) when the team chooses. See [CONTRACTS](CONTRACTS.md) for interface ownership and [TESTING](TESTING.md) for falsification; do not use privileged simulator ground truth as agent input. The actual **selection, baseline, simulator, ownership and acceptance metric** must replace this shortlist in this file after human agreement.
+**Concrete preferred episode:** a central field gauge reports **abnormal water rise**; the mobile rover investigates a drainage point via local depth/camera/range observations. An unexpected obstacle or changed water condition invalidates its planned route/assumption. It must avoid the hazard and replan, then either attempt **one safe modelled mitigation** (e.g. open a small bypass gate if accessible) and verify a lower water proxy, or explicitly refuse/escalate if the drain is jammed or the route is unsafe. The actual disturbance must be injected by the environment, not encoded as a canned controller sequence. Use an independent simulator evaluator, not the model's own narrative, for success.
 
-## Minimum live scenario
+## Where an agent could add value—and where not
 
-| Field | Must be explicit after selection |
-| --- | --- |
-| Starting state | Scene/logs/data/environment, assumptions, allowed resets |
-| User input | Real request, measured signal or physical situation |
-| Agent judgment | The exact model choice, hypothesis or action selection |
-| Deterministic subsystem | Controller, simulator, search/optimiser, safety gate, verifier |
-| Observable effect | Physical/simulated action, repaired state, retrieved object or training improvement |
-| Independent verifier | Non-LLM success condition and instrumentation |
-| One difficult edge case | What change causes re-planning or a clear safe failure |
-| Realistic failure | What can break and what the operator sees |
+- **System 0:** local deterministic navigation/contact bounds, battery reserve, obstacle stop, no-go crop zones and actuator limits. Never delegate safety-critical control to an unconstrained LLM.
+- **System 1:** fast perception, incident classification, ordinary task reallocation, route planning and bounded skill choice. Conventional state machines, Bayesian belief filters and constrained planners are serious starting points.
+- **System 2 (optional):** a slower investigator proposes useful **physical probes** or cause hypotheses when water-level changes have several plausible causes (blocked drain vs increased inflow vs faulty reading), or when a mitigation fails. Its suggested actions must pass local constraints and be measured against a strong non-LLM baseline.
+- **Generalisation claim to test:** the architecture separates the *incident → belief → investigation → constrained physical skill → outcome* logic from a rice-specific sensor and actuator adapter. Reforestation or space scenarios are proposed adapters; common code alone does not demonstrate real transfer.
 
-## Acceptance checks before product implementation
+## Human-led robot-design choice (not fixed yet)
 
-- [ ] Official track prompt and eligibility read
-- [ ] **One real beneficiary, evidence/source for the need, meaningful outcome and most critical failure handled on screen (20% judge criterion)**
-- [ ] Working small end-to-end demo designed, not just a component list
-- [ ] One serious baseline and at least one near prior-art source
-- [ ] Quantitative or observable success and failure criteria
-- [ ] AI contribution has a testable hypothesis
-- [ ] Named integrator and compatible stack available
-- [ ] Team explicitly selects the scope; alternatives preserved in issue/decision history
+**Do not design a magic robot around the software.** The recommended first **simulation reference** is a compact four-wheel/differential inspection rover that stays on a sufficiently wide, relatively firm paddy **bund/service edge**, looking into the field and approaching an accessible outlet. A real crop-field rover might instead need tracks, floats or more complex suspension; **the human team must choose body dimensions, chassis, weight, joint actuation, sensor mounting and gate attachment after reviewing the operating surface and access requirements**. The assistant may propose mechanical alternatives, MJCF/URDF geometry and tests, not assume verified traction, waterproofing, reach, torque or a manufacturable product. A 2026 [paddy chassis engineering review](https://pmc.ncbi.nlm.nih.gov/articles/PMC12901939/) and [floating two-wheel paddy prototype](https://www.fujipress.jp/jrm/rb/robot003800020404/?lang=ja) show different mobility trade-offs.
 
-## Change control
+The physically embodied minimum needs actual wheel/contact dynamics, observable sensor readings, collision geometry, safe stop and a realistic location for any gate-interaction mechanism. **Moving on an edge is not demonstrating amphibious travel in rice crops**. See [ARCHITECTURE](ARCHITECTURE.md) for alternatives, [CONTRACTS](CONTRACTS.md) for prospective actuation bounds, and [RUN](RUN.md) for human-approved simulation setup.
 
-Use `docs/DECISIONS.md` for durable selection/architecture decisions, this file for *current* product intent, and GitHub issues for implementation work. If the demo is cut, update scope here before telling judges it is still supported.
+## Primary success measures and baselines
 
+**Compare the same unseen seeds and observation/action budget:** (A) normal fixed sensor alarm + preset route/human-style response; (B) competent reactive or Bayesian investigation/replanner with safe actuator rule; (C) proposed uncertainty-aware investigation/mitigation policy, with an optional slow-model ablation. Measure mission success, time from abnormal event to verified cause/response, task interruption, energy/return reserve, unsafe contacts/crop-proxy disturbance, unnecessary intervention, and mitigation efficacy in the **simplified simulated water model**. Include no-alarm normal ponding, sensor-fault, obstruction and jammed-gate cases. Do not imply the LLM wins before running tests.
 
-## Embodied Robotics selection gate — revealed 7 November 2026
+**Critical failure to handle on-screen:** after a real anomalous rise, the rover's expected inspection/mitigation path becomes unsafe or ineffective. It must detect the change through sensors and replan or stop/escalate safely, rather than silently opening a gate that cannot help.
 
-**Challenge constraints are now known:** see [EVENT](EVENT.md) (organiser slides 35–38, full 100% rubric now confirmed from a clearer attendee photo), [independent evaluation](TESTING.md), and [fast/slow model / relevant prior-art research](RESEARCH.md#robotics-decision-model-research-fast-execution-slow-investigation-7-nov-2026). This is **not** a product choice. All candidate ideas must be judged by the same objective, not by whether they use an LLM or a fashionable framework.
+## Ownership and acceptance
+
+- **Direction:** rice-field flood investigation/response is chosen in this conversation (7 Nov). Named teammate integration owner, simulator, actuators, model, risk bounds and test claims remain to be confirmed by the actual team.
+- **Required evidence:** physically simulated sensor-driven actuation and mid-episode adaptation; a source-supported end-user need; independent verifier; a serious baseline; one continuous ≤60 s perception/action video; one-page technical PDF; five-minute pitch only if shortlisted. See [EVENT](EVENT.md), [ARCHITECTURE](ARCHITECTURE.md), [CONTRACTS](CONTRACTS.md), [TESTING](TESTING.md), [DEMO](DEMO.md), [RUN](RUN.md).
+- **Scope cutting rule:** never sacrifice the P0 sensor → physical action → surprise → recovery demonstration to add multi-robot rescue, cloud models, dashboards, fictional physics or unverified future applications.
+
+## Embodied Robotics implementation gate — revealed 7 November 2026
+
+**Challenge constraints are now known:** see [EVENT](EVENT.md) (organiser slides 35–38, full 100% rubric now confirmed from a clearer attendee photo), [independent evaluation](TESTING.md), and [fast/slow model / relevant prior-art research](RESEARCH.md#robotics-decision-model-research-fast-execution-slow-investigation-7-nov-2026). The rice-field mission above is the selected direction; the exact robot stack and testable scope must still be implemented, and it must be judged by the same objective as a competent non-LLM alternative.
 
 | Gate | Team must be able to show | Do not accept as proof |
 | --- | --- | --- |
@@ -69,4 +67,4 @@ Use `docs/DECISIONS.md` for durable selection/architecture decisions, this file 
 
 **Fast-versus-slow is not the idea:** A specialised/reactive controller, compact learned policy or bounded System One decision model can handle routine high-rate choices. A deliberative agent earns its role only when **active investigation, ambiguous diagnosis or mission-level adaptation** outperforms classical replanning, probabilistic inference or fixed experiment selection. [REA (2026)](https://arxiv.org/abs/2610.42053) already uses System 0/1/2 layers; [robojev bench](https://robo-jev.dev/) already compares typed decision models in robotic simulations. Do not sell either architecture as unprecedented.
 
-**Minimum before selecting implementation:** name one real person/organisation and mission with source-qualified evidence for why it matters, one feasible actuated robot scene + its real sensor channel, a mid-run disturbance not hardcoded into the controller, one strong classical baseline on the same seeds, independent non-LLM success/unsafe-action checks, run/recording feasibility on actual compute, and a known failure/abstention path. **Select only with the team.** A remote Jev account, NVIDIA/Modal provision, correct physical sensor drivers or any model performance remain unverified.
+**Minimum before committing to an implementation stack:** name one real person/organisation and mission with source-qualified evidence for why it matters, one feasible actuated robot scene + its real sensor channel, a mid-run disturbance not hardcoded into the controller, one strong classical baseline on the same seeds, independent non-LLM success/unsafe-action checks, run/recording feasibility on actual compute, and a known failure/abstention path. **The direction is selected; coordinate actual interfaces and team ownership before parallel implementation.** A remote Jev account, NVIDIA/Modal provision, correct physical sensor drivers or any model performance remain unverified.

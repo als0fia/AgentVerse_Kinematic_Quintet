@@ -9,6 +9,10 @@ The repo is public. It contains **shared submission engineering**, not personal 
 3. For interface/runtime changes, use `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md`, `docs/RUN.md` and relevant tests. For evaluation/demo use `docs/TESTING.md` / `docs/DEMO.md`. For tiny fixes, do not read unrelated documents.
 4. Load only the **matching** `.agents/skills/<skill>/SKILL.md` when its workflow applies; do not inject all skills, histories and tool outputs into every prompt. Gemini CLI loads task skills on demand. Skills do not grant extra tools or authority.
 
+## Current selected project (7 November 2026)
+
+**Build for the selected rice-field flood monitoring, investigation and adaptive response mission.** Read [PRODUCT](docs/PRODUCT.md) before adding features or changing the objective. The default build target is one simulated rover that uses real simulated sensing, physically navigates to investigate abnormal water/drainage behaviour, and recovers or stops safely after a mid-episode surprise. **Mitigation via a modelled gate/flow action is the preferred next capability**, not yet proven; multi-robot rescue, reforestation and space are optional applications of shared interfaces, not currently required or implemented. Treat controlled shallow paddy water as normal; never market all standing water as flooding damage. Preserve the existing programming-agent workflow and model evidence requirements.
+
 ## AgentVerse Robotics judge-alignment gate (event-specific)
 
 **Before selecting a project, changing the embodied system, declaring a feature complete, or preparing a judge-facing claim**, read the organiser-derived [challenge and scoring evidence](docs/EVENT.md), then use [testing](docs/TESTING.md) and [demo requirements](docs/DEMO.md) for the applicable task. A reviewer/evaluator must challenge any unsupported claim; a developer must not substitute the appearance of an agent for behaviour in simulation.

@@ -35,6 +35,18 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 **Runtime topology disclosure, once implemented:** where **simulation** executes, where **policy/decision loop** executes, where **video stream** terminates, external LLM call frequency, degraded-network behaviour, data/privacy/asset licensing and billed GPU time. “Locally autonomous” must describe the *decision loop* honestly even if rendering is on a cloud GPU.
 
+## Selected rice mission — proposed simulator smoke path
+
+**Product selected, runtime and geometry not yet approved or installed.** Use the organiser-recommended **MuJoCo laptop-first** route unless a teammate demonstrates a faster already-running compatible simulator. A human mechanical reviewer chooses a realistic provisional body: compact wheeled bund-inspection rover versus an explicitly simulated tracked/amphibious alternative. **Prove actuated wheels, collision, fresh range/depth/odometry sample and a changed-action response before inventing an agent stack.**
+
+1. In an approved local development environment, install/run the exact simulator version after preflight; record actual commands, physics timestep, frames, operating system and GPU usage once verified.
+2. Spawn a physical rover beside a stylised rice paddy with a passable service edge and a drainage outlet; show real collision/terrain geometry, wheel actuation and at least one timestamped real simulator sensor value.
+3. Implement minimal waypoint movement under local feedback, bounded speed and collision/edge stop. Spawn a **mid-run unexpected obstruction** and show actual replanning in the same episode; reset deterministic seed and repeat.
+4. Feed a gauge/field observation into an incident triage component. If flood mitigation is feasible, build a *real contact/lever skill and a documented simplified water-balance process*; require follow-up water measurements. Otherwise stop at honest physical inspection + decision.
+5. Produce independent baseline and candidate JSONL results with real episode traces (not the included synthetic fixtures), and a continuous video; log unverified claims separately.
+
+**Design gates for human approval:** bund and outlet dimensions, wheelbase/ground clearance, approximate mass/inertia, traction assumptions, range/camera mount, motion contact/force caps, battery return policy, crop no-go regions and whether a gate is realistically accessible. A water model is not a CFD flood forecast; a successful simulation is not evidence of actual yield protection. Agentic developer tooling may help draft the MJCF/URDF, but no hardware build, purchases or real-world deployment are authorised.
+
 ## Fill immediately after selecting the product stack
 
 | Action | Exact command / requirement |
