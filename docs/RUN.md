@@ -2,6 +2,21 @@
 
 **Selected project is PaddyPatch cooperative rice-field stand-gap mapping, targeted replanting and physical seed placement.** **Isaac Sim is the user-selected simulator for now**, but exact version, machine/container, scene performance and hardware are **not yet verified**. Do not claim a running robot, working seed drop, GPU credits, model or deployment. Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
 
+## Implemented core check (no Isaac Sim required)
+
+From repo root with Python 3.10+:
+
+```bash
+python -m unittest discover -s tests -p 'test_ricebot_foundation.py' -v
+python -m unittest discover -s tests -v
+```
+
+These checks exercise **scripted sensor frames**, measured local soil fusion, simple tasks, bounded commands and an injected fake simulation-port response. **They do not verify Isaac Sim wheel motion, a physical hopper, landing contact or a working demo.**
+
+**Next coding agent:** implement the actual Isaac Sim `SimulationPort` against `src/ricebot/contracts.py`; first a real wheel-driven rover and range sensor, then an **actual rigid-body seed drop and landing/contact feedback**. Use the installed Isaac version; report exact host/VRAM/driver, commands, physics traces and failures. The physical bridge must refuse expired/invalid drive and drop commands independently. Keep the hidden true soil field out of the observations.
+
+**Scope cap:** about 3–6 planting sites, two simple rovers, a few synthetic local soil/stand readings, one physical drop, and one mid-run changed obstacle/site. No full farm, crop growth, flood mitigation or robot rescue.
+
 ## Foundation checks — actually available
 
 ```bash
