@@ -136,3 +136,31 @@ cd C:\Users\julia\Coding\Agentverse2026
 # Watch the live 3D Farming + Mud Entrapment + Rigid Cam-Latch Rescue simulation
 .\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --view
 ```
+
+
+---
+
+## 6. Southern China Extreme Climate & Typhoon Rollover Resilience (`E1–E4`)
+
+Because lightweight paddy robots (`~4.0 kg` to keep ground contact pressure `< 10 kPa` on *Lannitian* mud pans) operate across Southern China's summer **Shuangqiang (双抢)** and **Longzhoushui (龙舟水 / Meiyu)** seasons, they face violent meteorological and geotechnical hazards beyond standard wheel sinkage. We model and simulate four regional extreme-climate scenarios in [`scripts/sim_extreme_climate_typhoon.py`](../scripts/sim_extreme_climate_typhoon.py):
+
+### 6.1 Physical & Mechanical Protection Against Toppling
+1. **Dual Rounded Protective Roll-Cage Arches (`_roll_arch_f`, `_roll_arch_r` at $z = 145\text{–}148\text{ mm}$):**
+   - If a robot is flipped completely upside-down ($180^\circ$ inversion) by a typhoon microburst or bund collapse, the impact is absorbed by two high-strength lateral roll-cage arches positioned above the BeiDou RTK dome ($z = 135\text{ mm}$) and seed hopper ($z = 106\text{ mm}$).
+   - This guarantees a minimum roof clearance of $z_{\text{body}} \ge 56\text{ mm}$ when inverted so the RTK antenna, LiDAR turret, and seed hopper never strike the ground or shear off.
+2. **Storm-Hunker & Flood-Anchor Protocol (Re-using Existing Farming & Rescue Actuators):**
+   - Rather than adding heavy dedicated storm anchors, every homogeneous rover uses its existing **vertical seed-dibber/soil-probe plunger** (`_dibber_j -> -52 mm` into subsoil clay) and **rear hardpan anchor spades** (`_spade_j -> 0.85 rad`) as a dual-point subterranean pin.
+   - Against a Category-3/4 typhoon crosswind ($v_{\text{wind}} = 42\text{ m/s}$, $F_y = 36\text{ N}$, overturning moment $\tau_x = 4.2\text{ N}\cdot\text{m}$) or a $120\text{ mm}$ flash-flood sheet flow ($F_{\text{buoyancy}} = 36\text{ N}$ unloading $85\%$ of robot weight + $F_{\text{drag}} = 33.3\text{ N}$), Mohr-Coulomb passive soil shear resistance holds the rover to $< 1^\circ$ tilt and $\le 1\text{ mm}$ drift.
+3. **Cooperative Peer Righting ("Ant Flip" via Active Pitch-Lifting Docking Cone):**
+   - When an extreme vortex microburst flips `scout` completely upside-down ($\theta_{\text{tilt}} = 179.6^\circ$), `scout`'s IMU detects inversion ($\theta_{\text{tilt}} > 120^\circ$), immediately cuts wheel motor current to prevent motor burnout, deploys its own boom/spades to shift its center of mass toward the tipping edge, and broadcasts a `RIGHTING_ASSIST` beacon.
+   - Peer unit `planter` approaches `scout`'s flank, lowers its front docking cone ($\theta_{\text{pitch}} = -0.20\text{ rad}$) underneath `scout`'s inverted upper hull edge, anchors its rear spades, and **pries upward ($\theta_{\text{pitch}} \to +0.45\text{ rad}$) while driving forward**.
+   - This applies an upward lift ($F_z = 16\text{ N}$) and restoring roll moment ($\tau_x = 12.5\text{ N}\cdot\text{m}$) that rotates `scout` past its $90^\circ$ roll apex back onto all 4 wheels ($\theta_{\text{final}} = 0.0^\circ$), after which `scout` drives forward $+0.39\text{ m}$ undamaged.
+
+### 6.2 Extreme-Climate MuJoCo 4.0.0 Benchmark Results (`scripts/sim_extreme_climate_typhoon.py`)
+
+| Scenario ID | Southern China Extreme Hazard | Peak Physical Disturbance | Unprotected Baseline Outcome | Antenna Resilient Protocol Outcome | Status |
+| :--- | :--- | :--- | :--- | :--- | :---: |
+| **`E1_TYPHOON_CROSSWIND_GUST`** | **Super-Typhoon Squall** *(Guangdong / Pearl River Delta coastal paddy)* | `42 m/s` crosswind (`36.0 N` lateral + `4.2 N·m` roll moment) | **Toppled & blown off bund** (`max_tilt = 178.5°`, `drift = 0.911 m`) | **Spade + Dibber Storm-Hunker holds fast** (`max_tilt = 0.0°`, `drift = 0.000 m`) | **PASS** |
+| **`E2_MONSOON_FLASH_FLOOD_SURGE`** | **Dragon-Boat Monsoon Flash Flood (*龙舟水*)** *(Yangtze / Guangxi terrace overflow)* | `120 mm` flood surge (`36.0 N` buoyancy unload + `33.3 N` current drag) | **Hydroplaned & washed into ditch** (`max_tilt = 122.9°`, `drift = 4.463 m`) | **Subsoil dibber + spade anchor prevents washout** (`final_tilt = 0.0°`, `drift = 0.001 m`) | **PASS** |
+| **`E3_TYPHOON_TOPPLE_AND_PEER_RIGHTING`** | **Typhoon Microburst `180°` Rollover & Peer Righting ("Ant Flip")** *(Hunan / Jiangxi bund)* | Flipped to **`179.6°` inverted** (roll-arch keeps roof `z >= 56 mm` clear) | **Permanently inverted (`179.6°`)**, wheels spin helplessly in air | **Roll-arch protects RTK/hopper; peer pitch-boom flips rover upright (`0.0°`) & drives `+0.388 m`** | **PASS** |
+| **`E4_TERRACE_MUDSLIDE_PINNING`** | **Collapsed Terrace Bund Mudslide (*巴掌田*)** *(Guizhou / Yunnan steep saturated ridge)* | `32 N` cohesive red-clay burial + `14 N` lateral slump | **Solo wheels stall in mudslide** (`disp = 0.037 m`, `tilt = 114.1°`) | **Rigid cam-latch + `+0.38 rad` pry extracts `+0.824 m` to safety** (`final_tilt = 0.6°`) | **PASS** |
