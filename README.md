@@ -32,6 +32,12 @@ Short-lived feature branches and PRs exist only for independent, reviewable chan
 
 **Confirmed judging weights:** **25% perception-driven action; 25% adaptation; 15% operational autonomy; 20% relevance and impact; 15% ambition/technical quality.** The clearer organiser screenshot specifies **evidence of a real need and visible handling of the critical failure mode**. [Exact provenance and top-score descriptions](docs/EVENT.md#confirmed-robotics-judging-rubric--clear-organiser-photograph-7-november-2026).
 
+## Code foundation now present (Isaac Sim scene still pending)
+
+The `src/ricebot/` [Python core](src/README.md) now has typed observations, local sample aggregation, a deterministic sample/plant/hold baseline, bounded drive/drop intentions and a `SimulationPort`/read-only viewer seam. [Unit tests](tests/test_ricebot_foundation.py) use scripted observations only. This is **not an Isaac Sim rover or planted seed**. The next agent builds the *real Isaac physics/seed-drop adapter*; the human integrator alone owns shared `rice.v1` changes.
+
+**Right-sized demo:** about 3–6 sample/plant sites, two reused simple rover bodies, one physical landed seed, one new obstacle/site reading, and a small shared map—**not** an entire rice-farming simulation.
+
 ## Foundation commands
 
 Requires only Python 3.10+ for the included tooling (not a commitment to Python for the robotics application):
