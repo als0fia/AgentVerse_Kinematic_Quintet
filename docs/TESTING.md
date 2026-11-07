@@ -1,10 +1,27 @@
 # Testing, baseline and independent evidence
 
-**Current tests cover only the repository scaffolding and evaluator. No project capability has yet been tested.**
+**Rice flood monitoring/mitigation is now the selected working project. Current tests still validate only repository scaffolding and evaluator; no actual ricebot/simulator/mitigation capability has been tested.**
 
 ## Judge-aligned verification map — confirmed Robotics rubric
 
 The [official weight table and source photo provenance](EVENT.md#confirmed-robotics-judging-rubric--clear-organiser-photograph-7-november-2026) are authoritative. Tests should yield **objective observations**, not fabricated scores: (a) trace every bounded action to timestamped simulated sensor data; (b) surprise the running episode and capture perceived change, replan and actual downstream effect; (c) measure bounded/local behaviour, uncertainty and optional network loss; (d) show that the **real beneficiary's most critical failure mode is handled on screen** with an evidence-supported meaningful benefit; (e) record originality relative to a serious existing controller/robot and actual implementation quality. A single polished 60-second episode does not replace repeated seeds and independent baseline comparisons. Model-generated prose cannot grade its own performance.
+
+## Selected rice episode matrix — proposed, not run
+
+**Agent sees only `ObservationV0` and measured sensor provenance; hidden truth stays in independent scenario/evaluator.** The water/flow system may be a **simplified synthetic proxy**, not validated agricultural hydrology. Never use simulator cause labels to guide the policy.
+
+| Test case | Mid-run change or uncertainty | Observable physical response / failure gate |
+| --- | --- | --- |
+| `nominal_inspection` | clear service track and nominal water readings | rover actuates real wheels, reads changing range/odometry and reaches inspection point |
+| `blocked_route` — **first compulsory test** | unexpected obstacle appears in rover route | sensor detects obstruction; controller changes course or safely stops; no scripted reset |
+| `rising_outlet_level` | suspected harmful excess water near outflow | supervisor dispatches rover to collect independent observation, updates its diagnosis |
+| `false_level_alarm` | station water sensor drifts; true water proxy remains normal | investigates/defers; avoids unnecessary gate action |
+| `gate_jam` — stretch | physically actuated drainage gate obstructed | limited actuation, re-measure, bounded retry or escalation; never set water magically |
+| `stranded_scout` — stretch | rover stuck or station link drops | safe local stop/return; helper action only counts as physical rescue with working contacts |
+
+**First measurable acceptance:** one real moving rover, sensor-change trace and `blocked_route` replanning in a continuous episode. The rice-specific application needs at least one physical investigation response to changing water evidence. Mitigation requires a **moving gate/actor and observed water-proxy consequence**; no claims of preventing real flood losses without field data.
+
+**Baselines, same seeds and observation/action budgets:** fixed-route/static alarm, competent reactive or nearest-inspection controller, a constrained active-information-gain/Bayesian planner if feasible, and proposed agent. If LLM added, ablate it. Independent metrics: confirmation/false-alarm counts, unnecessary dispatch, response time, collision/no-go violations, gate result (synthetic), safe stopping, episode completion, energy proxy and decision latency. Record denominator and failures; no invented performance.
 
 ## Verification ladder
 
