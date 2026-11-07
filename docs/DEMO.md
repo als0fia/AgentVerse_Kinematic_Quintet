@@ -21,7 +21,7 @@
 - The presenter recommended proof in code (such as Python / optimiser verification), authentic SDK calls and a short fallback recording. Never dress up hard-coded results, fake a model call, or call a narrated animation a real agent.
 - Treat the advertised “Best Use of Gemini” named prize as **slide information**, not a verified, complete award rubric. Participation in that award or using Gemini cannot replace the Robotics success criteria.
 
-**Working pace suggested by the speaker:** Saturday morning reduce to one user/pain and one 30-second capability; Saturday afternoon prove core loop before styling; Saturday evening layer optional senses and rehearsals; Sunday stop new features roughly **two hours before the verified deadline**, record a short backup and test the demo from a clean checkout. These are suggested *internal timeboxes*, **not organiser schedule changes**. The published Sunday submission planning time remains 14:00 London time until the portal says otherwise.
+**Working pace suggested by the speaker:** Saturday morning reduce to one user/pain and one 30-second capability; Saturday afternoon prove core loop before styling; Saturday evening layer optional senses and rehearsals; Sunday stop new features roughly **two hours before the verified deadline**, record a short backup and test the demo from a clean checkout. These are suggested *internal timeboxes*, **not organiser schedule changes**. The published latest BuilderBase portal now says **Sunday 8 Nov 13:00 GMT** (older site was 14:00), so use the earlier deadline unless organiser verifies an extension.
 
 ## Demo card (fill with actual working entry)
 
@@ -56,7 +56,7 @@ These **supersede generic demo suggestions** where they differ.
 
 ## Submission preflight (must be human checked)
 
-- [ ] Portal **deadline and timezone** reconfirmed (organiser timetable: Sunday 8 Nov, **14:00 London time**, checked 7 Nov).
+- [ ] Portal **deadline and timezone** reconfirmed (organiser timetable: **Sunday 8 Nov, 13:00 GMT** according to latest BuilderBase portal (older site said 14:00; confirm with staff), checked 7 Nov).
 - [ ] Current track brief and entry criteria complied with; no unsupported historical MLH rules substituted.
 - [ ] Team is eligible; repository URL and access meet actual requirements.
 - [ ] All required fields/video/images/links confirmed from current portal.

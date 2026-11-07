@@ -9,16 +9,16 @@
 | Track reveal | Saturday **12:30** | Organiser timetable, checked 7 Nov |
 | Team formation deadline | Saturday **14:00** | Organiser timetable, checked 7 Nov |
 | Hacking | Saturday **14:00–22:00** sessions; Sunday **09:00–14:00** final sprint | Organiser timetable; breaks as posted |
-| Submission | Sunday **14:00** | Organiser timetable and participant dashboard; **hard planning gate**, verify portal |
+| **Submission — latest portal** | **Sunday 8 Nov, 13:00 GMT** latest BuilderBase dashboard (7 Nov ~15:30); older organiser site/deck listed 14:00 | **Conflict:** use earliest 13:00 until staff/portal clarify; do not assume an extra hour |
 | Judging | Sunday **15:00–16:00** | Organiser timetable |
 | Team size | Organiser site says **3–5** | Check actual portal and any contradictory listing |
 | Robotics theme (onsite slide) | **Embodied AI — “Turn perception into safe physical action.”** | Organiser presentation photographed by attendee on 7 Nov 2026. This is a track direction, **not** the exact scored challenge prompt or proof of mandated architecture |
 | Examples on Robotics slide | “3D drone fleets & assistive wearables”; “MuJoCo twins or offline Gemma 4”; caption “NVIDIA & UCL Robotics” | Illustrative slide examples and named collaborators, **not** evidence of supplied drones, wearables, simulator instances, GPUs, model access or credits |
 | Model/tool slide | “Gemini 4 Argon” (deep reasoning); “3.8 Flash + Gemma 4” (speed/offline); “3.8 Live + Speech” (vision/voice); “Banana · Lyria · Veo” (media) | Organiser slide photographed 7 Nov. **Gemini 4 Argon and Gemma 4 are distinct labels.** These are presentations, not verified entitlements, installed packages or tested model IDs |
 | Simulation requirement | **Simulated embodied agent** with at least one simulated sensor, a decision made from current sensed state, and an observable action; not just a pre-scripted route | **Robotics track organiser slide 35**, attendee photo 7 Nov 2026; exact sensor type and solution unrestricted in captured slide |
-| Simulator choices | **NVIDIA Isaac Sim recommended**; MuJoCo, PyBullet, Gazebo or Webots named as alternatives | **Robotics slide 36**; not proof of provision/availability; Isaac Sim remote WebRTC requires compatible GPU and NVENC |
-| Modal credits/GPU | **Promised verbally, not provisioned or verified** | Presenter STT refers to GPU/streaming and offered example GitHub setup; exact GPU model obscured by transcription; check booth/account before committing |
-| Hardware/sim/credits | **No team instance/account/credit receipt verified** | Requires member preflight; local MuJoCo or equivalent is legitimate fallback |
+| Simulator choices | **MuJoCo now recommended first** in later organiser Robotics setup email; Isaac Sim on Modal is **stretch for experienced teams** | Earlier slide favoured Isaac Sim; newer organiser instructions recommend laptop MuJoCo. PyBullet, Gazebo and Webots remain permitted |
+| Modal credits/GPU | Organiser email says **approximately $50 credit each**, with redemption via official form; **actual redemption, quota and billing not verified** | 7 Nov 15:16 organiser broadcast; use L40S rather than A100/H100 for Isaac/RTX if that stretch route is chosen; no GPU run asserted |
+| Hardware/sim/credits | User has received a separate **temporary hackathon Google development-account** email; **not proof of login or API entitlement** | 7 Nov 15:22 email. No credentials in Git; hackathon-only usage, registered-team sharing boundary and ephemeral deletion after event |
 | Prior work, AI, IP, submission fields | **Not verified** | Obtain actual written event-specific rules |
 
 ## Challenge capture (fill only from verified reveal)
@@ -70,3 +70,9 @@ The presenter offered examples of recent London projects and described an intern
 **Externally checked model/API facts (7 Nov):** Google documents Gemini 4 Argon model ID `gemini-4-argon`, the Interactions API and reasoning levels LOW / MEDIUM / HIGH. See [Google's model guide](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-4-argon) and [Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview). That verifies API documentation, **not our team account's entitlement**. Automatic implicit caching exists but “95% cached” is **not a guaranteed rate**. For use as software-engineering assistants, see [team model routing](TEAM.md); for the actual presentation, see [demo guidance](DEMO.md).
 
 Do not paste confidential screenshots, participant emails, Discord transcripts or access tokens. Summarise only team-authorised constraints and source provenance.
+
+## Later organiser resources and live portal revision — 7 November ~15:30 GMT
+
+**Source class:** participant-provided BuilderBase overview and organiser emails received 7 Nov 15:16/15:22; new information supersedes earlier *recommendation* for first simulator and old submission-time planning. Dashboard says **“Live, submissions close tomorrow at 13:00 GMT”**; old site and deck said 14:00 Sunday. **Operationally plan for Sunday 8 Nov 13:00 GMT and ask organiser to resolve the discrepancy.** Dashboard confirms linked real GitHub repo (**1 of 2** submission fields done), remaining item **“Simulation — Add”**; do not infer its upload field details or that a final submission has been completed.
+
+The newer official setup email recommends **MuJoCo on laptops**, with **Modal optional for heavyweight GPU training**; Isaac Sim + L40S Modal is a stretch and may output frames instead of interactive streaming. Source examples: https://github.com/google-deepmind/mujoco , https://github.com/google-deepmind/mujoco_menagerie , and https://github.com/TheFloatingString/isaac-lab-on-modal . **Actual access, model inference entitlements and running physics remain unverified.** A temporary Google hackathon account has been received by email, but credentials are never saved here; terms restrict it to official event work and say account contents will be deleted after the event. No account activation, credits redemption or paid use is asserted.
