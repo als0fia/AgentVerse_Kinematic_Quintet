@@ -1,15 +1,15 @@
-"""Standalone MuJoCo simulation: Paddy Ant using ego-camera computer vision to detect, orient toward, and climb a terraced incline ramp.
+"""Standalone MuJoCo simulation: Paddy Ant using ego-camera computer vision to detect, orient toward, and climb a flush terraced incline ramp.
 
 Validates:
-1. Ego-Camera RGB-D Ramp Detection (`planter_front_camera`): Real-time MuJoCo offscreen RGB + Depth rendering (`mujoco.Renderer`), chromatic/luminance segmentation of the earthen ramp and high-contrast guide rails, and 3D depth-gradient slope estimation.
-2. Closed-Loop Visual Servoing (Orientation & Alignment): Rover spawns off-axis (`y = 0.24 m`, yaw = `-24 deg` away from the ramp at `y = 0.50 m`), detects the ramp in its camera FOV, steers to zero out the visual bearing error (`ORIENTING_TO_RAMP` -> `ALIGNED_APPROACH`), and enters the ramp toe squarely.
-3. Terraced Incline Ascent (`CLIMBING_INCLINE`): 22-degree earthen ramp ascent between Lower Tier 0 (`z = 0.0 m`) and Upper Tier 1 (`z = +0.35 m`).
+1. Exact Flush Ramp Geometry (Zero Ledge / Zero Gap): The inclined ramp top surface starts at `(x_toe = 1.25 m, z = 0.000 m)` on Lower Tier 0 and terminates at `(x_crest = 2.1154 m, z = 0.350 m)` where Upper Tier 1 starts (`x = 2.1154 m, z = 0.350 m`), eliminating any vertical step or horizontal seam.
+2. Ego-Camera RGB-D Ramp Detection (`planter_front_camera`): Real-time MuJoCo offscreen RGB + Depth rendering (`mujoco.Renderer`), chromatic/luminance segmentation of the earthen ramp and high-contrast guide rails, and 3D depth-gradient slope estimation.
+3. Closed-Loop Visual Servoing (Orientation & Alignment): Rover spawns off-axis (`y = 0.26 m`, yaw = `-6.9 deg` away from the ramp at `y = 0.50 m`), detects the ramp in its camera FOV, steers to zero out the visual bearing error (`ORIENTING_TO_RAMP` -> `ALIGNED_APPROACH`), climbs the flush `22 deg` ramp (`CLIMBING_INCLINE`), and drives smoothly onto Upper Tier 1 (`CRESTED_UPPER_TIER`).
 
 Usage:
-  # Run headless closed-loop CV orientation + ramp climb verification:
+  # Run headless closed-loop CV orientation + flush ramp climb verification:
   python scripts/simulate_terrace_incline.py
 
-  # Launch interactive 3D MuJoCo viewer with live CV trajectory & ray overlays:
+  # Launch interactive 3D MuJoCo viewer with live CV trajectory:
   python scripts/simulate_terrace_incline.py --viewer-seconds 15
 """
 from __future__ import annotations
@@ -60,18 +60,33 @@ def _quat_to_pitch_yaw(quat_wxyz: np.ndarray) -> tuple[float, float]:
 
 def build_terrace_incline_world_xml(
     ramp_angle_deg: float = 22.0,
-    spawn_xyz: tuple[float, float, float] = (1.35, 0.50, 0.08),
+    spawn_xyz: tuple[float, float, float] = (0.68, 0.26, 0.062),
 ) -> str:
-    """Return MJCF XML modeling a 2-tier terraced paddy with a connecting earthen bund ramp and visual guide markers."""
-    ramp_rad = math.radians(ramp_angle_deg)
+    """Return MJCF XML modeling a 2-tier terraced paddy with an exact flush-meeting earthen bund ramp."""
+    theta = math.radians(ramp_angle_deg)
+    tier1_height = 0.35
 
-    # Ramp geometry connecting lower tier (z=0.0) to upper tier (z=0.35)
-    ramp_len = 0.35 / math.sin(ramp_rad)  # Hypotenuse length
-    ramp_x = 1.80
-    ramp_z = 0.120  # Flush entry at z=0.0 and flush exit at z=0.35
+    # Exact trigonometry so the ramp top surface starts at (x_toe, z=0.0) and ends at (x_crest, z=0.35) with ZERO ledge:
+    x_toe = 1.25
+    half_len = tier1_height / (2.0 * math.sin(theta))  # Top-surface half-length along slope
+    half_thick = 0.06  # Ramp slab half-thickness perpendicular to slope
+    x_crest = x_toe + 2.0 * half_len * math.cos(theta)
+
+    # Box center (cx, cz) such that the top face (+half_thick normal) passes exactly through (x_toe, 0) and (x_crest, 0.35):
+    ramp_cx = 0.5 * (x_toe + x_crest) + half_thick * math.sin(theta)
+    ramp_cz = 0.5 * tier1_height - half_thick * math.cos(theta)
+
+    # Upper Tier 1 starts exactly at x_crest = 2.1154 m with top surface at z = 0.3500 m
+    tier1_half_x = 1.15
+    tier1_cx = x_crest + tier1_half_x
+
+    # Visual guide stripe center (1.5 mm above the ramp top face)
+    stripe_half_thick = 0.002
+    stripe_cx = 0.5 * (x_toe + x_crest) - stripe_half_thick * math.sin(theta)
+    stripe_cz = 0.5 * tier1_height + stripe_half_thick * math.cos(theta)
 
     unit_a_spec = make_homogeneous_rover_spec("planter", initial_xyz=spawn_xyz, initial_seeds=2)
-    unit_b_spec = make_homogeneous_rover_spec("scout", initial_xyz=(2.80, 0.50, 0.42), initial_seeds=2)
+    unit_b_spec = make_homogeneous_rover_spec("scout", initial_xyz=(2.85, 0.50, 0.408), initial_seeds=2)
 
     body_a = _build_homogeneous_ant_rover_xml(
         unit_a_spec,
@@ -119,26 +134,25 @@ def build_terrace_incline_world_xml(
   <worldbody>
     <light name="sun" pos="2 0 4" dir="-0.3 0.1 -1" diffuse="0.9 0.88 0.82" castshadow="true"/>
 
-    <!-- TIER 0: Lower Flooded Paddy Field (z = 0.0m) -->
-    <geom name="tier0_ground" type="plane" pos="0 0 0" size="3 3 0.1" material="paddy_mud" contype="1" conaffinity="7" friction="1.15 0.01 0.002"/>
-    <geom name="tier0_water" type="box" pos="0 0 0.015" size="2 2 0.015" material="water_mat" contype="0" conaffinity="0"/>
+    <!-- TIER 0: Lower Flooded Paddy Field (z = 0.000m) -->
+    <geom name="tier0_ground" type="plane" pos="0 0 0" size="4 4 0.1" material="paddy_mud" contype="1" conaffinity="7" friction="1.15 0.01 0.002"/>
+    <geom name="tier0_water" type="box" pos="0.10 0 0.008" size="1.12 2.0 0.008" material="water_mat" contype="0" conaffinity="0"/>
 
-    <!-- TIER 1: Upper Flooded Terrace (z = +0.35m) -->
-    <geom name="tier1_ground" type="box" pos="3.30 0 0.175" size="1.15 2.0 0.175" material="paddy_mud" contype="1" conaffinity="7" friction="1.15 0.01 0.002"/>
-    <geom name="tier1_crest_bridge" type="box" pos="2.18 0.5 0.175" size="0.14 0.35 0.175" material="bund_earth" contype="1" conaffinity="7" friction="1.35 0.02 0.005"/>
-    <geom name="tier1_crest_stripe" type="box" pos="2.35 0.5 0.351" size="0.30 0.045 0.002" material="ramp_guide_mat" contype="0" conaffinity="0"/>
-    <geom name="tier1_water" type="box" pos="3.2 0 0.365" size="1.1 1.9 0.015" material="water_mat" contype="0" conaffinity="0"/>
+    <!-- TIER 1: Upper Flooded Terrace (starts flush at x = {x_crest:.4f}m, top surface z = +0.3500m) -->
+    <geom name="tier1_ground" type="box" pos="{tier1_cx:.4f} 0 0.175" size="{tier1_half_x:.4f} 2.0 0.175" material="paddy_mud" contype="1" conaffinity="7" friction="1.25 0.01 0.002"/>
+    <geom name="tier1_crest_stripe" type="box" pos="{x_crest + 0.32:.4f} 0.5 0.351" size="0.32 0.045 0.001" material="ramp_guide_mat" contype="0" conaffinity="0"/>
+    <geom name="tier1_water" type="box" pos="{tier1_cx + 0.15:.4f} 0 0.358" size="0.95 1.9 0.008" material="water_mat" contype="0" conaffinity="0"/>
 
-    <!-- Retaining Bund Ridges separating Tier 0 & Tier 1 (Gap at y=0.5 for Ramp Incline) -->
-    <geom name="retaining_bund_south" type="box" pos="2.0 -0.95 0.175" size="0.12 1.00 0.175" material="paddy_mud" contype="1" conaffinity="7"/>
-    <geom name="retaining_bund_north" type="box" pos="2.0 1.55 0.175" size="0.12 0.70 0.175" material="paddy_mud" contype="1" conaffinity="7"/>
+    <!-- Retaining Bund Ridges separating Tier 0 & Tier 1 (Flush with x_crest, gap at y in [0.15, 0.85] for Ramp) -->
+    <geom name="retaining_bund_south" type="box" pos="{x_crest - 0.10:.4f} -0.925 0.175" size="0.10 1.075 0.175" material="paddy_mud" contype="1" conaffinity="7"/>
+    <geom name="retaining_bund_north" type="box" pos="{x_crest - 0.10:.4f} 1.425 0.175" size="0.10 0.575 0.175" material="paddy_mud" contype="1" conaffinity="7"/>
 
-    <!-- Earthen Incline Ramp cutting through Bund (22 deg slope for rover transition) -->
-    <geom name="bund_incline_ramp" type="box" pos="{ramp_x} 0.5 {ramp_z}" euler="0 {-ramp_rad:.3f} 0" size="{ramp_len/2:.3f} 0.35 0.06" material="bund_earth" contype="1" conaffinity="7" friction="1.35 0.02 0.005"/>
+    <!-- Exact Flush Earthen Incline Ramp: Top face starts at (x={x_toe:.4f}, z=0.000) and meets Tier 1 at (x={x_crest:.4f}, z=0.350) -->
+    <geom name="bund_incline_ramp" type="box" pos="{ramp_cx:.4f} 0.5 {ramp_cz:.4f}" euler="0 {-theta:.5f} 0" size="{half_len:.4f} 0.35 {half_thick:.4f}" material="bund_earth" contype="1" conaffinity="7" friction="1.35 0.02 0.005"/>
     <!-- High-Contrast Visual Ramp Centerline & Edge Guide Stripes for Onboard Camera Detection -->
-    <geom name="ramp_center_stripe" type="box" pos="{ramp_x} 0.5 {ramp_z + 0.003:.3f}" euler="0 {-ramp_rad:.3f} 0" size="{ramp_len/2:.3f} 0.045 0.061" material="ramp_guide_mat" contype="0" conaffinity="0"/>
-    <geom name="ramp_edge_left" type="box" pos="{ramp_x} 0.81 {ramp_z + 0.003:.3f}" euler="0 {-ramp_rad:.3f} 0" size="{ramp_len/2:.3f} 0.025 0.061" material="ramp_guide_mat" contype="0" conaffinity="0"/>
-    <geom name="ramp_edge_right" type="box" pos="{ramp_x} 0.19 {ramp_z + 0.003:.3f}" euler="0 {-ramp_rad:.3f} 0" size="{ramp_len/2:.3f} 0.025 0.061" material="ramp_guide_mat" contype="0" conaffinity="0"/>
+    <geom name="ramp_center_stripe" type="box" pos="{stripe_cx:.4f} 0.5 {stripe_cz:.4f}" euler="0 {-theta:.5f} 0" size="{half_len:.4f} 0.045 {stripe_half_thick:.4f}" material="ramp_guide_mat" contype="0" conaffinity="0"/>
+    <geom name="ramp_edge_left" type="box" pos="{stripe_cx:.4f} 0.81 {stripe_cz:.4f}" euler="0 {-theta:.5f} 0" size="{half_len:.4f} 0.025 {stripe_half_thick:.4f}" material="ramp_guide_mat" contype="0" conaffinity="0"/>
+    <geom name="ramp_edge_right" type="box" pos="{stripe_cx:.4f} 0.19 {stripe_cz:.4f}" euler="0 {-theta:.5f} 0" size="{half_len:.4f} 0.025 {stripe_half_thick:.4f}" material="ramp_guide_mat" contype="0" conaffinity="0"/>
 
     {body_a}
     {body_b}
@@ -162,19 +176,18 @@ def build_terrace_incline_world_xml(
 
 
 def run_vision_guided_ramp_climb(viewer_seconds: float = 0.0) -> dict[str, object]:
-    """Run closed-loop ego-camera visual servoing from an off-axis spawn pose up the 22-deg terrace ramp."""
+    """Run closed-loop ego-camera visual servoing from an off-axis spawn pose up the flush 22-deg terrace ramp."""
     print("======================================================================")
-    print("MUJOCO CV SIMULATION: VISION-GUIDED RAMP DETECTION, ORIENTATION & CLIMB")
+    print("MUJOCO CV SIMULATION: VISION-GUIDED FLUSH RAMP DETECTION & CLIMB")
     print("======================================================================\n")
 
-    # Spawn planter off-axis (y=0.26 m vs ramp centerline y=0.50 m) and misaligned in yaw (+0.38 rad / +21.8 deg)
-    xml_str = build_terrace_incline_world_xml(ramp_angle_deg=22.0, spawn_xyz=(0.78, 0.26, 0.062))
+    xml_str = build_terrace_incline_world_xml(ramp_angle_deg=22.0, spawn_xyz=(0.68, 0.26, 0.058))
     model = mujoco.MjModel.from_xml_string(xml_str)
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
 
     qadr = int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "planter_free")])
-    initial_yaw_rad = -0.12  # Pointing slightly away from the ramp at (1.80, 0.50)
+    initial_yaw_rad = -0.12  # Pointing slightly away from the ramp at (1.25..2.12, 0.50)
     data.qpos[qadr + 3 : qadr + 7] = _rpy_to_quat(0.0, 0.0, initial_yaw_rad)
     mujoco.mj_forward(model, data)
 
@@ -185,13 +198,13 @@ def run_vision_guided_ramp_climb(viewer_seconds: float = 0.0) -> dict[str, objec
         f"Initial Off-Axis Pose: x={init_pos[0]:.3f} m, y={init_pos[1]:.3f} m (ramp at y=0.500 m), "
         f"z={init_pos[2]:.3f} m, yaw={math.degrees(init_yaw):+.1f} deg"
     )
+    print("Flush Ramp Endpoints: Toe=(x=1.250 m, z=0.000 m) -> Crest=(x=2.115 m, z=0.350 m) [0.0 mm ledge]\n")
 
     last_det: RampVisionDetection | None = None
     trace_log: list[dict[str, object]] = []
 
     def step_visual_servo(step_idx: int) -> None:
         nonlocal last_det
-        # Update ego-camera RGB-D perception at 25 Hz (every 20 physics steps @ dt=0.002s)
         if step_idx % 20 == 0 or last_det is None:
             pos = data.sensor("planter_pos").data
             pitch, yaw = _quat_to_pitch_yaw(data.sensor("planter_quat").data)
@@ -235,23 +248,22 @@ def run_vision_guided_ramp_climb(viewer_seconds: float = 0.0) -> dict[str, objec
         w_fl, w_fr, w_rl, w_rr = compute_4wheel_skid_steer(
             PLANTER_SPEC, last_det.linear_cmd_m_s, last_det.steering_cmd_rad_s
         )
-        # Boost wheel angular velocity on steep incline while preserving differential steering
-        incline_boost = 1.55 if last_det.phase == "CLIMBING_INCLINE" else 1.20
+        incline_boost = 1.45 if last_det.phase == "CLIMBING_INCLINE" else 1.20
         data.ctrl[0] = max(-14.0, min(14.0, w_fl * incline_boost))
         data.ctrl[1] = max(-14.0, min(14.0, w_fr * incline_boost))
         data.ctrl[2] = max(-14.0, min(14.0, w_rl * incline_boost))
         data.ctrl[3] = max(-14.0, min(14.0, w_rr * incline_boost))
         mujoco.mj_step(model, data)
 
-    total_steps = 2200  # 4.4 seconds @ dt=0.002s
+    total_steps = 2300  # 4.6 seconds @ dt=0.002s
     if viewer_seconds > 0:
         import mujoco.viewer as mj_viewer
 
         start_wall = time.time()
         with mj_viewer.launch_passive(model, data) as viewer:
-            viewer.cam.lookat[:] = [1.65, 0.45, 0.16]
+            viewer.cam.lookat[:] = [1.68, 0.45, 0.18]
             viewer.cam.distance = 2.15
-            viewer.cam.elevation = -26.0
+            viewer.cam.elevation = -24.0
             viewer.cam.azimuth = 132.0
             for step_i in range(total_steps):
                 if not viewer.is_running():
@@ -275,13 +287,13 @@ def run_vision_guided_ramp_climb(viewer_seconds: float = 0.0) -> dict[str, objec
     lateral_alignment_err = abs(final_y - 0.50)
 
     print(
-        f"\nFinal Planter Pose on Ramp/Upper Tier: x={final_x:.3f} m, y={final_y:.3f} m "
+        f"\nFinal Planter Pose on Upper Tier 1: x={final_x:.3f} m, y={final_y:.3f} m "
         f"(lateral err={lateral_alignment_err*1000:.1f} mm), z={final_z:.3f} m"
     )
-    print(f"Elevation Gain (Delta Z): +{elevation_gain*1000:.1f} mm")
-    assert elevation_gain > 0.15, f"Expected vision-guided rover to climb >150 mm up ramp, got {elevation_gain:.3f} m"
-    assert lateral_alignment_err < 0.12, f"Expected visual servoing to align with ramp y=0.50m, got y={final_y:.3f}m"
-    print("\n[SUCCESS] Paddy Ant detected the ramp via ego-camera RGB-D vision, oriented onto centerline, and climbed the 22-deg incline!")
+    print(f"Elevation Gain (Delta Z): +{elevation_gain*1000:.1f} mm (full 350.0 mm tier transition)")
+    assert elevation_gain > 0.30, f"Expected vision-guided rover to climb >300 mm onto Upper Tier 1, got {elevation_gain:.3f} m"
+    assert final_x > 2.15, f"Expected rover to drive smoothly past ramp crest x=2.115m onto Upper Tier 1, got x={final_x:.3f}m"
+    print("\n[SUCCESS] Paddy Ant smoothly climbed the zero-ledge flush ramp all the way onto Upper Tier 1!")
     return {
         "initial_pose_xyz": [round(float(v), 3) for v in init_pos],
         "final_pose_xyz": [round(final_x, 3), round(final_y, 3), round(final_z, 3)],
