@@ -45,7 +45,7 @@ The fixture comparison is **synthetic tooling data, not product performance**. O
 | [DEMO](docs/DEMO.md) | Live run, fallback, judge evidence and submission gate |
 | [PROVENANCE](docs/PROVENANCE.md) | Attribution, pre-existing work, AI assistance, licensing and claims |
 | [DECISIONS](docs/DECISIONS.md) | Architecture/engineering decisions and trade-offs |
-| [RESEARCH](docs/RESEARCH.md) | Source-checked engineering/workflow and relevant prior-art references |
+| [RESEARCH](docs/RESEARCH.md) | Source-checked simulator requirements, workflow/agent-skill evaluation and relevant prior art |
 
 Use GitHub Issues for substantial tasks, PRs for reviewed integration and source/tests as the proof. **No ticket is needed for a five-minute fix.** When multiple agents work at once, follow [the short GitHub and human-prompting guide](docs/TEAM.md#practical-parallel-work-without-ceremony), not shadow task lists or dated session logs. The private hackathon management workflow is separate from this public team code repository.
 
@@ -53,7 +53,7 @@ Use GitHub Issues for substantial tasks, PRs for reviewed integration and source
 
 **Avoid one massive context or one shared agent transcript.** Use Gemini 4 Argon, if accessible, for deep cross-component planning and synthesis; reserve 3.8 Flash for bounded research/review with only relevant files and limited tools. A read-only [independent reviewer](.gemini/agents/independent-reviewer.md) is configured for Gemini CLI but **has not been locally run or validated**. The [team protocol](docs/TEAM.md) defines escalation, context packets, branch ownership, issue/PR-based conversations and human integration. These are **development agent preferences**, not a mandate for the selected robotics product.
 
-The six neutral workflow skills live in `.agents/skills/`. Gemini CLI consumes them on demand; `/memory show`, `/skills list` and `/agents list` should be checked on the actual machine. Existing Claude-native files and complete skill mirrors are **legacy compatibility retained for the moment**; the existing CI parity check still expects them. Do not delete them or rely on their maintenance for a new workflow. Hosted chats must read repo content explicitly; no instruction file automatically launches worker agents, remote A2A services or live coordination.
+The seven neutral workflow skills (including `embodied-loop`) live in `.agents/skills/`. Gemini CLI consumes them on demand; `/memory show`, `/skills list` and `/agents list` should be checked on the actual machine. Existing Claude-native files and complete skill mirrors are **legacy compatibility retained for the moment**; the existing CI parity check still expects them. Do not delete them or rely on their maintenance for a new workflow. Hosted chats must read repo content explicitly; no instruction file automatically launches worker agents, remote A2A services or live coordination.
 
 **Team communication:** GitHub issue comments for genuine cross-worker tasks and blockers, PRs for reviews, and one integrator coordinating merges. No additional message-server deployment or giant Markdown conversation folders. The repo is public; do not put private chats or credentials in its issue/PR threads. Actual model entitlement, API keys, limits, SDK invocation and grant credits remain to be verified.
 
