@@ -1,13 +1,13 @@
 # The Kinematic Quintet — AgentVerse 2026
 
-**State:** Repository engineering foundation only. The Robotics challenge, team solution, runtime stack, hardware, and working demo are **not yet selected or implemented**. Do not describe this as a functioning submission.
+**State:** Repository engineering foundation only. The organiser's onsite Robotics theme is now captured in [event constraints](docs/EVENT.md), but the exact scored problem statement, team solution, runtime stack, hardware, and working demo are **not yet confirmed, selected or implemented**. Do not describe this as a functioning submission.
 
 **Event:** UCL AI Society AgentVerse, 7–8 November 2026, Europe/London. The [official timetable](https://agentverse.uclai.co.uk/) lists the track reveal at **Saturday 12:30**, final submissions **Sunday 14:00**, and judging **Sunday 15:00–16:00**. Verify changes in the actual participant portal; official challenge details supersede these notes.
 
 ## Start here
 
 1. **Humans and coding agents:** follow [AGENTS.md](AGENTS.md), with [team coordination](docs/TEAM.md) when collaborating. Claude Code imports it through [CLAUDE.md](CLAUDE.md), Gemini CLI through [GEMINI.md](GEMINI.md), and Codex reads it natively.
-2. **Challenge revealed?** Update [event constraints](docs/EVENT.md) and choose the [product/mission](docs/PRODUCT.md) with the team. No proposal becomes the chosen project by implication.
+2. **Challenge and resources:** Read the photographed onsite [Robotics theme and model announcements](docs/EVENT.md), obtain any exact written challenge/eligibility requirements, then choose the [product/mission](docs/PRODUCT.md) with the team. Neither examples nor advertised models imply a selected project or granted access.
 3. **Before parallel coding:** agree the smallest shared interface needed for a runnable end-to-end path in [architecture](docs/ARCHITECTURE.md) and [contracts](docs/CONTRACTS.md). Divide **independent** modules by branch/owner (an issue, PR or short message suffices).
 4. **Build:** implement a smallest complete user-visible journey, then expand with tests and real [evaluation](docs/TESTING.md).
 5. **Demonstrate:** follow [demo and submission](docs/DEMO.md), verify all claims and keep adequate buffer before the real portal deadline.
