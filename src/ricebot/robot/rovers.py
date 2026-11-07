@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
+try:
+    import numpy as np
+
+    def _clip(val: float, low: float, high: float) -> float:
+        return float(np.clip(val, low, high))
+except ImportError:
+    def _clip(val: float, low: float, high: float) -> float:
+        return float(max(low, min(high, val)))
 
 from ..contracts import RobotCapability
 
@@ -85,12 +92,12 @@ def compute_4wheel_skid_steer(
     This identical function drives MuJoCo `<velocity>` wheel servos and Isaac Sim `ArticulationAction`
     joint velocity targets.
     """
-    lin = float(np.clip(linear_m_s, -spec.max_linear_m_s, spec.max_linear_m_s))
-    ang = float(np.clip(angular_rad_s, -spec.max_angular_rad_s, spec.max_angular_rad_s))
+    lin = _clip(linear_m_s, -spec.max_linear_m_s, spec.max_linear_m_s)
+    ang = _clip(angular_rad_s, -spec.max_angular_rad_s, spec.max_angular_rad_s)
     v_left = lin - ang * spec.half_track_m * 1.85
     v_right = lin + ang * spec.half_track_m * 1.85
-    w_left = float(np.clip(v_left / spec.wheel_radius_m, -spec.max_wheel_rad_s, spec.max_wheel_rad_s))
-    w_right = float(np.clip(v_right / spec.wheel_radius_m, -spec.max_wheel_rad_s, spec.max_wheel_rad_s))
+    w_left = _clip(v_left / spec.wheel_radius_m, -spec.max_wheel_rad_s, spec.max_wheel_rad_s)
+    w_right = _clip(v_right / spec.wheel_radius_m, -spec.max_wheel_rad_s, spec.max_wheel_rad_s)
     return (w_left, w_right, w_left, w_right)
 
 
