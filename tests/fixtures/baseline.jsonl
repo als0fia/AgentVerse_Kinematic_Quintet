@@ -1,0 +1,3 @@
+{"case_id":"synthetic-a","seed":1,"success":false,"elapsed_ms":80,"failure_reason":"synthetic-no-match"}
+{"case_id":"synthetic-b","seed":1,"success":true,"elapsed_ms":100,"failure_reason":null}
+{"case_id":"synthetic-c","seed":2,"success":false,"elapsed_ms":110,"failure_reason":"synthetic-timeout"}

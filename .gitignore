@@ -1,0 +1,42 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Outputs and downloads (commit small, deliberately chosen evidence only)
+artifacts/
+outputs/
+cache/
+logs/
+*.log
+*.tmp
+*.swp
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.mp4
+*.mov
+*.zip
+.DS_Store
+.vscode/
+.idea/
+
+# Tooling
+build/
+dist/
+node_modules/
