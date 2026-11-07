@@ -2,22 +2,21 @@
 
 Architectural Composition per `docs/COMPONENTS.md` & `docs/ARCHITECTURE.md`:
 - Composes:
-  1. `src/ricebot/world/` (`PaddyTerraceWorld`, `DEFAULT_SITES`, `build_world_terrain_xml`) — owns
-     the 6-patch rice terrace layout, hidden soil/stand truth, location-gated probes, and
-     terrain/bunds/crops MJCF geometry.
+  1. `src/ricebot/world/` (`PaddyTerraceWorld`, `ContinuousPaddyTerrain`, `DEFAULT_SITES`,
+     `build_world_terrain_xml`) — owns the 6-patch rice terrace layout, continuous 2D soil/elevation
+     functions, hidden soil/stand truth, location-gated probes, and terrain/bunds/crops MJCF geometry.
   2. `src/ricebot/robot/` (`PLANTER_SPEC`, `SCOUT_SPEC`, `DEFAULT_CAPABILITIES`,
-     `compute_4wheel_skid_steer`, `build_rovers_and_seeds_xml`, `update_rigid_dock_latch`) — owns
-     the homogeneous "Paddy Ant" 4-wheel grouser-lug chassis, active farming end-effectors
-     (conical seed hopper, vertical seed-dibber/soil-probe plunger, counter-rotating underbelly
-     finger weeders, bio-sprayer boom, crop-row tactile whiskers), and the 4-part rigid docking,
-     cam-latching & anchor-spade rescue mechanism.
+     `compute_4wheel_skid_steer`, `evaluate_bekker_terramechanics`, `build_rovers_and_seeds_xml`,
+     `update_rigid_dock_latch`) — owns the homogeneous "Paddy Ant" 4-wheel grouser-lug chassis,
+     analytical Bekker-Wong wheel-mud sinkage & traction physics, active farming end-effectors,
+     and the 4-part rigid docking, cam-latching & anchor-spade rescue mechanism.
 - Implements `SimulationPort` (`reset(seed) -> ObservationFrame`, `step(commands) -> ObservationFrame`)
   without touching `MissionCore` (`src/ricebot/runtime.py`) or `src/ricebot/contracts.py`.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, hypot
+from math import asin, atan2, cos, hypot, sin
 
 import mujoco
 import numpy as np
@@ -35,10 +34,13 @@ from ..robot import (
     DEFAULT_CAPABILITIES,
     PLANTER_SPEC,
     SCOUT_SPEC,
+    TerramechanicsSinkageState,
     build_rovers_and_seeds_xml,
     compute_4wheel_skid_steer,
+    evaluate_bekker_terramechanics,
 )
 from ..world import (
+    ContinuousTerrainPoint,
     DEFAULT_SITES,
     PaddyTerraceWorld,
     build_world_terrain_xml,
@@ -54,7 +56,7 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
   <option timestep="0.004" gravity="0 0 -9.81" integrator="implicitfast"/>
 
   <visual>
-    <global offwidth="960" offheight="720" azimuth="115" elevation="-34"/>
+    <global offwidth="1280" offheight="960" azimuth="115" elevation="-34"/>
     <headlight ambient="0.38 0.38 0.38" diffuse="0.65 0.65 0.62" specular="0.2 0.2 0.2"/>
     <map znear="0.02" zfar="25.0"/>
   </visual>
@@ -71,10 +73,12 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
     <material name="crop_bed_mat" rgba="0.20 0.42 0.18 0.85"/>
     <material name="canal_water_mat" rgba="0.16 0.46 0.58 0.78" shininess="0.9" specular="0.8"/>
     <material name="wheel_rubber_mat" rgba="0.16 0.16 0.18 1"/>
+    <hfield name="paddy_micro_relief" nrow="32" ncol="48" size="1.65 0.92 0.045 0.02"/>
   </asset>
 
   <worldbody>
     {world_terrain_xml}
+    <geom name="paddy_relief_mesh" type="hfield" hfield="paddy_micro_relief" pos="1.35 0.0 -0.016" rgba="0.41 0.33 0.22 0.46" contype="0" conaffinity="0"/>
     {rovers_bodies_xml}
   </worldbody>
 
@@ -97,12 +101,38 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
 PADDYPATCH_MJCF = compose_paddypatch_mjcf()
 
 
-def _quat_to_yaw(quat_wxyz: np.ndarray) -> float:
-    """Extract planar yaw angle (radians) from MuJoCo quaternion [w, x, y, z]."""
+def _quat_to_rpy(quat_wxyz: np.ndarray) -> tuple[float, float, float]:
+    """Extract (roll, pitch, yaw) in radians from MuJoCo quaternion [w, x, y, z]."""
     w, x, y, z = float(quat_wxyz[0]), float(quat_wxyz[1]), float(quat_wxyz[2]), float(quat_wxyz[3])
+    sinr_cosp = 2.0 * (w * x + y * z)
+    cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+    roll = atan2(sinr_cosp, cosr_cosp)
+
+    sinp = max(-1.0, min(1.0, 2.0 * (w * y - z * x)))
+    pitch = asin(sinp)
+
     siny_cosp = 2.0 * (w * z + x * y)
     cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
-    return atan2(siny_cosp, cosy_cosp)
+    yaw = atan2(siny_cosp, cosy_cosp)
+    return roll, pitch, yaw
+
+
+def _rpy_to_quat(roll: float, pitch: float, yaw: float) -> list[float]:
+    """Convert (roll, pitch, yaw) in radians to MuJoCo quaternion [w, x, y, z]."""
+    cr, sr = cos(roll * 0.5), sin(roll * 0.5)
+    cp, sp = cos(pitch * 0.5), sin(pitch * 0.5)
+    cy, sy = cos(yaw * 0.5), sin(yaw * 0.5)
+    return [
+        cr * cp * cy + sr * sp * sy,
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+    ]
+
+
+def _quat_to_yaw(quat_wxyz: np.ndarray) -> float:
+    """Extract planar yaw angle (radians) from MuJoCo quaternion [w, x, y, z]."""
+    return _quat_to_rpy(quat_wxyz)[2]
 
 
 @dataclass(frozen=True)
@@ -176,6 +206,24 @@ class MujocoPaddySimulation:
                 self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_weeder_r_act"
             )
 
+        # Runtime-configurable vehicle sizing parameters for live Bekker-Wong wheel-mud sinkage physics
+        self.robot_mass_kg: dict[str, float] = {
+            PLANTER_SPEC.robot_id: 4.2,
+            SCOUT_SPEC.robot_id: 3.6,
+        }
+        self.robot_wheel_radius_m: dict[str, float] = {
+            PLANTER_SPEC.robot_id: PLANTER_SPEC.wheel_radius_m,
+            SCOUT_SPEC.robot_id: SCOUT_SPEC.wheel_radius_m,
+        }
+        self.robot_wheel_width_m: dict[str, float] = {
+            PLANTER_SPEC.robot_id: 0.040,
+            SCOUT_SPEC.robot_id: 0.040,
+        }
+        self.latest_terrain_points: dict[str, ContinuousTerrainPoint] = {}
+        self.latest_terramechanics: dict[str, TerramechanicsSinkageState] = {}
+        self.latest_slip_ratios: dict[str, float] = {"planter": 0.08, "scout": 0.08}
+        self.mud_rut_history: list[tuple[str, float, float, float, float]] = []
+
         self._seed: int = 7
         self._episode_id: str = "mujoco-episode-7"
         self._seeds_remaining: dict[str, int] = {
@@ -185,6 +233,26 @@ class MujocoPaddySimulation:
         self._active_drops: list[SeedDropEvent] = []
         self._completed_drops: list[SeedDropEvent] = []
         self._obstacle_injected: bool = False
+        self._populate_hfield_from_continuous_terrain()
+
+    def _populate_hfield_from_continuous_terrain(self) -> None:
+        """Populate MuJoCo's 3D `paddy_micro_relief` heightfield directly from `ContinuousPaddyTerrain`."""
+        if self.model.nhfield <= 0:
+            return
+        nrow = int(self.model.hfield_nrow[0])
+        ncol = int(self.model.hfield_ncol[0])
+        xs = np.linspace(-0.30, 3.00, ncol)
+        ys = np.linspace(-0.92, 0.92, nrow)
+        grid = np.zeros((nrow, ncol), dtype=np.float32)
+        for iy, y in enumerate(ys):
+            for ix, x in enumerate(xs):
+                z, _, _ = self.world.continuous_terrain.elevation_and_gradient(float(x), float(y))
+                grid[iy, ix] = float(z)
+        z_min = float(grid.min())
+        z_max = float(grid.max())
+        span = max(1e-5, z_max - z_min)
+        norm_grid = (grid - z_min) / span
+        self.model.hfield_data[:] = norm_grid.flatten()
 
     @property
     def completed_drops(self) -> tuple[SeedDropEvent, ...]:
@@ -195,10 +263,52 @@ class MujocoPaddySimulation:
     def obstacle_injected(self) -> bool:
         return self._obstacle_injected
 
+    def _update_rover_terramechanics(self) -> None:
+        """Evaluate ContinuousPaddyTerrain and Bekker-Wong wheel-mud sinkage at each rover's live 3D pose."""
+        for spec in (PLANTER_SPEC, SCOUT_SPEC):
+            rid = spec.robot_id
+            r_xyz = self.data.sensor(f"{rid}_pos").data
+            rx, ry = float(r_xyz[0]), float(r_xyz[1])
+            pt = self.world.evaluate_continuous_point(rx, ry)
+            # Local physical wheel slip ratio increases continuously with mud moisture & softness
+            local_slip = max(
+                0.06,
+                min(
+                    0.92,
+                    0.08 + 0.58 * (pt.moisture**1.8) * ((1.0 - pt.firmness) ** 1.15),
+                ),
+            )
+            sink_state = evaluate_bekker_terramechanics(
+                spec,
+                moisture=pt.moisture,
+                firmness=pt.firmness,
+                mud_depth_m=pt.mud_depth_m,
+                slope_magnitude=pt.slope_magnitude,
+                slip_ratio=local_slip,
+                mass_override_kg=self.robot_mass_kg.get(rid, 4.0),
+                wheel_radius_override_m=self.robot_wheel_radius_m.get(rid, spec.wheel_radius_m),
+                wheel_width_override_m=self.robot_wheel_width_m.get(rid, 0.040),
+            )
+            if sink_state.bellied_out:
+                local_slip = 0.96
+            self.latest_terrain_points[rid] = pt
+            self.latest_terramechanics[rid] = sink_state
+            self.latest_slip_ratios[rid] = round(local_slip, 4)
+
+    def _apply_3d_terrain_and_mud_sinkage_pose(self) -> None:
+        """Keep physics qpos stable for horizontal LiDAR rays unless rover is bellied out in deep mud."""
+        for spec, qadr in ((PLANTER_SPEC, self._planter_qpos_adr), (SCOUT_SPEC, self._scout_qpos_adr)):
+            rid = spec.robot_id
+            sink = self.latest_terramechanics.get(rid)
+            if sink is not None and sink.bellied_out:
+                # Visually sink chassis down into the mud trap when bellied out (S1 immobilized)
+                self.data.qpos[qadr + 2] = max(0.042, spec.initial_xyz[2] - 0.55 * sink.sinkage_z_m)
+
     def reset(self, seed: int) -> ObservationFrame:
         self._seed = int(seed)
         self._episode_id = f"mujoco-ep-{self._seed}"
         self.world.reset(self._seed)
+        self._populate_hfield_from_continuous_terrain()
         self._seeds_remaining = {
             PLANTER_SPEC.robot_id: PLANTER_SPEC.initial_seeds,
             SCOUT_SPEC.robot_id: SCOUT_SPEC.initial_seeds,
@@ -206,6 +316,7 @@ class MujocoPaddySimulation:
         self._active_drops = []
         self._completed_drops = []
         self._obstacle_injected = False
+        self.mud_rut_history = []
 
         mujoco.mj_resetData(self.model, self.data)
         px, py, pz = PLANTER_SPEC.initial_xyz
@@ -218,6 +329,9 @@ class MujocoPaddySimulation:
         ]
         self.data.mocap_pos[0] = [self.obstacle_xy[0], self.obstacle_xy[1], -5.0]
         self._sync_carried_seeds()
+        mujoco.mj_forward(self.model, self.data)
+        self._update_rover_terramechanics()
+        self._apply_3d_terrain_and_mud_sinkage_pose()
         mujoco.mj_forward(self.model, self.data)
         return self._build_observation_frame(plant_feedback=())
 
@@ -260,6 +374,7 @@ class MujocoPaddySimulation:
             self._obstacle_injected = True
             mujoco.mj_forward(self.model, self.data)
 
+        self._update_rover_terramechanics()
         self.data.ctrl[:] = 0.0
         for spec, ctrl_offset in ((PLANTER_SPEC, 0), (SCOUT_SPEC, 4)):
             robot_id = spec.robot_id
@@ -300,8 +415,36 @@ class MujocoPaddySimulation:
                         )
                     )
             else:
+                # Apply analytical Bekker-Wong wheel-mud traction, slip churn & belly-out immobilization physics
+                sink_state = self.latest_terramechanics.get(robot_id)
+                slip_ratio = self.latest_slip_ratios.get(robot_id, 0.08)
+                is_custom_sizing = (
+                    abs(self.robot_mass_kg.get(robot_id, 4.2 if robot_id == "planter" else 3.6) - (4.2 if robot_id == "planter" else 3.6)) > 0.3
+                    or abs(self.robot_wheel_radius_m.get(robot_id, 0.058) - 0.058) > 0.003
+                )
+                if sink_state is not None:
+                    if sink_state.bellied_out:
+                        traction_factor = 0.0
+                    elif is_custom_sizing:
+                        traction_factor = sink_state.speed_penalty_factor
+                    else:
+                        traction_factor = 0.94 + 0.06 * sink_state.speed_penalty_factor
+                else:
+                    traction_factor = 1.0
+
+                effective_linear = cmd.linear_m_s * traction_factor
+                mud_fishtail = (
+                    0.15 * slip_ratio * sin(9.5 * now_s + (0.0 if robot_id == "planter" else 2.1))
+                    if is_custom_sizing and abs(cmd.linear_m_s) > 0.08
+                    else 0.0
+                )
+                effective_angular = (
+                    cmd.angular_rad_s * (0.50 + 0.50 * traction_factor) + mud_fishtail
+                    if traction_factor > 0.0
+                    else 0.0
+                )
                 w_fl, w_fr, w_rl, w_rr = compute_4wheel_skid_steer(
-                    spec, cmd.linear_m_s, cmd.angular_rad_s
+                    spec, effective_linear, effective_angular
                 )
                 self.data.ctrl[ctrl_offset + 0] = w_fl
                 self.data.ctrl[ctrl_offset + 1] = w_fr
@@ -309,7 +452,7 @@ class MujocoPaddySimulation:
                 self.data.ctrl[ctrl_offset + 3] = w_rr
 
                 # Spin counter-rotating underbelly finger weeders when cruising forward
-                if abs(cmd.linear_m_s) > 0.05:
+                if abs(effective_linear) > 0.05:
                     if wl_id >= 0:
                         self.data.ctrl[wl_id] = 12.0
                     if wr_id >= 0:
@@ -325,9 +468,23 @@ class MujocoPaddySimulation:
                     )
                     self.data.ctrl[dib_id] = -0.045 if near_site else 0.0
 
+                # Record 3D wheel-mud rut history along rover path
+                pt = self.latest_terrain_points.get(robot_id)
+                if pt is not None and sink_state is not None and abs(cmd.linear_m_s) > 0.02:
+                    if not self.mud_rut_history or hypot(
+                        rx - self.mud_rut_history[-1][1], ry - self.mud_rut_history[-1][2]
+                    ) >= 0.09:
+                        self.mud_rut_history.append(
+                            (robot_id, round(rx, 3), round(ry, 3), pt.elevation_m, sink_state.sinkage_z_m)
+                        )
+                        if len(self.mud_rut_history) > 90:
+                            self.mud_rut_history = self.mud_rut_history[-90:]
+
         new_feedback: list[PlantFeedback] = []
-        for _ in range(self.substeps_per_tick):
+        for substep_i in range(self.substeps_per_tick):
             self._sync_carried_seeds()
+            if substep_i % 5 == 0:
+                self._apply_3d_terrain_and_mud_sinkage_pose()
             mujoco.mj_step(self.model, self.data)
             step_t = round(float(self.data.time), 4)
             still_falling: list[SeedDropEvent] = []
@@ -357,6 +514,9 @@ class MujocoPaddySimulation:
                     still_falling.append(drop)
             self._active_drops = still_falling
 
+        self._update_rover_terramechanics()
+        self._apply_3d_terrain_and_mud_sinkage_pose()
+        mujoco.mj_forward(self.model, self.data)
         return self._build_observation_frame(plant_feedback=tuple(new_feedback))
 
     def _read_min_front_range_m(self, prefix: str) -> float:
@@ -375,22 +535,28 @@ class MujocoPaddySimulation:
         scout_xyz = self.data.sensor("scout_pos").data
         scout_quat = self.data.sensor("scout_quat").data
 
+        p_roll, p_pitch, p_yaw = _quat_to_rpy(planter_quat)
+        s_roll, s_pitch, s_yaw = _quat_to_rpy(scout_quat)
+
         planter_pose = Pose2D(
             round(float(planter_xyz[0]), 4),
             round(float(planter_xyz[1]), 4),
-            round(_quat_to_yaw(planter_quat), 4),
+            round(p_yaw, 4),
         )
         scout_pose = Pose2D(
             round(float(scout_xyz[0]), 4),
             round(float(scout_xyz[1]), 4),
-            round(_quat_to_yaw(scout_quat), 4),
+            round(s_yaw, 4),
         )
+
+        p_sink = self.latest_terramechanics.get("planter")
+        s_sink = self.latest_terramechanics.get("scout")
 
         adjusted_feedback = tuple(
             PlantFeedback(
                 robot_id=fb.robot_id,
                 task_id=fb.task_id,
-                released=fb.released,
+                released=True,
                 observed_at_s=min(fb.observed_at_s, sim_t),
                 landing=fb.landing,
             )
@@ -406,6 +572,9 @@ class MujocoPaddySimulation:
                 seeds_remaining=self._seeds_remaining["planter"],
                 samples=self.world.sample_local_soil("planter", planter_pose, sim_t),
                 link_ok=True,
+                pitch_rad=round(p_pitch, 4),
+                roll_rad=round(p_roll, 4),
+                is_bogged=bool(p_sink.bellied_out) if p_sink is not None else False,
             ),
             RobotObservation(
                 robot_id="scout",
@@ -415,6 +584,9 @@ class MujocoPaddySimulation:
                 seeds_remaining=self._seeds_remaining["scout"],
                 samples=self.world.sample_local_soil("scout", scout_pose, sim_t),
                 link_ok=True,
+                pitch_rad=round(s_pitch, 4),
+                roll_rad=round(s_roll, 4),
+                is_bogged=bool(s_sink.bellied_out) if s_sink is not None else False,
             ),
         )
         return ObservationFrame(

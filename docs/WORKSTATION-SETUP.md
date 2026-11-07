@@ -8,10 +8,10 @@
 | --- | --- | --- |
 | Core-only | Anyone with Python 3.10+ | Importable kernel and repository's standard-library checks really pass |
 | Local simulator sanity | Windows/macOS/Linux developer | An isolated `mujoco` Python environment can advance a real toy physics body and report a measured joint sensor; this is **not** an Isaac Sim or PaddyPatch result |
-| Selected production engine | Approved Isaac Sim owner on qualifying machine/host | Actual installed Isaac version, real wheel joint/range observations, physical seed release/contact and recorded resource use; until then **unverified** |
+| Optional future engine translation | Approved Isaac Sim owner on qualifying machine/host | **Not current P0**; actual Isaac version, real wheel/sensor/seed physics and matching rescue safety evidence required before any parity claim |
 | Coding-agent harness | Optional Antigravity/Gemini CLI user | Confirm what this installed client actually discovers; model/credit/skills availability is not assumed |
 
-**Isaac Sim remains the selected but unverified integration target**. MuJoCo is already approved as the in-repo local development prototype, not just a hypothetical fallback; do not describe it as Isaac. The main kernel, planner and world/robot interfaces are simulator-independent.
+**Current P0 is the checked-in MuJoCo rescue-first stack**, with existing physical seed/rover tests and scripted rigid-dock mechanics. Isaac Sim is an unverified optional future translation, not an initial setup prerequisite. Do not describe MuJoCo as Isaac or the independent extraction test as a full rescued mission. The main kernel, planner and world/robot interfaces are simulator-independent.
 
 ## A. Inspect and preserve the computer before installing
 
@@ -75,13 +75,13 @@ On Linux/macOS use `.venv/bin/python`. The **toy smoke** only checks a basic joi
 
 **Do not copy files from one teammate's local Antigravity sandbox into the team repo without an explicit integration assignment.** A previous local prototype reported physics tests on one machine; treat that as *local experimental evidence*, never as universal reproducibility.
 
-## D. Isaac Sim (chosen host — gated by hardware and permission)
+## D. Optional later Isaac Sim translation (not rescue P0)
 
 - Read [NVIDIA Isaac Sim system requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html) and run the official **Compatibility Checker** on the proposed host. The linked 5.1 guidance lists **32 GB RAM and 16 GB VRAM** as minimum for supported x86_64 workstation usage. The approved actual version may have different requirements; verify and pin it before importing SDK modules. A laptop with **8 GB VRAM and ~16 GB RAM** must **not** be declared a working local Isaac host from its specs alone.
 - Record host OS/driver/GPU/VRAM/RAM/actual Isaac version, supported installation approach and permissions. Keep assets/licences, packages and large downloads out of Git; respect provider terms. Isaac Sim containers are Linux-only per the cited 5.1 requirements. Do not run a remote port or GPU instance without an explicit authorised plan.
-- On a suitable local workstation, the **Isaac adapter owner** follows [the first real Isaac integration task](RUN.md#next-agent-first-integration-task--isaac-sim-planting-first-skeleton-not-yet-implemented) and [issue #7](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/issues/7). Confirm one **actual physics** joint, changing range reading, and physical seed release/contact with traces; `rice.v1` fake-port unit tests are not equivalent.
+- If a human separately approves later Isaac translation, the **Isaac adapter owner** uses the [historical Isaac target information](RUN.md#next-agent-first-integration-task--isaac-sim-planting-first-skeleton-not-yet-implemented) and [issue #7](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/issues/7), with **current rescue-first gates** from [RUN](RUN.md#current-minimum-working-rescue-integration-assignment). Confirm one **actual physics** joint, changing range reading, and physical seed release/contact with traces; `rice.v1` fake-port unit tests are not equivalent.
 - If only an approved cloud workstation can run Isaac, verify GPU RTX/RT cores and renderer, quotas/charge implications, security, frame output and shutdown instructions **before** launch. Never rely on a presumed free tier or automatically raise quotas/spending caps.
-- If Isaac cannot run, publish the precise blocker with version/driver/logs; **ask the human team** whether to accept the MuJoCo fallback. Do not silently change the selected engine or invent performance.
+- If Isaac cannot run, record version/driver/logs as a future translation blocker; **continue the already approved MuJoCo P0** rather than delaying the rescue demo. Do not invent graphics or hardware performance.
 
 ## E. Optional coding-agent setup (human-owned tools)
 
