@@ -1,20 +1,22 @@
 # Decentralised Mycelial SLAM, Gossip & Task Negotiation (`src/ricebot/agent/`)
 
+**Implementation scope:** the UWB ranging / Wi-Fi HaLow / ESP-NOW terminology refers to **simulated messages and distance/link models** within `DecentralizedMycelialRuntime`, not live radio hardware or separately deployed processors. Compare Policy A vs B only using tested same-seed scenarios and actual logged messages; the claimed >95% bandwidth saving in PR text requires a defined continuous-streaming baseline and comparable measurement before being treated as a verified result. No distributed LLM or integrated autonomous docking rescue is proven.
+
 ## 1. Purpose
 Implements **Policy B (`DecentralizedMycelialRuntime`)**: a zero-central-database, peer-to-peer collective intelligence architecture where each rover maintains its own private **2D SLAM Occupancy & Traversability Grid (`LocalSlamGrid`)** and **Gaussian Soil/Stand Belief Map (`LocalMycelialMap`)**, educates reachable peers via **event-triggered Wi-Fi HaLow / UWB gossip (`MycelialGossipPacket`)**, and negotiates task ownership via **capability-aware local auctions (`TaskBidProposal`)**.
 
-Operates over the exact same `SimulationPort` (`ObservationFrame` → `CycleDecision`) seam as **Policy A (`MissionCore` in `src/ricebot/runtime.py`)** so both architectures can be compared head-to-head on identical physical episodes.
+Operates over the exact same `SimulationPort` (`ObservationFrame` → `Decision`) seam as **Policy A (`MissionCore` in `src/ricebot/runtime.py`)** so both architectures can be compared head-to-head on identical physical episodes.
 
 ## 2. Public Entry Points
 - `DecentralizedMycelialRuntime` in `src/ricebot/agent/mycelial_swarm.py`
-  - `.decide(frame: ObservationFrame) -> CycleDecision`
+  - `.decide(frame: ObservationFrame) -> Decision`
   - `.nodes: dict[str, DecentralizedRobotNode]` (inspect each rover's private `.local_map` and `.slam` grid)
   - `.gossip_history: list[MycelialGossipPacket]` and `.latest_sensor_telemetry: dict[str, OnboardSensorTelemetry]`
-- `LocalMycelialMap`, `LocalSlamGrid`, `DecentralizedRobotNode`
+- `CooperativeSwarmPlanner`, `SwarmRobotAgent`, `RescueVerdict`, `GeminiSwarmAdvisor` in `src/ricebot/agent/planner.py`
 
 ## 3. Input and Output Contracts Used
 - Consumes `ObservationFrame`, `RobotObservation`, `SoilSample`, `PlantFeedback`, and `Site` from [docs/CONTRACTS.md](../../../docs/CONTRACTS.md).
-- Synthesizes the physical sensor outputs defined in [input_output](../../../input_output):
+- Synthesizes the physical sensor outputs defined in [input_output.txt](../../../input_output.txt):
   - **IMU + AHRS (`ICM-42688-P`):** Pitch, roll, yaw orientation.
   - **True Ground Speed 60GHz mmWave Radar (`BGT60TR13C`):** True velocity $v_{\text{true}}$ vs. wheel surface speed $\omega r$ and slip ratio $s = 1 - v_{\text{true}} / (\omega r)$.
   - **Row Tracking (`Hall-Effect Whiskers + VL53L8CX ToF`):** Forward rangefinder ray hits and lateral crop clearance.

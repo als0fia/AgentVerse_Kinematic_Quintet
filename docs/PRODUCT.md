@@ -24,7 +24,7 @@
 
 **P0-R4 / independent judge proof:** physically meaningful fault → decision → bounded intervention or justified abstention → independent contact/displacement/helper-risk grade → resumed useful local mapping/planting where successful. Use matched incident seeds, a continuous ≤60-second demo and one-page PDF only for an actually executed integration. Do not equate a task reason string with rescue completion.
 
-**Beyond P0:** independent partial per-robot maps, P2P radio gossip/consensus, learned recovery control, an offline small LLM and one larger LLM sharded across **verified** Jetson computers. None has been proven in this team and they are not prerequisites for safe motion.
+**Beyond P0:** **simulated** per-robot partial maps, range-limited gossip and blackout scenarios now exist in Policy B (#28), but no real radio nodes or network deployment has been validated. Learned recovery control, an offline small LLM and a larger sharded Jetson LLM remain unproven and are not prerequisites for safe motion.
 
 **Historical P0:** planting-only milestones and the RiceWatch predecessor remain in prior D-0005–D-0007 decisions; they are preserved as actual development history, not deleted or misrepresented.
 
