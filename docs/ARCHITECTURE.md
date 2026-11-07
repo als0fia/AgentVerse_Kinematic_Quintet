@@ -61,19 +61,20 @@ Develop the 3–6-site world against a *physically actuated* mock rover if the d
 
 `src/ricebot/contracts.py`, `mission.py`, `control.py` and `runtime.py` form the **pure-Python** observation → measured map → task → bounded command seam. **`src/ricebot/mujoco_sim/` now implements it in MuJoCo** with articulated rover models, synthetic local probes, range/obstacle scenarios and a physical seed-contact test. Headless CI runs its physics tests with the pinned optional dependency. **The Isaac Sim implementation and cross-engine parity tests remain unimplemented.** The baseline still uses site-local means and conservative straight-line HOLD rather than a complete optimal route planner. One human integration owner controls shared contracts.
 
-## Parallel module seams (proposed paths, partially implemented)
+## Current implementation seams and minimal rescue integration (one MuJoCo stack)
 
-| Module | What to implement | Owner |
+| Existing owner/module | Existing contribution | Only necessary rescue-first addition |
 | --- | --- | --- |
-| `src/ricebot/contracts.py`, `runner.py` | tested `rice.v1` observation/sample/map/task/drive/drop/result contracts, Isaac launcher/step and logging; only one integration writer | 1 Integrator |
-| `src/ricebot/robot/` | human-approved rover bodies, wheel articulated motion, local no-go/collision safe controls, **hopper/dropper physics** | 2 Mechanical + control |
-| `src/ricebot/world/`, `sim/` | OpenUSD field, hidden synthetic soil distribution, sample-radius sensor bridge, stand gaps, second rover/scout, injected surprise | 3 World/physics |
-| `src/ricebot/agent/` | shared map interpolation/uncertainty, site scoring, active sample-vs-plant decision, robot/site assignment and route planning | 4 Agent/planning |
-| `src/ricebot/evaluation/`, `viewer/` | hidden-truth grader, uniform/greedy/map-aware baselines, seed contact outcomes, telemetry and ≤60s continuous demo | 5 Evaluation/UI |
+| `src/ricebot/world/` | Small synthetic rice field, local probes and terrain context | One reproducible physical stall and valid observed fault indicators, no new farm simulator |
+| `src/ricebot/robot/` | Reusable homogeneous bodies and **scripted** rigid docking/cam-latch/tow physics | Expose one bounded rescue sequence as a callable skill with progress/contact evidence |
+| `src/ricebot/mujoco_sim/` | **Current** shared MuJoCo physics composition and `SimulationPort` | Wire fault, recovery command and result into the **same** step/reset loop |
+| `src/ricebot/contracts.py`, `runtime.py`, `control.py` | Typed observations/commands, orchestration and safety-constrained drives | Integrator-owned minimal fault/recovery action/result seam; preserve existing callers |
+| `src/ricebot/agent/` | Policy A numerical bids/triage/optional REST advisor; Policy B simulated per-rover maps/gossip | Select **one** coordination integration path, monitor the real rescue result, compare to baseline; optional bounded tool-using LLM supervisor |
+| Existing `tests/` and evaluation scripts | Unit and MuJoCo physics checks, field/seed tests and policy comparisons | Independent end-to-end incident/rescue/resumption test on same seeds; true/false incident and safe-abstain cases |
 
-**First freeze:** smallest running Isaac scene + one moving rover + range sensor and `rice.v1` fixture. **Second:** physically drop a seed proxy and prove landing before chasing complex intelligence. **Third:** second moving scout and distinct local samples, shared mean/uncertainty map and route allocation. **Fourth:** inject an unannounced obstruction or locally discovered unsuitable patch; alter actual plant location/route safely; run baselines and record. Merge components in these dependency stages and keep the latest `main` runnable.
+**Dependency order:** (1) physically detectable immobilisation in the existing MuJoCo scene; (2) typed rescue skill invocation that uses the existing rigid dock; (3) observed extraction/second-helper safety; (4) mission continuation and a deterministic comparison; (5) optional LLM tool loop and one tested feedback-driven correction. No team member should build a second world engine, duplicate `SimulationPort`, another crop model or parallel recovery prototype to satisfy these steps.
 
-## Isaac Sim implementation choices and limits
+## Deferred Isaac Sim translation notes — not part of the current rescue P0
 
 - Verify the **actual installed version** and exposed API before importing version-specific extensions. NVIDIA offers OpenUSD scenes, PhysX articulations, raycast/contact/IMU sensors and standalone scripting; use **simpler physics sensors** before heavy multi-camera RTX perception. [Isaac Sim documentation](https://docs.isaacsim.omniverse.nvidia.com/latest/py/index.html).
 - Official requirements list **32 GB RAM / 16 GB VRAM minimum** on an RTX GPU for supported full usage; several discussed 8 GB laptop GPUs may be below spec. Run the compatibility checker on the actual host, then measure an actual physics/render episode. Do not promise that an 8 GB machine or remote streaming is functional. Cloud host requires explicit provisioning/cost approval. [Official requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
