@@ -56,6 +56,18 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Model decision:** System 0 deterministic local controller/safety; System 1 fast sensing and constrained planning; slow LLM/VLM only if a genuine ambiguous diagnosis or inspection-action choice beats Bayesian/ordinary planner under matched tests. Do not make frontier model calls an actuator-rate dependency.
 - **Owners and gate:** [PRODUCT](PRODUCT.md) owns present mission, [ARCHITECTURE](ARCHITECTURE.md) owns component and body design, [CONTRACTS](CONTRACTS.md) owns typed interfaces, [RUN](RUN.md) tested launch details, [TESTING](TESTING.md) metrics and [DEMO](DEMO.md) honest video. Human integrator approves the initial body, shared interface and scope. No public deployment, spending, final submission or fabricated results.
 
+## D-0006 — Freeze P0 as autonomous rice-water inspection and diagnosis; mitigation optional
+
+- **Date:** 7 November 2026.
+- **Status:** explicit user scope correction, **supersedes D-0005 wherever it might suggest a drainage intervention is required**. Existing D-0005 preserves why rice was chosen; current requirements live in [PRODUCT](PRODUCT.md).
+- **Decision:** **RiceWatch P0 is an autonomous physical inspection and verification rover** for a suspicious water-level alert, **not** a flood-mitigation or gate-operating robot. One rover physically reaches a local sampling point, compares independent local water readings with a possibly faulty fixed gauge, handles an unexpected mid-run route obstruction, and returns `verified abnormal`, `likely false alarm` or `unresolved`. The local controller remains safe without a remote LLM. At least one real simulated range/odometry sensor and a truly independent **location-gated** water measurement must inform decisions; the agent never sees hidden world truth.
+- **Mandatory gates:** P0a moving physics rover + sensor-driven obstacle replanning; P0b actual rice-water verification with true-rise/false-gauge cases; P0c independent same-seed baseline and ≤60s continuous sensor/action/surprise recording plus 1-page PDF. The skeleton alone is not the completed rice product.
+- **Optional-only P1:** physical gate/valve/pump manipulation, hydrology/flow change or other mitigation **only if time remains after P0 is tested and the core recording secured**. No actuator or mitigation test may block P0 completion. Advice to a human operator is not physical mitigation.
+- **Optional P2:** second robot/rescue, communications fallback, reforestation/space adaptation. These are not demo requirements or proven transfer claims.
+- **Human design and five-person coordination:** physical rover embodiment and local water-probe location reviewed by mechanical owner; one integrator freezes shared seam and others own independent small features, not monolithic rewrites. [TEAM](TEAM.md) and [RUN](RUN.md) govern execution.
+- **Reason:** makes the weekend deliverable coherent and falsifiable, avoids unsupported claims of crop saving or flood prevention, and reduces manipulator, hydrology and multi-robot dependencies while still meeting perception, adaptation, autonomy and impact criteria.
+- **Revisit only:** an explicit later human scope decision *after* P0 evidence; no agent may silently promote P1 into P0.
+
 ## Decision template
 
 ```text
