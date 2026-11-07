@@ -1,8 +1,27 @@
-"""Swarm Agentic Coordination package (Task Allocation + Rescue Triage).
+"""Swarm Agentic Coordination & Decentralised Mycelial SLAM Package (`src/ricebot/agent/`).
 
-Consumes your mapping teammate's MeasuredFieldMap and outputs TaskIntent for
-your traversal teammate's LocalController.
+Exports:
+1. Teammate Tier-1/Tier-2 Swarm Auction & Rescue Triage (`planner.py`):
+   - `CooperativeSwarmPlanner`, `SwarmRobotAgent`, `AgentBid`, `RescueVerdict`,
+     `RescueAssessment`, `GeminiSwarmAdvisor`, `SupervisoryAdvisor`, `AmbiguityEvent`,
+     `TravelCostFn`, `homogeneous_capabilities`
+2. Policy B — Zero-Central-Map Mycelial SLAM, UWB/HaLow Gossip & Local Auction (`mycelial_swarm.py`):
+   - `DecentralizedMycelialRuntime`, `DecentralizedRobotNode`, `LocalMycelialMap`,
+     `LocalSlamGrid`, `MycelialGossipPacket`, `OnboardSensorTelemetry`, `SlamHazardCell`,
+     `SoilSafetyEnvelope`, `TaskBidProposal`, `GaussianChannelBelief`
 """
+from .mycelial_swarm import (
+    DecentralizedMycelialRuntime,
+    DecentralizedRobotNode,
+    GaussianChannelBelief,
+    LocalMycelialMap,
+    LocalSlamGrid,
+    MycelialGossipPacket,
+    OnboardSensorTelemetry,
+    SlamHazardCell,
+    SoilSafetyEnvelope,
+    TaskBidProposal,
+)
 from .planner import (
     AgentBid,
     AmbiguityEvent,
@@ -20,11 +39,21 @@ __all__ = [
     "AgentBid",
     "AmbiguityEvent",
     "CooperativeSwarmPlanner",
+    "DecentralizedMycelialRuntime",
+    "DecentralizedRobotNode",
+    "GaussianChannelBelief",
     "GeminiSwarmAdvisor",
+    "LocalMycelialMap",
+    "LocalSlamGrid",
+    "MycelialGossipPacket",
+    "OnboardSensorTelemetry",
     "RescueAssessment",
     "RescueVerdict",
+    "SlamHazardCell",
+    "SoilSafetyEnvelope",
     "SupervisoryAdvisor",
     "SwarmRobotAgent",
+    "TaskBidProposal",
     "TravelCostFn",
     "homogeneous_capabilities",
 ]
