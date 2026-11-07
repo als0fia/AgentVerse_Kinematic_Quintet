@@ -671,10 +671,10 @@ class DecentralizedRobotNode:
             px = obs.pose.x_m - ppose.x_m
             py = obs.pose.y_m - ppose.y_m
             d_peer = hypot(px, py)
-            if 1e-4 < d_peer < 0.44:
-                strength = 0.65 * ((1.0 / d_peer) - (1.0 / 0.44)) / max(d_peer, 0.12)
-                rep_x += (px / d_peer) * strength
-                rep_y += (py / d_peer) * strength
+            if 1e-4 < d_peer < 0.48:
+                strength = 0.55 * ((1.0 / d_peer) - (1.0 / 0.48)) / max(d_peer, 0.14)
+                rep_x += (px / d_peer) * strength * 0.35 - (py / d_peer) * strength * 1.15
+                rep_y += (py / d_peer) * strength * 0.35 + (px / d_peer) * strength * 1.15
 
         steer_vx = goal_ux + rep_x
         steer_vy = goal_uy + rep_y
