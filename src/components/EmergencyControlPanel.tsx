@@ -3,20 +3,19 @@
  * @description Emergency Human Control Mode & Direct Teleoperation Override Deck for Antenna.
  *
  * This component provides the dedicated Human-in-the-Loop emergency override interface required
- * when a paddy rover encounters severe mud sinkage (`S1`), perimeter drainage ditches (`S4`),
- * or tether tension overload (`S7`), or whenever the human supervisor chooses to take manual control:
+ * when a homogeneous Medic-Ant rover encounters severe mud sinkage (`S1`), perimeter drainage ditches (`S4`),
+ * or rigid docking overload (`S7`), or whenever the human supervisor chooses to take manual control:
  * - Single-click Emergency Human Control Mode toggle for the selected robot.
  * - Global Fleet Emergency Stop (E-Stop) button that halts all 5 rovers simultaneously.
  * - Manual Directional Teleop Pad (North, South, East, West + Keyboard WASD / Arrow Keys) with
  *   configurable crawl speed scaling (`0.25x` Low-RPM Mud Crawl to `1.0x` Normal).
- * - Specialized Physical Recovery Actuators:
+ * - Specialized Physical Recovery & Rigid Docking Actuators (`paddy_ant_rigid_rescue.xml`):
  *   1. `Micro-Rocking Clay Breaker`: Alternating low-duty-cycle torque to break clay suction (`S6`).
  *   2. `Reverse-Polarity Axle Clearing`: Sheds wrapped rice straw (`S5`).
- *   3. `INA240 Winch Tether Tension Controller`: Manual cable wind/release with 400 N safety cutoff.
- *
- * Use Cases:
- * 1. Taking immediate human control of a stuck or drifting robot and driving it onto firm soil.
- * 2. Executing bounded mechanical recovery pulses without risking deep plow-pan excavation.
+ *   3. `Collinear Rigid Docking, Cam-Latch & Pitch-Lift Controller`:
+ *      - Front Active Pitch-Lift Boom (`-0.20` to `+0.45 rad`) to pry victim belly out of suction.
+ *      - Rotary Cam-Latch Jaw (`LOCKED 0.60 rad` / `OPEN 0.00 rad`).
+ *      - Rear Deployable Hardpan Anchor Spades (`0.85 rad` deployed / `0.00 rad` stowed).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -32,13 +31,13 @@ interface EmergencyControlPanelProps {
   onManualDrive: (robotId: string, dx: number, dy: number, speedScale: number) => void;
   onTriggerClayBreaker: (robotId: string) => void;
   onTriggerStrawClearing: (robotId: string) => void;
-  onAdjustWinchTension: (robotId: string, deltaN: number) => void;
+  onToggleCamLatch: (robotId: string) => void;
+  onAdjustDockPitch: (robotId: string, deltaRad: number) => void;
+  onToggleAnchorSpades: (robotId: string) => void;
 }
 
 /**
- * Renders the Emergency Human Control & Teleoperation Console for the selected robot and fleet.
- * @param props - EmergencyControlPanelProps state and teleoperation callbacks.
- * @returns React JSX section element.
+ * Renders the Emergency Human Control & Rigid Docking Teleoperation Console for the selected robot and fleet.
  */
 export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
   selectedRobot,
@@ -48,21 +47,21 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
   onManualDrive,
   onTriggerClayBreaker,
   onTriggerStrawClearing,
-  onAdjustWinchTension,
+  onToggleCamLatch,
+  onAdjustDockPitch,
+  onToggleAnchorSpades,
 }) => {
   const [speedScale, setSpeedScale] = useState<number>(0.5);
   const [keyboardCaptureEnabled, setKeyboardCaptureEnabled] = useState<boolean>(true);
   const [lastManualActionText, setLastManualActionText] = useState<string>(
-    'Ready for human teleoperation input.'
+    'Ready for human teleoperation or rigid docking actuator input.'
   );
 
   const stepM = APP_CONFIG.simulation.manualStepDistanceMeters;
+  const { rigidDock } = selectedRobot.telemetry;
 
   /**
    * Dispatches a manual directional drive step for the selected robot.
-   * @param directionLabel - Human-readable direction label.
-   * @param dx - Metric step along X axis.
-   * @param dy - Metric step along Y axis.
    */
   function handleDirectionalStep(directionLabel: string, dx: number, dy: number): void {
     logFunctionCall('EmergencyControlPanel.handleDirectionalStep', {
@@ -154,7 +153,7 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
                   : `Returned ${selectedRobot.callsign} to autonomous planner`
               );
             }}
-            className={`px-3.5 py-2.5 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap shrink-0 ${
+            className={`px-3.5 py-2.5 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               selectedRobot.humanControlActive
                 ? 'bg-purple-600 border-purple-400 text-white hover:bg-purple-500'
                 : 'bg-purple-950/50 border-purple-500/50 text-purple-200 hover:bg-purple-900/60'
@@ -178,7 +177,7 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
                   : 'Global E-Stop released: Swarm resumed.'
               );
             }}
-            className={`px-3.5 py-2.5 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap shrink-0 ${
+            className={`px-3.5 py-2.5 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               fleetEmergencyStopActive
                 ? 'bg-emerald-600 border-emerald-400 text-white hover:bg-emerald-500'
                 : 'bg-rose-600 border-rose-400 text-white hover:bg-rose-500'
@@ -211,7 +210,7 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
               type="button"
               aria-label={`Drive ${selectedRobot.id} North`}
               onClick={() => handleDirectionalStep('North (-Y)', 0, -stepM)}
-              className="py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-purple-600 border border-slate-700 rounded text-xs font-mono font-semibold text-slate-100 transition-colors"
+              className="py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-purple-600 border border-slate-700 rounded text-xs font-mono font-semibold text-slate-100 transition-colors cursor-pointer"
             >
               ▲ N
             </button>
@@ -221,7 +220,7 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
               type="button"
               aria-label={`Drive ${selectedRobot.id} West`}
               onClick={() => handleDirectionalStep('West (-X)', -stepM, 0)}
-              className="py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-purple-600 border border-slate-700 rounded text-xs font-mono font-semibold text-slate-100 transition-colors"
+              className="py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-purple-600 border border-slate-700 rounded text-xs font-mono font-semibold text-slate-100 transition-colors cursor-pointer"
             >
               ◀ W
             </button>
@@ -232,7 +231,7 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
                 onToggleRobotHumanControl(selectedRobot.id, true);
                 setLastManualActionText(`${selectedRobot.id} wheel velocity zeroed (HOLD).`);
               }}
-              className="py-2 px-2 bg-rose-950/80 hover:bg-rose-900 border border-rose-500/40 rounded text-[11px] font-mono font-bold text-rose-200 transition-colors"
+              className="py-2 px-2 bg-rose-950/80 hover:bg-rose-900 border border-rose-500/40 rounded text-[11px] font-mono font-bold text-rose-200 transition-colors cursor-pointer"
             >
               HOLD
             </button>
@@ -240,7 +239,7 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
               type="button"
               aria-label={`Drive ${selectedRobot.id} East`}
               onClick={() => handleDirectionalStep('East (+X)', stepM, 0)}
-              className="py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-purple-600 border border-slate-700 rounded text-xs font-mono font-semibold text-slate-100 transition-colors"
+              className="py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-purple-600 border border-slate-700 rounded text-xs font-mono font-semibold text-slate-100 transition-colors cursor-pointer"
             >
               E ▶
             </button>
@@ -250,7 +249,7 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
               type="button"
               aria-label={`Drive ${selectedRobot.id} South`}
               onClick={() => handleDirectionalStep('South (+Y)', 0, stepM)}
-              className="py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-purple-600 border border-slate-700 rounded text-xs font-mono font-semibold text-slate-100 transition-colors"
+              className="py-2 px-3 bg-slate-900 hover:bg-slate-800 active:bg-purple-600 border border-slate-700 rounded text-xs font-mono font-semibold text-slate-100 transition-colors cursor-pointer"
             >
               ▼ S
             </button>
@@ -274,16 +273,16 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
               max="1.0"
               step="0.25"
               value={speedScale}
-              onChange={(e) => setSpeedScale( parseFloat(e.target.value) )}
+              onChange={(e) => setSpeedScale(parseFloat(e.target.value))}
               className="w-full accent-cyan-400 cursor-pointer"
             />
           </div>
         </div>
 
-        {/* Paddy Recovery & Winch Override Actuators */}
-        <div className="space-y-2">
+        {/* Physical Recovery & Rigid Docking Actuators (`paddy_ant_rigid_rescue.xml`) */}
+        <div className="space-y-2.5">
           <div className="text-xs font-semibold text-slate-300">
-            Physical Recovery & Winch Override Actuators
+            Rigid Docking, Cam-Latch &amp; Pry-Lift Actuators (`paddy_ant_rigid_rescue.xml`)
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -298,7 +297,7 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
                   `Executed +- micro-rocking torque profile on ${selectedRobot.id} (clay suction relief).`
                 );
               }}
-              className="px-3 py-2 text-xs font-medium bg-slate-950 hover:bg-slate-800 border border-slate-700 rounded text-slate-200 text-left transition-colors"
+              className="px-3 py-2 text-xs font-medium bg-slate-950 hover:bg-slate-800 border border-slate-700 rounded text-slate-200 text-left transition-colors cursor-pointer"
             >
               <span className="block font-semibold text-amber-300">Micro-Rock Clay Breaker</span>
               <span className="text-[11px] text-slate-400">Break S1/S6 mud suction (≤ 5s pulse)</span>
@@ -315,53 +314,90 @@ export const EmergencyControlPanel: React.FC<EmergencyControlPanelProps> = ({
                   `Executed reverse-polarity hub oscillation on ${selectedRobot.id} (straw cleared).`
                 );
               }}
-              className="px-3 py-2 text-xs font-medium bg-slate-950 hover:bg-slate-800 border border-slate-700 rounded text-slate-200 text-left transition-colors"
+              className="px-3 py-2 text-xs font-medium bg-slate-950 hover:bg-slate-800 border border-slate-700 rounded text-slate-200 text-left transition-colors cursor-pointer"
             >
               <span className="block font-semibold text-cyan-300">Clear Hub Straw Stall</span>
               <span className="text-[11px] text-slate-400">Reverse-polarity S5 weed unwrapping</span>
             </button>
           </div>
 
-          {/* INA240 Winch Tether Tension Controls */}
-          <div className="flex items-center justify-between gap-2 p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-xs">
-              <span className="text-slate-400 block">INA240 Hitch Tension</span>
-              <span className="font-mono font-semibold text-slate-100 tabular-nums">
-                {selectedRobot.telemetry.tetherTensionN} N{' '}
-                <span className="text-slate-400 font-normal">(Cutoff: 400 N)</span>
+          {/* Rigid Docking Cam-Latch, Pitch-Lift Boom, and Anchor Spades */}
+          <div className="p-2.5 bg-slate-950 border border-slate-800 rounded space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-400">
+                Pitch Boom:{' '}
+                <strong className="text-cyan-300 tabular-nums">
+                  {rigidDock.dockPitchRad >= 0 ? '+' : ''}
+                  {rigidDock.dockPitchRad.toFixed(2)} rad
+                </strong>
+              </span>
+              <span className="text-slate-400">
+                Cam Jaw:{' '}
+                <strong className="text-slate-200 tabular-nums">
+                  {rigidDock.camLatchRad.toFixed(2)} rad
+                </strong>
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => {
-                  onAdjustWinchTension(selectedRobot.id, -40);
-                  setLastManualActionText(`Decreased winch tension by 40 N on ${selectedRobot.id}`);
+                  onToggleCamLatch(selectedRobot.id);
+                  setLastManualActionText(
+                    `Toggled rotary cam-latch jaw on ${selectedRobot.id}`
+                  );
                 }}
-                className="px-2.5 py-1 text-xs font-mono bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-slate-200"
+                className={`px-2.5 py-1 text-xs font-mono rounded border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  rigidDock.isRigidLatched
+                    ? 'bg-cyan-950/70 border-cyan-500/50 text-cyan-200 font-semibold'
+                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
               >
-                -40 N
+                {rigidDock.isRigidLatched ? 'Cam-Latch: LOCKED' : 'Cam-Latch: OPEN'}
               </button>
+
               <button
                 type="button"
                 onClick={() => {
-                  onAdjustWinchTension(selectedRobot.id, 45);
-                  setLastManualActionText(`Increased winch pull tension by 45 N on ${selectedRobot.id}`);
+                  onAdjustDockPitch(selectedRobot.id, -0.1);
+                  setLastManualActionText(
+                    `Lowered front docking boom by -0.10 rad on ${selectedRobot.id}`
+                  );
                 }}
-                className="px-2.5 py-1 text-xs font-mono bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-cyan-300"
+                className="px-2 py-1 text-xs font-mono bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-slate-200 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                +45 N
+                Pitch -0.10 rad
               </button>
+
               <button
                 type="button"
                 onClick={() => {
-                  onAdjustWinchTension(selectedRobot.id, -selectedRobot.telemetry.tetherTensionN);
-                  setLastManualActionText(`Winch cable tension released to 0 N on ${selectedRobot.id}`);
+                  onAdjustDockPitch(selectedRobot.id, 0.1);
+                  setLastManualActionText(
+                    `Raised front pitch-lift boom by +0.10 rad on ${selectedRobot.id} (pry-lift)`
+                  );
                 }}
-                className="px-2.5 py-1 text-xs font-mono bg-rose-950/70 hover:bg-rose-900 border border-rose-500/40 rounded text-rose-200"
+                className="px-2 py-1 text-xs font-mono bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-cyan-300 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                Release
+                Pry-Lift +0.10 rad
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleAnchorSpades(selectedRobot.id);
+                  setLastManualActionText(
+                    `Toggled rear hardpan anchor spades on ${selectedRobot.id}`
+                  );
+                }}
+                className={`px-2.5 py-1 text-xs font-mono rounded border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  rigidDock.anchorSpadeRad > 0.1
+                    ? 'bg-amber-950/70 border-amber-500/50 text-amber-200 font-semibold'
+                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {rigidDock.anchorSpadeRad > 0.1 ? 'Spades: PLANTED' : 'Spades: STOWED'}
               </button>
             </div>
           </div>

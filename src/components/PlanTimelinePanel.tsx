@@ -3,15 +3,10 @@
  * @description Fleet-Wide Robot Plan Matrix & Step-by-Step Execution Queue for Antenna.
  *
  * This component provides a comprehensive tabular and timeline breakdown of every robot's current
- * plan, upcoming waypoints, expected physical postconditions, and hardware capabilities (`RobotCapabilityV1`):
- * - Clearly shows natural-language plans (e.g., "Robot 1 is going to retrieve Robot 3 via UWB winch tow").
+ * plan, upcoming waypoints, expected physical postconditions, and homogeneous hardware capabilities (`make_homogeneous_rover_spec`):
+ * - Clearly shows natural-language plans (e.g., "Robot 1 is going to retrieve Robot 3 via collinear rigid docking, cam-latch & pitch-lift").
  * - Lists ordered plan steps (`COMPLETED`, `IN_PROGRESS`, `QUEUED`) with exact metric coordinates.
  * - Provides quick one-click preset buttons to dispatch cooperative maneuvers across the quintet.
- *
- * Use Cases:
- * 1. Reviewing the synchronized mission plan of all 5 robots in one consolidated table.
- * 2. Verifying which robots have seed hoppers vs. winch tethers (`RobotCapabilityV1`).
- * 3. Triggering preset multi-robot coordination plans (e.g., "Dispatch Robot 5 to Assist Robot 3").
  */
 
 import React from 'react';
@@ -38,9 +33,7 @@ interface PlanTimelinePanelProps {
 }
 
 /**
- * Renders the Fleet Plan Matrix and step-by-step execution queues for all 5 robots.
- * @param props - PlanTimelinePanelProps fleet state and dispatch handlers.
- * @returns React JSX section element.
+ * Renders the Fleet Plan Matrix and step-by-step execution queues for all 5 homogeneous Medic-Ant robots.
  */
 export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
   robots,
@@ -58,10 +51,10 @@ export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-slate-900 border border-slate-800 rounded-lg">
         <div>
           <h2 className="text-base font-semibold text-slate-100">
-            Kinematic Quintet Mission Plans & Task Allocation (TaskIntentV1)
+            Homogeneous Medic-Ant Swarm Plans &amp; Task Allocation (TaskIntentV1)
           </h2>
           <p className="text-xs text-slate-400">
-            Deterministic task coordinator · Shared FieldBeliefV1 map · Independent safety gate enforcement
+            Decentralized Mycelial P2P Gossip (`MycelialGossipPacket`) · Automatic Seed-Depletion Role Switch (`0` seeds → Scout)
           </p>
         </div>
 
@@ -77,9 +70,9 @@ export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
                 });
               }
             }}
-            className="px-3 py-1.5 text-xs font-medium bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-200 rounded transition-colors whitespace-nowrap shrink-0"
+            className="px-3 py-1.5 text-xs font-medium bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-200 rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
-            Plan: Robot 1 Retrieve Robot 3
+            Plan: Robot 1 Rigid-Dock Rescue Robot 3
           </button>
 
           <button
@@ -93,7 +86,7 @@ export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
                 });
               }
             }}
-            className="px-3 py-1.5 text-xs font-medium bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-200 rounded transition-colors whitespace-nowrap shrink-0"
+            className="px-3 py-1.5 text-xs font-medium bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-200 rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             Plan: Robot 2 Plant Site C-04
           </button>
@@ -107,9 +100,9 @@ export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
                 onAssignTaskPlan('ANT-03', 'BEACON_RELAY', r3.position);
               }
             }}
-            className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded transition-colors whitespace-nowrap shrink-0"
+            className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
-            Plan: Convert Robot 3 to UWB Beacon
+            Plan: Convert Robot 3 to P2P Gossip Beacon
           </button>
         </div>
       </div>
@@ -125,7 +118,7 @@ export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
                 <th className="py-3 px-4">TASK MODE</th>
                 <th className="py-3 px-4">ACTIVE NATURAL-LANGUAGE PLAN</th>
                 <th className="py-3 px-4 text-right">POSE (X, Y)</th>
-                <th className="py-3 px-4 text-right">WAYPOINT</th>
+                <th className="py-3 px-4 text-right">WAYPOINTS</th>
                 <th className="py-3 px-4 text-right">HOPPER</th>
                 <th className="py-3 px-4 text-right">ACTION</th>
               </tr>
@@ -160,7 +153,8 @@ export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
                       ({robot.position.x.toFixed(1)}m, {robot.position.y.toFixed(1)}m)
                     </td>
                     <td className="py-3 px-4 text-right font-mono text-cyan-300 tabular-nums whitespace-nowrap">
-                      ({robot.targetWaypoint.x.toFixed(1)}m, {robot.targetWaypoint.y.toFixed(1)}m)
+                      {robot.plannedRoute.length} pts → ({robot.targetWaypoint.x.toFixed(1)}m,{' '}
+                      {robot.targetWaypoint.y.toFixed(1)}m)
                     </td>
                     <td className="py-3 px-4 text-right font-mono text-slate-300 tabular-nums whitespace-nowrap">
                       {robot.seedHopperCount}/{robot.capabilities.maxHopperCapacity}
@@ -169,7 +163,7 @@ export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
                       <button
                         type="button"
                         onClick={() => onSelectRobot(robot.id)}
-                        className="px-2.5 py-1 text-xs font-medium bg-slate-950 hover:bg-slate-800 border border-slate-700 rounded text-cyan-300"
+                        className="px-2.5 py-1 text-xs font-medium bg-slate-950 hover:bg-slate-800 border border-slate-700 rounded text-cyan-300 cursor-pointer"
                       >
                         Inspect Steps
                       </button>
@@ -218,8 +212,8 @@ export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
                             step.status === 'COMPLETED'
                               ? 'text-emerald-400'
                               : step.status === 'IN_PROGRESS'
-                              ? 'text-cyan-300 font-semibold'
-                              : 'text-slate-400'
+                                ? 'text-cyan-300 font-semibold'
+                                : 'text-slate-400'
                           }
                         >
                           {step.status}
@@ -236,12 +230,12 @@ export const PlanTimelinePanel: React.FC<PlanTimelinePanelProps> = ({
 
               {/* Hardware Capabilities Footer (Unboxed Metadata) */}
               <div className="mt-4 pt-2.5 border-t border-slate-800 text-[11px] font-mono text-slate-400 flex flex-wrap items-center gap-1.5">
-                <span>Capabilities:</span>
-                <span>{robot.capabilities.canPlantSeed ? 'Planter' : 'Scout Only'}</span>
+                <span>Homogeneous Spec:</span>
+                <span>{robot.seedHopperCount > 0 ? 'Planter Active' : 'Depleted→Scout'}</span>
                 <span aria-hidden="true">·</span>
-                <span>{robot.capabilities.hasWinchTether ? 'INA240 Winch' : 'No Winch'}</span>
+                <span>{robot.capabilities.hasRigidDockMechanism ? 'Rigid Dock + Cam-Latch' : 'None'}</span>
                 <span aria-hidden="true">·</span>
-                <span>Soil Probe</span>
+                <span>3-Ray LiDAR + Probe</span>
               </div>
             </div>
           );

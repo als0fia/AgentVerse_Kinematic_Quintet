@@ -2,18 +2,13 @@
  * @file src/components/RobotRosterPanel.tsx
  * @description Fleet Status Roster & Plan Summary Column for the Antenna Multi-Robot System.
  *
- * This component displays all robots in the Kinematic Quintet (`ANT-01` through `ANT-05`) with:
+ * This component displays all homogeneous Medic-Ant rovers in the Kinematic Quintet (`ANT-01` through `ANT-05`) with:
  * - Color-coded status indicators paired with accessible glyphs (`● Nominal`, `◆ Retrieving`,
  *   `▲ Slip Alert`, `✖ Immobilized`, `■ Human Control`).
  * - Explicit natural-language plan statements showing what each robot is doing right now
- *   (e.g., "Robot 1 is going to retrieve Robot 3 via UWB winch tow at (14.4m, 8.4m)").
- * - Key tabular metrics (metric position, slip ratio %, seed hopper count, battery %).
+ *   (e.g., "Robot 1 is going to retrieve Robot 3 via collinear rigid docking, cam-latch & pitch-lift at (14.4m, 8.4m)").
+ * - Key tabular metrics (metric position, slip ratio %, wheel sinkage mm, seed hopper count).
  * - Direct one-click button on each robot row to engage or release Emergency Human Control Mode.
- *
- * Use Cases:
- * 1. Scanning the status and active plan of all 5 robots at a glance.
- * 2. Filtering the swarm by operational status (`All`, `Nominal`, `Retrieving`, `Alerts / Stuck`).
- * 3. Immediately switching any robot into Emergency Human Teleoperation Override.
  */
 
 import React, { useState } from 'react';
@@ -30,8 +25,6 @@ interface RobotRosterPanelProps {
 
 /**
  * Renders the multi-robot fleet roster with color-coded statuses, plan descriptions, and emergency human control triggers.
- * @param props - RobotRosterPanelProps fleet list and interaction handlers.
- * @returns React JSX aside/section element.
  */
 export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
   robots,
@@ -43,7 +36,6 @@ export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
 
   /**
    * Filters the robot list according to the selected segmented filter button.
-   * @returns Filtered array of RobotState objects.
    */
   function getFilteredRobots(): RobotState[] {
     if (statusFilter === 'ACTIVE') {
@@ -71,14 +63,14 @@ export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
       <div className="px-4 py-3 bg-slate-950 border-b border-slate-800">
         <div className="flex items-center justify-between gap-2 mb-2.5">
           <h2 className="text-sm font-semibold text-slate-100">
-            Kinematic Quintet Roster ({robots.length} Units)
+            Homogeneous Medic-Ant Roster ({robots.length} Units)
           </h2>
           <span className="text-xs font-mono text-slate-400 tabular-nums">
-            200Hz Link
+            276mm Row Fit
           </span>
         </div>
 
-        {/* Interactive Filter Tabs (Allowed by Zero-Pill rule as functional buttons) */}
+        {/* Interactive Filter Tabs */}
         <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-md">
           <button
             type="button"
@@ -86,7 +78,7 @@ export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
               logFunctionCall('RobotRosterPanel.setStatusFilter', { filter: 'ALL' });
               setStatusFilter('ALL');
             }}
-            className={`flex-1 px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
+            className={`flex-1 px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               statusFilter === 'ALL'
                 ? 'bg-slate-800 text-slate-100'
                 : 'text-slate-400 hover:text-slate-200'
@@ -100,13 +92,13 @@ export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
               logFunctionCall('RobotRosterPanel.setStatusFilter', { filter: 'ACTIVE' });
               setStatusFilter('ACTIVE');
             }}
-            className={`flex-1 px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
+            className={`flex-1 px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               statusFilter === 'ACTIVE'
                 ? 'bg-slate-800 text-emerald-300'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Nominal / Tow
+            Nominal / Dock
           </button>
           <button
             type="button"
@@ -114,7 +106,7 @@ export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
               logFunctionCall('RobotRosterPanel.setStatusFilter', { filter: 'ATTENTION' });
               setStatusFilter('ATTENTION');
             }}
-            className={`flex-1 px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
+            className={`flex-1 px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               statusFilter === 'ATTENTION'
                 ? 'bg-slate-800 text-rose-300'
                 : 'text-slate-400 hover:text-slate-200'
@@ -146,7 +138,7 @@ export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
                     logFunctionCall('RobotRosterPanel.onSelectRobot', { robotId: robot.id });
                     onSelectRobot(robot.id);
                   }}
-                  className="text-left group focus-visible:outline-2 focus-visible:outline-cyan-400 rounded"
+                  className="text-left group focus-visible:outline-2 focus-visible:outline-cyan-400 rounded cursor-pointer"
                 >
                   <span className="text-sm font-semibold text-slate-100 group-hover:text-cyan-300 transition-colors">
                     {robot.callsign}
@@ -164,8 +156,9 @@ export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
 
               {/* Explicit Natural-Language Robot Plan Box */}
               <div className="my-2 px-2.5 py-2 rounded bg-slate-950/90 border border-slate-800/90">
-                <div className="text-[11px] font-mono text-slate-400 mb-0.5">
-                  CURRENT PLAN · MODE: {robot.taskMode}
+                <div className="text-[11px] font-mono text-slate-400 mb-0.5 flex items-center justify-between gap-2">
+                  <span>PLAN · {robot.taskMode}</span>
+                  <span className="shrink-0 tabular-nums">z={robot.telemetry.wheelSinkageMm.toFixed(0)}mm</span>
                 </div>
                 <p className="text-xs text-slate-200 leading-snug font-medium">
                   {robot.planSummary}
@@ -184,14 +177,17 @@ export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
                       robot.telemetry.slipRatio >= 0.6
                         ? 'text-rose-400 font-semibold'
                         : robot.telemetry.slipRatio >= 0.42
-                        ? 'text-amber-400'
-                        : 'text-slate-300'
+                          ? 'text-amber-400'
+                          : 'text-slate-300'
                     }
                   >
                     Slip {(robot.telemetry.slipRatio * 100).toFixed(0)}%
                   </span>
                   <span aria-hidden="true">·</span>
-                  <span>Seeds {robot.seedHopperCount}</span>
+                  <span>
+                    Seeds {robot.seedHopperCount}
+                    {robot.seedHopperCount === 0 ? ' (Scout)' : ''}
+                  </span>
                 </div>
 
                 {/* Quick Emergency Human Override Button */}
@@ -205,7 +201,7 @@ export const RobotRosterPanel: React.FC<RobotRosterPanelProps> = ({
                     onSelectRobot(robot.id);
                     onToggleRobotHumanControl(robot.id, !robot.humanControlActive);
                   }}
-                  className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors whitespace-nowrap shrink-0 ${
+                  className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                     robot.humanControlActive
                       ? 'bg-purple-600 border-purple-400 text-white hover:bg-purple-500'
                       : 'bg-slate-950 border-slate-700 text-slate-200 hover:border-purple-400 hover:text-purple-300'

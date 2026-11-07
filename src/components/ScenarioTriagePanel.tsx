@@ -1,27 +1,25 @@
 /**
  * @file src/components/ScenarioTriagePanel.tsx
- * @description Paddy Immobilization Scenario Simulator (`S1`–`S6`) & Multi-Objective Rescue Evaluator.
+ * @description Paddy Immobilization Scenario Simulator (`S1`–`S8` + Negative Controls) & Pareto Rescue Evaluator (`D-0011`).
  *
- * This component brings the `stuck_scenario.txt` engineering specifications from the
- * `AgentVerse_Kinematic_Quintet` repository directly into an interactive diagnostic console:
- * - Allows the operator to inject any of the physical paddy field failure scenarios (`S1` Deep Plow-Pan Breach,
- *   `S2` Asymmetric Yaw Pocket, `S3` Earthen Bund High-Centering, `S4` Irrigation Trench Drop-In,
- *   `S5` Rice Straw Entanglement, `S6` Thixotropic Clay Suction Lock) onto a selected robot.
- * - Computes and displays the AI Coordinator Multi-Objective Rescue Evaluation:
- *   $\mathcal{J}(\text{action}) = w_{\text{task}} \Delta \text{Coverage} - w_{\text{crop}} \text{CropDamage} - w_{\text{energy}} \Delta E - w_{\text{risk}} P(\text{SecondaryImmobilization})$
+ * This component brings `docs/IMMOBILIZATION_SCENARIOS.md` and `docs/DECISIONS.md` (`D-0011`) from
+ * the `AgentVerse_Kinematic_Quintet` repository directly into an interactive diagnostic console:
+ * - Allows the operator to inject any of the 8 physical paddy field failure hypotheses (`S1`–`S8`)
+ *   OR the 2 Negative Control scenarios (`NEG_MISSING_LIDAR_FAULT` where `front_range_m = None`,
+ *   and `NEG_INTENTIONAL_SEED_HOLD`) that block false-positive rescue dispatches.
+ * - Provides interactive sliders for the 5 Pareto Rescue Cost Weights (`D-0011`):
+ *   $J = w_t T + w_e E + w_c C + w_s S + w_r R$
+ *   (`timeWeight`, `energyWeight`, `cropDamageWeight`, `soilDisturbanceWeight`, `recoveryRiskWeight`).
  * - Provides a one-click button on each candidate policy to execute that recovery plan across the fleet.
- *
- * Use Cases:
- * 1. Testing how the swarm responds when a robot gets bogged down or drops into a perimeter drainage trench.
- * 2. Comparing why deterministic risk-aware abstention (`SAFE_ABSTAIN_DEFER_HUMAN`) or crop-safe detour tow
- *    beats naive direct towing.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
+import { APP_CONFIG } from '../config/appConfig';
 import { FAULT_SCENARIO_CATALOG } from '../data/initialSwarmState';
 import { evaluateRescueCandidates } from '../logic/swarmEngine';
 import {
   FaultScenarioId,
+  ParetoWeights,
   RescueCandidateEvaluation,
   RobotState,
 } from '../types/antenna';
@@ -39,9 +37,7 @@ interface ScenarioTriagePanelProps {
 }
 
 /**
- * Renders the S1–S6 immobilization scenario injector and multi-objective rescue policy comparison table.
- * @param props - ScenarioTriagePanelProps state and scenario/rescue callbacks.
- * @returns React JSX section element.
+ * Renders the S1–S8 + Negative Control immobilization scenario injector and D-0011 Pareto rescue comparison table.
  */
 export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
   robots,
@@ -50,6 +46,10 @@ export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
   onInjectFaultScenario,
   onApplyRescueCandidate,
 }) => {
+  const [paretoWeights, setParetoWeights] = useState<ParetoWeights>({
+    ...APP_CONFIG.defaultParetoWeights,
+  });
+
   const selectedRobot = robots.find((r) => r.id === selectedRobotId) ?? robots[0];
   const immobilizedRobots = robots.filter((r) => r.faultScenario !== 'NONE');
   const triageTargetRobot =
@@ -57,7 +57,22 @@ export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
       ? selectedRobot
       : immobilizedRobots[0] ?? selectedRobot;
 
-  const rescueEvaluations = evaluateRescueCandidates(triageTargetRobot, robots);
+  const rescueEvaluations = evaluateRescueCandidates(
+    triageTargetRobot,
+    robots,
+    paretoWeights
+  );
+
+  /**
+   * Updates one of the 5 D-0011 Pareto rescue cost weights.
+   */
+  function handleWeightChange(key: keyof ParetoWeights, value: number): void {
+    logFunctionCall('ScenarioTriagePanel.handleWeightChange', { key, value });
+    setParetoWeights((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
 
   return (
     <section
@@ -69,10 +84,10 @@ export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold text-slate-100">
-              Paddy Field Immobilization Diagnostics & Multi-Objective Rescue Triage
+              Paddy Field Immobilization Hypotheses (S1–S8) &amp; Negative Controls
             </h2>
             <p className="text-xs text-slate-400">
-              200Hz STM32H7 slip ratio classification · Sub-1GHz Wi-Fi HaLow incident broadcast · Cost function J(action)
+              200Hz STM32H7 slip ratio classification · Distinguishes true immobilization from missing range data (`front_range_m = None`)
             </p>
           </div>
 
@@ -102,7 +117,7 @@ export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
                   });
                   onInjectFaultScenario(selectedRobot.id, 'NONE');
                 }}
-                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
+                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors cursor-pointer"
               >
                 Clear Fault on {selectedRobot.id}
               </button>
@@ -110,26 +125,33 @@ export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
           </div>
         </div>
 
-        {/* S1 - S6 Scenario Cards */}
+        {/* S1 - S8 + Negative Control Scenario Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {FAULT_SCENARIO_CATALOG.map((scenario) => {
             const isActiveOnSelected = selectedRobot.faultScenario === scenario.id;
+            const isNegControl = scenario.category === 'NEGATIVE_CONTROL';
             return (
               <div
                 key={scenario.id}
                 className={`p-3.5 rounded border flex flex-col justify-between transition-colors ${
                   isActiveOnSelected
-                    ? 'bg-rose-950/40 border-rose-500/60'
+                    ? isNegControl
+                      ? 'bg-emerald-950/40 border-emerald-500/60'
+                      : 'bg-rose-950/40 border-rose-500/60'
                     : 'bg-slate-950 border-slate-800'
                 }`}
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 text-xs font-mono mb-1">
-                    <span className="font-bold text-rose-400">
-                      {scenario.code} · {scenario.chineseTerm}
+                    <span
+                      className={`font-bold ${
+                        isNegControl ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {scenario.code} · {isNegControl ? 'NEGATIVE CONTROL' : 'IMMOBILIZATION'}
                     </span>
                     <span className="text-slate-400">
-                      Policy: {scenario.recommendedPolicy.split('_')[0]}
+                      {isNegControl ? 'NO RESCUE' : `Policy: ${scenario.recommendedPolicy.split('_')[0]}`}
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold text-slate-100 mb-1">
@@ -152,9 +174,11 @@ export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
                     });
                     onInjectFaultScenario(selectedRobot.id, scenario.id);
                   }}
-                  className={`mt-3 w-full py-1.5 px-3 text-xs font-semibold rounded border transition-colors ${
+                  className={`mt-3 w-full py-1.5 px-3 text-xs font-semibold rounded border transition-colors cursor-pointer ${
                     isActiveOnSelected
-                      ? 'bg-rose-600 border-rose-400 text-white'
+                      ? isNegControl
+                        ? 'bg-emerald-600 border-emerald-400 text-white'
+                        : 'bg-rose-600 border-rose-400 text-white'
                       : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-200'
                   }`}
                 >
@@ -168,12 +192,12 @@ export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
         </div>
       </div>
 
-      {/* Multi-Objective Coordinator Rescue Evaluation Table */}
-      <div className="p-4 bg-slate-900 border border-slate-800 rounded-lg space-y-3">
+      {/* D-0011 Multi-Objective Pareto Rescue Cost Weight Sliders & Evaluation Table */}
+      <div className="p-4 bg-slate-900 border border-slate-800 rounded-lg space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-sm font-semibold text-slate-100">
-              AI Coordinator Multi-Objective Rescue Evaluation for {triageTargetRobot.callsign}
+              D-0011 Pareto Multi-Objective Rescue Evaluator for {triageTargetRobot.callsign}
             </h3>
             <p className="text-xs text-slate-400">
               Active Incident:{' '}
@@ -184,9 +208,40 @@ export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
               </span>
             </p>
           </div>
-          <div className="text-xs font-mono text-slate-400">
-            J(a) = 0.35·ΔCov - 0.30·CropDmg - 0.15·ΔE - 0.20·P(SecTrap)
+          <div className="text-xs font-mono text-cyan-300">
+            J = w_t·T + w_e·E + w_c·C + w_s·S + w_r·R
           </div>
+        </div>
+
+        {/* Interactive Pareto Weight Sliders (w_t, w_e, w_c, w_s, w_r) */}
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 p-3 bg-slate-950 border border-slate-800 rounded">
+          {(
+            [
+              { key: 'timeWeight', label: 'w_t (Time / Delay)' },
+              { key: 'energyWeight', label: 'w_e (Energy Wh)' },
+              { key: 'cropDamageWeight', label: 'w_c (Crop Damage)' },
+              { key: 'soilDisturbanceWeight', label: 'w_s (Soil / Rutting)' },
+              { key: 'recoveryRiskWeight', label: 'w_r (2nd Trap Risk)' },
+            ] as const
+          ).map((item) => (
+            <div key={item.key} className="bg-slate-900 border border-slate-800/80 rounded p-2">
+              <div className="flex items-center justify-between text-[11px] font-mono mb-1">
+                <span className="text-slate-400">{item.label}</span>
+                <span className="text-cyan-300 font-bold tabular-nums">
+                  {paretoWeights[item.key].toFixed(2)}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.05}
+                max={0.60}
+                step={0.05}
+                value={paretoWeights[item.key]}
+                onChange={(e) => handleWeightChange(item.key, parseFloat(e.target.value))}
+                className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+              />
+            </div>
+          ))}
         </div>
 
         <div className="overflow-x-auto">
@@ -247,7 +302,7 @@ export const ScenarioTriagePanel: React.FC<ScenarioTriagePanelProps> = ({
                         });
                         onApplyRescueCandidate(triageTargetRobot, candidate);
                       }}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded transition-colors ${
+                      className={`px-3 py-1.5 text-xs font-semibold rounded transition-colors cursor-pointer ${
                         candidate.recommended
                           ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
                           : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'

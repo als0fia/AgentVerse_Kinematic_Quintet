@@ -2,18 +2,14 @@
  * @file src/components/TelemetryInspector.tsx
  * @description 200Hz STM32H7 Sensor-Fusion Telemetry Inspector & Plan Reassignment Panel.
  *
- * This component displays the real-time low-level sensor telemetry for the currently selected robot
- * and provides an interactive `TaskIntentV1` Plan Reassignment form:
+ * This component displays the real-time low-level sensor telemetry for the currently selected
+ * Homogeneous Medic-Ant rover (`make_homogeneous_rover_spec`) and provides an interactive
+ * `TaskIntentV1` Plan Reassignment form:
  * - 60GHz Doppler mmWave Radar true ground speed ($v_{\text{true}}$) vs Wheel Encoder speed ($\omega \cdot r$).
  * - Real-time Kinematic Slip Ratio $s = 1 - (v_{\text{true}} / (\omega \cdot r))$ with anti-digging threshold indicator.
- * - TDK ICM-42688-P IMU Pitch/Roll angles ($\theta, \phi$) and INA240 Motor Phase Current ($I$) + Tow Hitch Tension ($F_{\text{pull}}$).
- * - Hall-Effect Whisker + VL53L8CX ToF lateral furrow cross-track error ($e_y$).
- * - Interactive Plan Dispatcher: Lets operators assign a new plan to the selected robot (e.g.,
- *   "Retrieve Peer Robot", "Plant Missing Crop Gap", "Sample Soil Moisture", "UWB Relay Beacon").
- *
- * Use Cases:
- * 1. Diagnosing why a robot is slipping or immobilized using physical sensor fusion metrics.
- * 2. Reassigning a robot's mission plan and immediately seeing its trajectory and plan summary update.
+ * - Bekker-Wong Wheel Sinkage $z$ (mm) and Belly Clearance (mm) relative to the 64 mm sealed hull.
+ * - Forward 3-Ray LiDAR (`frontLidarRangeM`, supporting `null` for missing-data negative control vs true obstacle).
+ * - Rigid Docking & Cam-Latch Actuator telemetry (`dockPitchRad`, `camLatchClosed`, `couplingForceN`).
  */
 
 import React, { useState } from 'react';
@@ -40,8 +36,6 @@ interface TelemetryInspectorProps {
 
 /**
  * Renders the 200Hz sensor fusion telemetry grid and interactive plan assignment form for the selected robot.
- * @param props - TelemetryInspectorProps state and task assignment callback.
- * @returns React JSX section element.
  */
 export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
   selectedRobot,
@@ -58,7 +52,6 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
 
   /**
    * Handles submitting the new robot plan assignment form.
-   * @param event - Form submit event.
    */
   function handlePlanFormSubmit(event: React.FormEvent): void {
     event.preventDefault();
@@ -107,10 +100,11 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
       <div className="flex items-center justify-between gap-2 px-4 py-3 bg-slate-950 border-b border-slate-800">
         <div>
           <h2 className="text-sm font-semibold text-slate-100">
-            {selectedRobot.callsign} · Telemetry & Plan
+            {selectedRobot.callsign} · Telemetry &amp; Plan
           </h2>
           <p className="text-xs text-slate-400">
-            STM32H7 200Hz Loop · Battery {selectedRobot.batteryPct}% · Hopper {selectedRobot.seedHopperCount}/{selectedRobot.capabilities.maxHopperCapacity} seeds
+            Homogeneous Medic-Ant (276mm width) · Battery {selectedRobot.batteryPct}% · Hopper{' '}
+            {selectedRobot.seedHopperCount}/{selectedRobot.capabilities.maxHopperCapacity} seeds
           </p>
         </div>
         <span className={`text-xs font-mono font-semibold whitespace-nowrap shrink-0 ${theme.textClass}`}>
@@ -119,11 +113,19 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Active Fault Diagnostic Banner (if immobilized or slipping) */}
+        {/* Active Fault Diagnostic Banner (if immobilized, slipping, or negative control) */}
         {selectedRobot.faultReason && (
-          <div className="p-3 rounded bg-rose-950/50 border border-rose-500/40 text-xs text-rose-200">
-            <div className="font-mono font-semibold text-rose-300 mb-0.5">
-              DIAGNOSTIC ALERT ({selectedRobot.faultScenario})
+          <div
+            className={`p-3 rounded border text-xs ${
+              selectedRobot.faultScenario.startsWith('NEG_')
+                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                : 'bg-rose-950/50 border-rose-500/40 text-rose-200'
+            }`}
+          >
+            <div className="font-mono font-semibold mb-0.5">
+              {selectedRobot.faultScenario.startsWith('NEG_')
+                ? `NEGATIVE CONTROL GUARD (${selectedRobot.faultScenario})`
+                : `DIAGNOSTIC ALERT (${selectedRobot.faultScenario})`}
             </div>
             <p>{selectedRobot.faultReason}</p>
           </div>
@@ -152,8 +154,8 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
                   telemetry.slipRatio >= 0.6
                     ? 'text-rose-400'
                     : telemetry.slipRatio >= 0.42
-                    ? 'text-amber-400'
-                    : 'text-emerald-400'
+                      ? 'text-amber-400'
+                      : 'text-emerald-400'
                 }`}
               >
                 {(telemetry.slipRatio * 100).toFixed(0)}
@@ -166,15 +168,15 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
           </div>
 
           <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-[11px] font-mono text-slate-400">MOTOR CURRENT</div>
+            <div className="text-[11px] font-mono text-slate-400">SINKAGE / BELLY</div>
             <div className="mt-1 font-mono tabular-nums">
               <span className="text-lg font-bold text-slate-100">
-                {telemetry.motorCurrentAmps.toFixed(1)}
+                {telemetry.wheelSinkageMm.toFixed(0)}
               </span>
-              <span className="text-xs text-slate-400 ml-1">A</span>
+              <span className="text-xs text-slate-400 ml-1">mm</span>
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Tether: {telemetry.tetherTensionN} N
+              Clearance: {telemetry.bellyClearanceMm.toFixed(0)} mm
             </div>
           </div>
 
@@ -186,33 +188,40 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
               </span>
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Pitch / Roll (±18° limit)
+              Current: {telemetry.motorCurrentAmps.toFixed(1)} A
             </div>
           </div>
 
           <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-[11px] font-mono text-slate-400">FURROW ERROR e_y</div>
+            <div className="text-[11px] font-mono text-slate-400">3-RAY LIDAR</div>
             <div className="mt-1 font-mono tabular-nums">
-              <span className="text-lg font-bold text-slate-100">
-                {telemetry.furrowErrorCm.toFixed(1)}
-              </span>
-              <span className="text-xs text-slate-400 ml-1">cm</span>
+              {telemetry.frontLidarRangeM === null ? (
+                <span className="text-sm font-bold text-amber-400">NULL (DROPOUT)</span>
+              ) : (
+                <>
+                  <span className="text-lg font-bold text-slate-100">
+                    {telemetry.frontLidarRangeM.toFixed(2)}
+                  </span>
+                  <span className="text-xs text-slate-400 ml-1">m</span>
+                </>
+              )}
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Whisker + 8×8 ToF
+              Row Error: {telemetry.furrowErrorCm.toFixed(1)} cm
             </div>
           </div>
 
           <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-[11px] font-mono text-slate-400">DUAL-UWB PDoA</div>
+            <div className="text-[11px] font-mono text-slate-400">RIGID DOCK BOOM</div>
             <div className="mt-1 font-mono tabular-nums">
-              <span className="text-lg font-bold text-cyan-300">
-                {telemetry.uwbLinkQualityPct}
+              <span className="text-base font-bold text-cyan-300">
+                {telemetry.rigidDock.dockPitchRad >= 0 ? '+' : ''}
+                {telemetry.rigidDock.dockPitchRad.toFixed(2)} rad
               </span>
-              <span className="text-xs text-slate-400 ml-1">%</span>
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              HaLow Sub-1GHz OK
+              {telemetry.rigidDock.isRigidLatched ? 'Cam LOCKED' : 'Cam OPEN'} ·{' '}
+              {telemetry.rigidDock.camLatchRad.toFixed(2)} rad
             </div>
           </div>
         </div>
@@ -245,11 +254,11 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
                 onChange={(e) => setSelectedTaskMode(e.target.value as TaskMode)}
                 className="w-full px-2.5 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded text-slate-100 focus:outline-cyan-400"
               >
-                <option value="RETRIEVE_PEER">Retrieve Stuck Peer (Winch Tow)</option>
+                <option value="RETRIEVE_PEER">Retrieve Stuck Peer (Rigid Dock &amp; Pry-Lift)</option>
                 <option value="PLANT">Plant Missing Crop Site</option>
-                <option value="SAMPLE">Sample Soil Moisture & Firmness</option>
+                <option value="SAMPLE">Sample Soil Moisture &amp; Firmness</option>
                 <option value="NAVIGATE">Return to Seed Depot (2.0m, 2.0m)</option>
-                <option value="BEACON_RELAY">Stationary UWB Relay Beacon</option>
+                <option value="BEACON_RELAY">Stationary P2P Gossip Relay Beacon</option>
                 <option value="HOLD">Deterministic Safety HOLD</option>
               </select>
             </div>
@@ -305,7 +314,7 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
 
           <button
             type="submit"
-            className="w-full py-2 px-4 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded transition-colors"
+            className="w-full py-2 px-4 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded transition-colors cursor-pointer"
           >
             Update {selectedRobot.callsign.split('·')[0].trim()} Plan
           </button>

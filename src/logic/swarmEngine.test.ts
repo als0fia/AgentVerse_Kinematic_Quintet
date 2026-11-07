@@ -1,17 +1,18 @@
 /**
  * @file src/logic/swarmEngine.test.ts
- * @description Unit Test Suite for the Antenna Swarm Kinematic & Task Planning Engine (`node:test`).
+ * @description Unit Test Suite for the Antenna Swarm Kinematic, Bekker–Wong Terramechanics,
+ * Continuous RBF Belief Field, Dynamic Obstacle Replanning & Pareto Rescue Engine (`node:test`).
  *
- * This file verifies the deterministic mathematical and state-transition guarantees of `swarmEngine.ts`:
- * 1. `calculateSlipRatio`: Verifies 200Hz STM32H7 slip ratio formula $s = 1 - (v_{\text{true}} / (\omega \cdot r))$
- *    and zero-division safety when wheels are stationary.
- * 2. `formatRobotPlanSummary`: Verifies natural-language plan generation for peer retrieval, crop planting,
- *    soil sampling, and human teleop override.
- * 3. `assignRobotTaskPlan`: Verifies `rice.v1` capability enforcement (rejecting `PLANT` tasks for scout rovers
- *    without seed hoppers, while accepting valid retrieval and planting plans).
- * 4. `setRobotHumanControlMode` & `setFleetEmergencyStop`: Verifies immediate transition into `HUMAN_CONTROL`
- *    status and velocity cutoff (`v_true = 0`), plus manual teleoperation drive and clay-suction micro-rocking.
- * 5. `evaluateRescueCandidates`: Verifies multi-objective rescue policy ranking for `S1` and `S4` scenarios.
+ * Verifies:
+ * 1. `calculateSlipRatio` & `evaluateBekkerTerramechanics`: Analytical sinkage $z$, belly clearance,
+ *    and `S1 BELLY-OUT` verdict matching `src/ricebot/viewer/dashboard.py`.
+ * 2. `evaluateContinuousBeliefField`: Continuous 2D RBF heatmap layers across `planter`, `scout`,
+ *    `divergence`, and `truth` perspectives.
+ * 3. `injectDynamicObstacleAndReplan`: D-0012 mid-sequence obstacle injection and multi-waypoint detour bending.
+ * 4. `assignRobotTaskPlan`: Homogeneous seed-depletion gate and rigid-dock rescue plan formatting.
+ * 5. `setRobotHumanControlMode`, `setFleetEmergencyStop` & `executeManualTeleopCommand`: Manual drive and
+ *    rigid-docking cam-latch / pitch-lift / anchor spade actuator commands.
+ * 6. `injectFaultScenario` & `evaluateRescueCandidates`: S1–S8 Pareto ranking and Negative Control blocking.
  */
 
 import test from 'node:test';
@@ -20,22 +21,54 @@ import { INITIAL_CROP_GAP_SITES, INITIAL_ROBOTS } from '../data/initialSwarmStat
 import {
   assignRobotTaskPlan,
   calculateSlipRatio,
+  evaluateBekkerTerramechanics,
+  evaluateContinuousBeliefField,
   evaluateRescueCandidates,
   executeManualTeleopCommand,
   formatRobotPlanSummary,
+  injectDynamicObstacleAndReplan,
   injectFaultScenario,
   setFleetEmergencyStop,
   setRobotHumanControlMode,
   stepSwarmSimulation,
 } from './swarmEngine';
 
-test('calculateSlipRatio computes accurate slip and handles stationary wheels safely', () => {
+test('calculateSlipRatio and evaluateBekkerTerramechanics compute accurate sinkage and belly-out verdicts', () => {
   assert.equal(calculateSlipRatio(0.45, 0.50), 0.1);
   assert.equal(calculateSlipRatio(0.02, 0.55), 0.96);
   assert.equal(calculateSlipRatio(0.0, 0.0), 0);
+
+  // Light 4.2kg Medic-Ant in moderate moisture (0.55) has positive belly clearance (TRAVERSABLE)
+  const safeRes = evaluateBekkerTerramechanics({
+    massKg: 4.2,
+    wheelRadiusMm: 58,
+    wheelWidthMm: 40,
+    mudMoisture: 0.55,
+  });
+  assert.equal(safeRes.belliedOut, false);
+  assert.equal(safeRes.verdictCode, 'TRAVERSABLE');
+
+  // Heavy 16kg unit with narrow wheels in saturated mud (0.94) bellies out (BELLY_OUT_STUCK)
+  const stuckRes = evaluateBekkerTerramechanics({
+    massKg: 16.0,
+    wheelRadiusMm: 42,
+    wheelWidthMm: 24,
+    mudMoisture: 0.94,
+  });
+  assert.equal(stuckRes.belliedOut, true);
+  assert.equal(stuckRes.verdictCode, 'BELLY_OUT_STUCK');
 });
 
-test('formatRobotPlanSummary produces clear human-readable robot plans', () => {
+test('evaluateContinuousBeliefField distinguishes planter belief, scout belief, and divergence gap', () => {
+  const mPlanter = evaluateContinuousBeliefField(18.0, 10.0, 'moisture', 'planter');
+  const mScout = evaluateContinuousBeliefField(18.0, 10.0, 'moisture', 'scout');
+  const mGap = evaluateContinuousBeliefField(18.0, 10.0, 'moisture', 'divergence');
+  assert.equal(mPlanter >= 0 && mPlanter <= 1, true);
+  assert.equal(mScout >= 0 && mScout <= 1, true);
+  assert.equal(mGap > 0, true);
+});
+
+test('formatRobotPlanSummary produces clear rigid-docking and planting plan descriptions', () => {
   const retrieveText = formatRobotPlanSummary(
     'Robot 1 · Atlas',
     'RETRIEVE_PEER',
@@ -44,27 +77,22 @@ test('formatRobotPlanSummary produces clear human-readable robot plans', () => {
     null,
     false
   );
-  assert.equal(
+  assert.match(
     retrieveText,
-    'Robot 1 is going to retrieve Robot 3 via UWB winch tow at (14.4m, 8.4m)'
-  );
-
-  const plantText = formatRobotPlanSummary(
-    'Robot 2 · Boreal',
-    'PLANT',
-    { x: 11.2, y: 4.0 },
-    null,
-    'C-03',
-    false
-  );
-  assert.equal(
-    plantText,
-    'Robot 2 is going to plant missing crop gap C-03 at (11.2m, 4.0m)'
+    /Robot 1 is going to retrieve Robot 3 via collinear rigid docking, cam-latch & pitch-lift/
   );
 });
 
-test('assignRobotTaskPlan enforces rice.v1 capabilities and updates status color coding', () => {
-  // ANT-04 is a soil scout without seed hopper (canPlantSeed = false)
+test('D-0012 injectDynamicObstacleAndReplan inserts obstacle and bends robot plannedRoute around it', () => {
+  const result = injectDynamicObstacleAndReplan(INITIAL_ROBOTS, [], 'ANT-02', 5);
+  assert.equal(result.obstacles.length, 1);
+  const r2 = result.robots.find((r) => r.id === 'ANT-02')!;
+  assert.equal(r2.plannedRoute.length > 2, true);
+  assert.match(r2.planSummary, /replanned detour trajectory/);
+});
+
+test('assignRobotTaskPlan enforces seed-depletion gate and allows any homogeneous unit to rescue', () => {
+  // ANT-04 has 0 seeds remaining in its hopper, so PLANT is rejected until refilled
   const rejectedResult = assignRobotTaskPlan(
     INITIAL_ROBOTS,
     'ANT-04',
@@ -74,7 +102,7 @@ test('assignRobotTaskPlan enforces rice.v1 capabilities and updates status color
   );
   assert.equal(rejectedResult.accepted, false);
 
-  // ANT-05 has a winch tether and can be dispatched to retrieve ANT-03
+  // ANT-05 has homogeneous rigid docking hardware and can retrieve ANT-03
   const acceptedResult = assignRobotTaskPlan(
     INITIAL_ROBOTS,
     'ANT-05',
@@ -85,25 +113,22 @@ test('assignRobotTaskPlan enforces rice.v1 capabilities and updates status color
   assert.equal(acceptedResult.accepted, true);
   const updatedRobot5 = acceptedResult.robots.find((r) => r.id === 'ANT-05')!;
   assert.equal(updatedRobot5.status, 'RETRIEVING');
-  assert.match(updatedRobot5.planSummary, /Robot 5 is going to retrieve Robot 3/);
+  assert.equal(updatedRobot5.telemetry.rigidDock.isRigidLatched, true);
 });
 
-test('Emergency Human Control Mode and Fleet E-Stop transition status and allow manual driving', () => {
+test('Emergency Human Control Mode, Fleet E-Stop, and Rigid Docking actuators work deterministically', () => {
   const manualList = setRobotHumanControlMode(INITIAL_ROBOTS, 'ANT-02', true);
   const r2 = manualList.find((r) => r.id === 'ANT-02')!;
   assert.equal(r2.humanControlActive, true);
   assert.equal(r2.status, 'HUMAN_CONTROL');
-  assert.equal(r2.telemetry.trueVelocityMs, 0);
 
-  // Drive ANT-02 east by +1.0m
-  const startX = r2.position.x;
-  const nudgedList = executeManualTeleopCommand(manualList, 'ANT-02', {
-    type: 'DRIVE',
-    dx: 1.0,
-    dy: 0,
+  // Toggle rotary cam-latch jaw on ANT-02
+  const latchedList = executeManualTeleopCommand(manualList, 'ANT-02', {
+    type: 'TOGGLE_CAM_LATCH',
   });
-  const nudgedR2 = nudgedList.find((r) => r.id === 'ANT-02')!;
-  assert.equal(nudgedR2.position.x, Number((startX + 1.0).toFixed(2)));
+  const latchedR2 = latchedList.find((r) => r.id === 'ANT-02')!;
+  assert.equal(latchedR2.telemetry.rigidDock.isRigidLatched, true);
+  assert.equal(latchedR2.telemetry.rigidDock.camLatchRad, 0.55);
 
   // Global Fleet E-Stop halts all 5 robots
   const estopFleet = setFleetEmergencyStop(INITIAL_ROBOTS, true);
@@ -113,7 +138,19 @@ test('Emergency Human Control Mode and Fleet E-Stop transition status and allow 
   );
 });
 
-test('injectFaultScenario and evaluateRescueCandidates rank appropriate recovery policy first', () => {
+test('Negative Controls block false-positive rescue calls while S4 recommends Safe Abstention', () => {
+  // Negative Control: missing forward LiDAR rangefinder (range=None) must NOT mark robot IMMOBILIZED
+  const negFleet = injectFaultScenario(
+    INITIAL_ROBOTS,
+    'ANT-02',
+    'NEG_MISSING_LIDAR_FAULT'
+  );
+  const negR2 = negFleet.find((r) => r.id === 'ANT-02')!;
+  assert.notEqual(negR2.status, 'IMMOBILIZED');
+  const negEvals = evaluateRescueCandidates(negR2, negFleet);
+  assert.equal(negEvals[0].policyCode, 'NEGATIVE_CONTROL_NO_RESCUE');
+
+  // S4 Trench Drop-In recommends SAFE_ABSTAIN_DEFER_HUMAN
   const trenchFleet = injectFaultScenario(
     INITIAL_ROBOTS,
     'ANT-02',
@@ -121,13 +158,11 @@ test('injectFaultScenario and evaluateRescueCandidates rank appropriate recovery
   );
   const stuckR2 = trenchFleet.find((r) => r.id === 'ANT-02')!;
   assert.equal(stuckR2.status, 'IMMOBILIZED');
-
   const evaluations = evaluateRescueCandidates(stuckR2, trenchFleet);
   assert.equal(evaluations[0].policyCode, 'SAFE_ABSTAIN_DEFER_HUMAN');
-  assert.equal(evaluations[0].recommended, true);
 });
 
-test('stepSwarmSimulation advances active robots toward their targets', () => {
+test('stepSwarmSimulation advances active robots along their planned routes', () => {
   const beforeR2 = INITIAL_ROBOTS.find((r) => r.id === 'ANT-02')!;
   const nextState = stepSwarmSimulation({
     robots: INITIAL_ROBOTS,

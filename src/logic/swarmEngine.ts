@@ -1,32 +1,39 @@
 /**
  * @file src/logic/swarmEngine.ts
- * @description Pure Kinematic, Task Planning, Emergency Control & Multi-Objective Rescue Engine for Antenna.
+ * @description Pure Kinematic, Continuous RBF Belief Field, Bekker–Wong Terramechanics, Dynamic Obstacle Replanning,
+ * Rigid Docking Rescue & Pareto Multi-Objective Engine for the Antenna Swarm Control Console.
  *
- * This module encapsulates all deterministic domain logic for the Antenna Multi-Robot Rice Farming System:
- * 1. Kinematic Slip Ratio Calculation: Computes $s = 1 - (v_{\text{true}} / (\omega \cdot r))$ from 60GHz Doppler
- *    radar velocity and wheel encoder speed, classifying traction state into Nominal, Slip Warning, or Critical Immobilization.
- * 2. Natural-Language Plan Formatting: Generates clear, human-readable plan descriptions (e.g.,
- *    "Robot 1 is going to retrieve Robot 3 via UWB winch tow at (14.4m, 8.4m)").
- * 3. Task Reassignment & Capability Enforcement: Validates `TaskIntentV1` dispatches (preventing scouts without seed
- *    hoppers from being assigned `PLANT` tasks, and updating waypoints and status colors accordingly).
- * 4. Emergency Human Control & Global Fleet E-Stop: Transitions individual robots or the entire 5-robot swarm into
- *    `HUMAN_CONTROL` or safe `HOLD` mode, and processes manual operator directional nudges, winch tension adjustments,
- *    micro-rocking clay suction relief, and manual seed releases.
- * 5. Multi-Objective Rescue Coordinator: Evaluates the 5 candidate rescue policies (`SELF_RECOVER_BOUNDED`,
- *    `DISPATCH_RESCUE_DIRECT`, `DISPATCH_RESCUE_DETOUR`, `REALLOCATE_AND_BEACON`, `SAFE_ABSTAIN_DEFER_HUMAN`)
- *    for any immobilized robot (`S1`–`S6`).
- *
- * Use Cases:
- * - Driving the real-time simulation loop and interactive control handlers in the React UI.
- * - Executing deterministic unit tests (`src/logic/swarmEngine.test.ts`) via `node:test`.
+ * This module implements the core mathematical and algorithmic specifications from the repository:
+ * 1. Analytical Bekker–Wong Wheel–Mud Sinkage (`src/ricebot/viewer/dashboard.py`):
+ *    Computes sinkage $z$, belly clearance, mud drag $R_c$, and belly-out immobilization verdict from
+ *    vehicle mass $m$, wheel radius $r$, wheel width $b$, and local mud moisture.
+ * 2. Continuous 2D RBF Belief Field Evaluator (`src/ricebot/viewer/README.md`):
+ *    Evaluates the 7 continuous layers (`moisture`, `firmness`, `plant_density`, `stand_gap`,
+ *    `uncertainty`, `traversability_risk`, `elevation_m`) across the 4 perspectives
+ *    (`planter`, `scout`, `divergence`, `truth`) without leaking hidden ground truth to planners.
+ * 3. Dynamic Mid-Sequence Obstacle Injection & Route Bending (`docs/DECISIONS.md` `D-0012`):
+ *    Inserts a sudden field obstacle and automatically recalculates a collision-free multi-waypoint
+ *    detour trajectory around the obstacle.
+ * 4. Homogeneous "Medic-Ant" Role Switching & Rigid Docking Actuation (`src/ricebot/robot/README.md`):
+ *    Automatically switches a planter with `0` remaining seeds to `SAMPLE` (Scout) mode, and models
+ *    the 4-part Rigid Docking Cone + Rotary Cam-Latch + Pitch-Lift Boom + Hardpan Anchor Spades.
+ * 5. Multi-Objective Pareto Rescue Evaluator & Negative Control Gate (`docs/IMMOBILIZATION_SCENARIOS.md`):
+ *    Evaluates $J = w_t T + w_e E + w_c C + w_s S + w_r R$ and blocks false-positive rescue dispatches on
+ *    Negative Controls (`NEG_MISSING_LIDAR_FAULT`, `NEG_INTENTIONAL_SEED_HOLD`).
  */
 
 import { APP_CONFIG } from '../config/appConfig';
 import { FAULT_SCENARIO_CATALOG } from '../data/initialSwarmState';
 import {
+  BekkerTerramechanicsInput,
+  BekkerTerramechanicsOutput,
+  BeliefPerspective,
+  ContinuousHeatmapLayer,
   CropGapSite,
+  DynamicObstacle,
   FaultScenarioId,
   MetricCoordinate,
+  ParetoWeights,
   RescueCandidateEvaluation,
   RescuePolicyCode,
   RobotState,
@@ -62,9 +69,9 @@ export function computeMetricDistance(a: MetricCoordinate, b: MetricCoordinate):
 }
 
 /**
- * Computes the 200Hz STM32H7 kinematic wheel slip ratio s = 1 - (v_true / v_wheel).
- * @param trueVelocityMs - Doppler radar ground speed in m/s.
- * @param wheelSpeedMs - Wheel encoder linear speed in m/s.
+ * Computes the kinematic wheel slip ratio s = 1 - (v_true / v_wheel).
+ * @param trueVelocityMs - Ground velocity in m/s.
+ * @param wheelSpeedMs - Wheel linear speed in m/s.
  * @returns Slip ratio in [0, 1] rounded to 2 decimal places.
  */
 export function calculateSlipRatio(trueVelocityMs: number, wheelSpeedMs: number): number {
@@ -74,6 +81,157 @@ export function calculateSlipRatio(trueVelocityMs: number, wheelSpeedMs: number)
   }
   const rawSlip = 1 - trueVelocityMs / wheelSpeedMs;
   return clampMetric(rawSlip, 0, 1);
+}
+
+/**
+ * Evaluates the analytical Bekker–Wong wheel–mud sinkage, belly clearance, and compaction drag
+ * using the exact equations from `src/ricebot/viewer/dashboard.py`.
+ * @param input - BekkerTerramechanicsInput (massKg, wheelRadiusMm, wheelWidthMm, mudMoisture).
+ * @returns BekkerTerramechanicsOutput with sinkage (mm), belly clearance (mm), drag (N), and verdict.
+ */
+export function evaluateBekkerTerramechanics(
+  input: BekkerTerramechanicsInput
+): BekkerTerramechanicsOutput {
+  logFunctionCall('evaluateBekkerTerramechanics', { ...input });
+
+  const { massKg, wheelRadiusMm, wheelWidthMm, mudMoisture } = input;
+  const r_m = wheelRadiusMm / 1000.0;
+  const b_m = wheelWidthMm / 1000.0;
+  const m = Math.max(0.05, Math.min(0.99, mudMoisture));
+  const f = Math.max(0.1, 1.0 - 0.85 * m);
+  const mudDepth = 0.04 + 0.3 * Math.pow(m, 1.6) * Math.pow(1.0 - f, 1.2);
+  const clearance0 = Math.max(0.02, 0.044 + (r_m - 0.058));
+  const kc = 1.5 + 24.0 * Math.pow(f, 1.4) * (1.0 - 0.55 * m);
+  const kphi = 45.0 + 920.0 * Math.pow(f, 1.5) * (1.0 - 0.6 * m);
+  const n = 0.52 + 0.58 * f;
+  const k_eq = Math.max(28000.0, (kc / Math.max(0.015, b_m) + kphi) * 950.0);
+  const wWheel = (massKg * 9.81) / 4.0;
+  const chord = Math.sqrt(2.0 * r_m * 0.035);
+  const z0 = Math.pow(wWheel / (b_m * chord * k_eq), 1.0 / n);
+  const z = Math.min(mudDepth, z0 + 0.008 * (1.0 - f));
+  const bellyClear = clearance0 - z;
+  const belliedOut = bellyClear <= 0.0;
+  const rc = (4.0 * b_m * k_eq * Math.pow(z, n + 1.0)) / (n + 1.0);
+
+  const sinkageMm = Math.round(z * 1000 * 10) / 10;
+  const bellyClearanceMm = Math.round(bellyClear * 1000 * 10) / 10;
+  const mudDragForceN = Math.round(rc * 10) / 10;
+
+  let verdictCode: BekkerTerramechanicsOutput['verdictCode'] = 'TRAVERSABLE';
+  let verdictLabel = 'TRAVERSABLE (SAFE CLEARANCE)';
+  if (belliedOut) {
+    verdictCode = 'BELLY_OUT_STUCK';
+    verdictLabel = 'S1 BELLY-OUT / STUCK (RESCUE REQ)';
+  } else if (bellyClear < 0.012) {
+    verdictCode = 'MARGINAL_SLIP';
+    verdictLabel = 'HIGH SLIP / MARGINAL CLEARANCE';
+  }
+
+  return {
+    sinkageMm,
+    bellyClearanceMm,
+    mudDragForceN,
+    belliedOut,
+    verdictCode,
+    verdictLabel,
+  };
+}
+
+/**
+ * Evaluates the continuous 2D RBF field value at metric coordinate (x, y) for a selected layer
+ * and belief perspective (`planter`, `scout`, `divergence`, `truth`), mirroring `dashboard.py`.
+ * Note: This function is purposefully high-frequency for grid rendering, so it avoids per-cell console spam.
+ * @param x - Metric X coordinate in [0, 24].
+ * @param y - Metric Y coordinate in [0, 16].
+ * @param layer - ContinuousHeatmapLayer to evaluate.
+ * @param perspective - BeliefPerspective ('planter' | 'scout' | 'divergence' | 'truth').
+ * @returns Normalized continuous scalar value in [0, 1].
+ */
+export function evaluateContinuousBeliefField(
+  x: number,
+  y: number,
+  layer: ContinuousHeatmapLayer,
+  perspective: BeliefPerspective
+): number {
+  // Distance to S1 mud sinkhole at (14.6, 8.4) and S3 bund at (18.2, 10.2)
+  const dSinkhole = Math.hypot(x - 14.6, y - 8.4);
+  const dBund = Math.hypot(x - 18.2, y - 10.2);
+  const dTrench = Math.hypot(x - 22.4, y - 9.0);
+
+  // Underlying ground-truth scalar for the requested layer
+  let truthVal = 0.5;
+  switch (layer) {
+    case 'moisture':
+      truthVal =
+        0.58 +
+        0.34 * Math.exp(-(dSinkhole * dSinkhole) / 9.5) +
+        0.08 * Math.sin(x * 0.35) * Math.cos(y * 0.4);
+      break;
+    case 'firmness':
+      truthVal =
+        0.74 -
+        0.58 * Math.exp(-(dSinkhole * dSinkhole) / 8.5) +
+        0.14 * Math.exp(-(dBund * dBund) / 5.0);
+      break;
+    case 'plant_density':
+      truthVal =
+        0.76 -
+        0.45 * Math.exp(-Math.pow(x - 11.2, 2) / 6.0 - Math.pow(y - 4.0, 2) / 4.0) -
+        0.42 * Math.exp(-Math.pow(x - 16.5, 2) / 6.0 - Math.pow(y - 4.0, 2) / 4.0);
+      break;
+    case 'stand_gap':
+      truthVal =
+        0.18 +
+        0.72 * Math.exp(-Math.pow(x - 11.2, 2) / 5.5 - Math.pow(y - 4.0, 2) / 3.5) +
+        0.68 * Math.exp(-Math.pow(x - 16.5, 2) / 5.5 - Math.pow(y - 4.0, 2) / 3.5) +
+        0.64 * Math.exp(-Math.pow(x - 9.6, 2) / 5.5 - Math.pow(y - 14.0, 2) / 3.5);
+      break;
+    case 'uncertainty':
+      // Uncertainty is lowest near sampled Section A & Scout trajectories
+      truthVal =
+        0.65 -
+        0.48 * Math.exp(-Math.pow(x - 9.0, 2) / 28.0 - Math.pow(y - 7.0, 2) / 18.0) -
+        0.35 * Math.exp(-Math.pow(x - 16.0, 2) / 22.0 - Math.pow(y - 12.0, 2) / 14.0);
+      break;
+    case 'traversability_risk':
+      truthVal =
+        0.12 +
+        0.82 * Math.exp(-(dSinkhole * dSinkhole) / 6.5) +
+        0.65 * Math.exp(-(dBund * dBund) / 4.5) +
+        0.75 * Math.exp(-(dTrench * dTrench) / 4.5);
+      break;
+    case 'elevation_m':
+      truthVal =
+        0.45 +
+        0.38 * Math.exp(-(dBund * dBund) / 4.0) -
+        0.32 * Math.exp(-(dSinkhole * dSinkhole) / 6.0) -
+        0.35 * Math.exp(-(dTrench * dTrench) / 4.0);
+      break;
+  }
+
+  const clampedTruth = Math.max(0.02, Math.min(0.98, truthVal));
+  if (perspective === 'truth') {
+    return Math.round(clampedTruth * 100) / 100;
+  }
+
+  // Planter has denser observations in Section A (x < 13); Scout has denser observations in Section B (x >= 12)
+  const planterBias =
+    x > 15 ? 0.14 * Math.sin(x * 0.5 + y * 0.3) : 0.02 * Math.cos(x * 0.4);
+  const scoutBias =
+    x < 10 ? -0.13 * Math.cos(x * 0.45 - y * 0.25) : 0.02 * Math.sin(y * 0.4);
+
+  const planterEst = Math.max(0.02, Math.min(0.98, clampedTruth + planterBias));
+  const scoutEst = Math.max(0.02, Math.min(0.98, clampedTruth + scoutBias));
+
+  if (perspective === 'planter') {
+    return Math.round(planterEst * 100) / 100;
+  }
+  if (perspective === 'scout') {
+    return Math.round(scoutEst * 100) / 100;
+  }
+  // 'divergence' = |Planter - Scout| Gap amplified for visual inspection
+  const gap = Math.min(1.0, Math.abs(planterEst - scoutEst) * 3.2);
+  return Math.round(gap * 100) / 100;
 }
 
 /**
@@ -115,7 +273,7 @@ export function formatRobotPlanSummary(
       const peerLabel = targetPeerId
         ? targetPeerId.replace('ANT-0', 'Robot ')
         : 'stuck peer';
-      return `${shortName} is going to retrieve ${peerLabel} via UWB winch tow at ${coordText}`;
+      return `${shortName} is going to retrieve ${peerLabel} via collinear rigid docking, cam-latch & pitch-lift at ${coordText}`;
     }
     case 'PLANT': {
       const siteLabel = targetSiteId ? `missing crop gap ${targetSiteId}` : 'target furrow';
@@ -123,12 +281,12 @@ export function formatRobotPlanSummary(
     }
     case 'SAMPLE': {
       const siteLabel = targetSiteId ? `site ${targetSiteId}` : 'paddy sector';
-      return `${shortName} is going to sample soil moisture at ${siteLabel} ${coordText}`;
+      return `${shortName} is going to sample soil moisture & firmness at ${siteLabel} ${coordText}`;
     }
     case 'BEACON_RELAY':
-      return `${shortName} is operating as a stationary Dual-UWB & Wi-Fi HaLow relay beacon at ${coordText}`;
+      return `${shortName} is operating as a stationary RTK / Mycelial gossip relay node at ${coordText}`;
     case 'HOLD':
-      return `${shortName} is holding position in deterministic safety lock at ${coordText}`;
+      return `${shortName} is holding position in deterministic Tier-0 safety lock at ${coordText}`;
     case 'NAVIGATE':
     default:
       return `${shortName} is going to navigate to waypoint ${coordText}`;
@@ -137,6 +295,8 @@ export function formatRobotPlanSummary(
 
 /**
  * Derives the color-coded `RobotStatusCode` from a robot's current operational state and telemetry.
+ * Strictly respects Negative Controls (`NEG_MISSING_LIDAR_FAULT`, `NEG_INTENTIONAL_SEED_HOLD`) so
+ * they never show as `IMMOBILIZED`.
  * @param robot - RobotState to evaluate.
  * @returns Appropriate semantic RobotStatusCode.
  */
@@ -145,6 +305,12 @@ export function deriveRobotStatusCode(robot: RobotState): RobotStatusCode {
 
   if (robot.humanControlActive) {
     return 'HUMAN_CONTROL';
+  }
+  if (robot.faultScenario === 'NEG_INTENTIONAL_SEED_HOLD') {
+    return 'NOMINAL';
+  }
+  if (robot.faultScenario === 'NEG_MISSING_LIDAR_FAULT') {
+    return 'WARNING_SLIP';
   }
   if (robot.faultScenario !== 'NONE') {
     return 'IMMOBILIZED';
@@ -159,12 +325,150 @@ export function deriveRobotStatusCode(robot: RobotState): RobotStatusCode {
 }
 
 /**
- * Assigns a new task plan (`TaskIntentV1`) to a specific robot while validating its hardware capabilities.
+ * Computes a collision-free multi-waypoint route from `start` to `end` that detours around
+ * any active `DynamicObstacle` (`D-0012`).
+ * @param start - Starting metric coordinate.
+ * @param end - Target metric coordinate.
+ * @param obstacles - List of injected DynamicObstacle objects.
+ * @returns Ordered array of waypoints from start to end.
+ */
+export function computeDetourRoute(
+  start: MetricCoordinate,
+  end: MetricCoordinate,
+  obstacles: DynamicObstacle[]
+): MetricCoordinate[] {
+  logFunctionCall('computeDetourRoute', {
+    start,
+    end,
+    obstacleCount: obstacles.length,
+  });
+
+  if (obstacles.length === 0) {
+    return [start, end];
+  }
+
+  // Check if any obstacle lies near the line segment from start to end
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const segLenSq = dx * dx + dy * dy;
+  if (segLenSq < 0.05) {
+    return [start, end];
+  }
+
+  for (const obs of obstacles) {
+    const t = Math.max(
+      0,
+      Math.min(1, ((obs.position.x - start.x) * dx + (obs.position.y - start.y) * dy) / segLenSq)
+    );
+    const projX = start.x + t * dx;
+    const projY = start.y + t * dy;
+    const distToSeg = Math.hypot(obs.position.x - projX, obs.position.y - projY);
+
+    if (distToSeg <= obs.radiusMeters + 0.75) {
+      // Bend the trajectory around the obstacle (North or South depending on room)
+      const offsetY = obs.position.y > 4.0 ? -(obs.radiusMeters + 1.3) : obs.radiusMeters + 1.3;
+      const wp1: MetricCoordinate = {
+        x: clampMetric(obs.position.x - 1.2, 1.0, APP_CONFIG.fieldGeometry.widthMeters - 1.0),
+        y: clampMetric(obs.position.y + offsetY, 1.0, APP_CONFIG.fieldGeometry.heightMeters - 1.0),
+      };
+      const wp2: MetricCoordinate = {
+        x: clampMetric(obs.position.x + 1.2, 1.0, APP_CONFIG.fieldGeometry.widthMeters - 1.0),
+        y: clampMetric(obs.position.y + offsetY, 1.0, APP_CONFIG.fieldGeometry.heightMeters - 1.0),
+      };
+      return [start, wp1, wp2, end];
+    }
+  }
+
+  return [start, end];
+}
+
+/**
+ * Injects a sudden mid-sequence environmental obstacle (`D-0012`) along the selected or active robot's
+ * trajectory, invalidates intersecting routes, and immediately replans a bent detour path around it.
+ * @param robots - Current array of RobotState objects.
+ * @param existingObstacles - Current array of DynamicObstacle objects.
+ * @param targetRobotId - ID of the robot whose path will encounter the sudden obstacle.
+ * @param tick - Current simulation tick counter.
+ * @returns Updated robots, obstacles, and status message.
+ */
+export function injectDynamicObstacleAndReplan(
+  robots: RobotState[],
+  existingObstacles: DynamicObstacle[],
+  targetRobotId: string,
+  tick = 1
+): {
+  robots: RobotState[];
+  obstacles: DynamicObstacle[];
+  message: string;
+} {
+  logFunctionCall('injectDynamicObstacleAndReplan', {
+    targetRobotId,
+    existingObstacleCount: existingObstacles.length,
+    tick,
+  });
+
+  // Choose an active robot with a non-zero path, preferring targetRobotId
+  const candidate =
+    robots.find(
+      (r) =>
+        r.id === targetRobotId &&
+        computeMetricDistance(r.position, r.targetWaypoint) > 1.2
+    ) ??
+    robots.find((r) => computeMetricDistance(r.position, r.targetWaypoint) > 1.2) ??
+    robots[0];
+
+  const midX = clampMetric(
+    (candidate.position.x + candidate.targetWaypoint.x) / 2,
+    2.0,
+    APP_CONFIG.fieldGeometry.widthMeters - 2.0
+  );
+  const midY = clampMetric(
+    (candidate.position.y + candidate.targetWaypoint.y) / 2,
+    2.0,
+    APP_CONFIG.fieldGeometry.heightMeters - 2.0
+  );
+
+  const newObstacle: DynamicObstacle = {
+    id: `OBS-0${existingObstacles.length + 1}`,
+    label: `Collapsed Bund Obstacle #${existingObstacles.length + 1}`,
+    position: { x: midX, y: midY },
+    radiusMeters: 0.95,
+    injectedAtTick: tick,
+  };
+
+  const nextObstacles = [...existingObstacles, newObstacle];
+
+  const nextRobots = robots.map((robot) => {
+    const newRoute = computeDetourRoute(robot.position, robot.targetWaypoint, nextObstacles);
+    const wasReplanned = newRoute.length > 2;
+    return {
+      ...robot,
+      plannedRoute: newRoute,
+      planSummary: wasReplanned
+        ? `${robot.callsign.split('·')[0].trim()} sensed ${newObstacle.label} at (${midX.toFixed(
+            1
+          )}m, ${midY.toFixed(1)}m) — A* replanned detour trajectory`
+        : robot.planSummary,
+    };
+  });
+
+  return {
+    robots: nextRobots,
+    obstacles: nextObstacles,
+    message: `D-0012 Dynamic Obstacle Injected at (${midX.toFixed(1)}m, ${midY.toFixed(
+      1
+    )}m): ${candidate.id} route invalidated and replanned around obstacle.`,
+  };
+}
+
+/**
+ * Assigns a new task plan (`TaskIntentV1`) to a specific robot while enforcing homogeneous
+ * seed-inventory checks (units with 0 seeds remaining cannot execute PLANT until refilled or switched to SAMPLE).
  * @param robots - Current list of fleet RobotState objects.
  * @param robotId - ID of the robot to reassign.
  * @param taskMode - Desired TaskMode.
  * @param targetCoord - Target metric waypoint.
- * @param options - Optional targetPeerId or targetSiteId.
+ * @param options - Optional targetPeerId, targetSiteId, or obstacles.
  * @returns Object containing updated robots array and a validation message.
  */
 export function assignRobotTaskPlan(
@@ -172,7 +476,11 @@ export function assignRobotTaskPlan(
   robotId: string,
   taskMode: TaskMode,
   targetCoord: MetricCoordinate,
-  options: { targetPeerId?: string | null; targetSiteId?: string | null } = {}
+  options: {
+    targetPeerId?: string | null;
+    targetSiteId?: string | null;
+    obstacles?: DynamicObstacle[];
+  } = {}
 ): { robots: RobotState[]; accepted: boolean; message: string } {
   logFunctionCall('assignRobotTaskPlan', {
     robotId,
@@ -190,20 +498,12 @@ export function assignRobotTaskPlan(
     };
   }
 
-  // Enforce rice.v1 contract: Scouts without seed hoppers cannot accept PLANT tasks
-  if (taskMode === 'PLANT' && (!targetRobot.capabilities.canPlantSeed || targetRobot.seedHopperCount <= 0)) {
+  // Enforce seed-inventory gate: a rover with 0 seeds in its hopper cannot execute PLANT
+  if (taskMode === 'PLANT' && targetRobot.seedHopperCount <= 0) {
     return {
       robots,
       accepted: false,
-      message: `Safety Gate Rejected: ${targetRobot.callsign} has no active seed dropper / hopper inventory for PLANT mode.`,
-    };
-  }
-
-  if (taskMode === 'RETRIEVE_PEER' && !targetRobot.capabilities.hasWinchTether) {
-    return {
-      robots,
-      accepted: false,
-      message: `Safety Gate Rejected: ${targetRobot.callsign} is not equipped with an INA240 winch tether assembly.`,
+      message: `Safety Gate Rejected: ${targetRobot.callsign} has 0 seeds remaining in its hopper (switched to Scout SAMPLE role until refilled).`,
     };
   }
 
@@ -214,6 +514,7 @@ export function assignRobotTaskPlan(
 
   const targetPeerId = options.targetPeerId ?? null;
   const targetSiteId = options.targetSiteId ?? null;
+  const obstacles = options.obstacles ?? [];
 
   const updatedRobots = robots.map((robot) => {
     if (robot.id !== robotId) {
@@ -232,11 +533,19 @@ export function assignRobotTaskPlan(
 
     const nextTelemetry = {
       ...robot.telemetry,
-      trueVelocityMs: taskMode === 'HOLD' || taskMode === 'BEACON_RELAY' ? 0 : 0.4,
-      wheelSpeedMs: taskMode === 'HOLD' || taskMode === 'BEACON_RELAY' ? 0 : 0.44,
-      slipRatio: taskMode === 'HOLD' || taskMode === 'BEACON_RELAY' ? 0 : 0.09,
-      tetherTensionN: taskMode === 'RETRIEVE_PEER' ? 190 : 0,
+      trueVelocityMs: taskMode === 'HOLD' || taskMode === 'BEACON_RELAY' ? 0 : 0.38,
+      wheelSpeedMs: taskMode === 'HOLD' || taskMode === 'BEACON_RELAY' ? 0 : 0.42,
+      slipRatio: taskMode === 'HOLD' || taskMode === 'BEACON_RELAY' ? 0 : 0.08,
+      rigidDock: {
+        ...robot.telemetry.rigidDock,
+        dockPitchRad: taskMode === 'RETRIEVE_PEER' ? 0.35 : 0.0,
+        camLatchRad: taskMode === 'RETRIEVE_PEER' ? 0.55 : 0.0,
+        anchorSpadeRad: taskMode === 'RETRIEVE_PEER' ? 0.40 : 0.0,
+        isRigidLatched: taskMode === 'RETRIEVE_PEER',
+      },
     };
+
+    const nextRoute = computeDetourRoute(robot.position, clampedTarget, obstacles);
 
     const updatedRobot: RobotState = {
       ...robot,
@@ -245,6 +554,7 @@ export function assignRobotTaskPlan(
       faultScenario: clearedFault,
       faultReason: clearedFault === 'NONE' ? null : robot.faultReason,
       targetWaypoint: clampedTarget,
+      plannedRoute: nextRoute,
       targetPeerId,
       targetSiteId,
       planSummary: nextPlanSummary,
@@ -258,10 +568,10 @@ export function assignRobotTaskPlan(
           status: 'IN_PROGRESS',
           expectedPostcondition:
             taskMode === 'RETRIEVE_PEER'
-              ? `Tether tension nominal (20-350 N) & peer extracted`
+              ? `Rigid cone seated <= 0.065m, cam-latch >= 0.30 rad & victim extracted > 0.08m`
               : taskMode === 'PLANT'
-              ? `Seed proxy released with verified soil contact`
-              : `Target waypoint reached within 0.15m`,
+              ? `Rigid-body seed pellet released at v=0 with verified soil contact`
+              : `Target waypoint reached within 0.28m probe radius`,
         },
       ],
     };
@@ -305,7 +615,11 @@ export function setRobotHumanControlMode(
       return robot;
     }
 
-    const nextTaskMode: TaskMode = enableHumanControl ? 'HOLD' : robot.taskMode === 'HOLD' ? 'NAVIGATE' : robot.taskMode;
+    const nextTaskMode: TaskMode = enableHumanControl
+      ? 'HOLD'
+      : robot.taskMode === 'HOLD'
+      ? 'NAVIGATE'
+      : robot.taskMode;
     const updatedPlanSummary = formatRobotPlanSummary(
       robot.callsign,
       nextTaskMode,
@@ -353,6 +667,7 @@ export function setFleetEmergencyStop(
         humanControlActive: true,
         taskMode: 'HOLD',
         targetWaypoint: { ...robot.position },
+        plannedRoute: [{ ...robot.position }],
         planSummary: `${robot.callsign.split('·')[0].trim()} halted by Global Emergency Stop — awaiting human command`,
         telemetry: {
           ...robot.telemetry,
@@ -368,13 +683,14 @@ export function setFleetEmergencyStop(
       };
     }
 
-    // Resume autonomous operation for non-immobilized units
     const resumedMode: TaskMode =
-      robot.faultScenario !== 'NONE'
+      robot.faultScenario !== 'NONE' &&
+      robot.faultScenario !== 'NEG_INTENTIONAL_SEED_HOLD' &&
+      robot.faultScenario !== 'NEG_MISSING_LIDAR_FAULT'
         ? 'HOLD'
         : robot.targetPeerId
         ? 'RETRIEVE_PEER'
-        : robot.capabilities.canPlantSeed
+        : robot.seedHopperCount > 0
         ? 'PLANT'
         : 'SAMPLE';
 
@@ -391,6 +707,7 @@ export function setFleetEmergencyStop(
       humanControlActive: false,
       taskMode: resumedMode,
       targetWaypoint: resumedWaypoint,
+      plannedRoute: [robot.position, resumedWaypoint],
       planSummary: formatRobotPlanSummary(
         robot.callsign,
         resumedMode,
@@ -409,10 +726,10 @@ export function setFleetEmergencyStop(
 }
 
 /**
- * Applies a manual human teleoperation drive command or recovery actuator pulse to a robot.
+ * Applies a manual human teleoperation drive command or rigid-docking recovery actuator pulse to a robot.
  * @param robots - Current list of fleet RobotState objects.
  * @param robotId - ID of the robot being controlled by the human operator.
- * @param command - Directional vector or special recovery actuator command.
+ * @param command - Directional vector or physical recovery/rigid-docking actuator command.
  * @returns Updated array of RobotState objects.
  */
 export function executeManualTeleopCommand(
@@ -422,7 +739,9 @@ export function executeManualTeleopCommand(
     | { type: 'DRIVE'; dx: number; dy: number; speedScale?: number }
     | { type: 'MICRO_ROCK_CLAY_BREAKER' }
     | { type: 'CLEAR_STRAW_AXLE' }
-    | { type: 'WINCH_TENSION'; deltaN: number }
+    | { type: 'TOGGLE_CAM_LATCH' }
+    | { type: 'ADJUST_DOCK_PITCH'; deltaRad: number }
+    | { type: 'TOGGLE_ANCHOR_SPADES' }
 ): RobotState[] {
   logFunctionCall('executeManualTeleopCommand', { robotId, command });
 
@@ -435,7 +754,8 @@ export function executeManualTeleopCommand(
       const clearedFault: FaultScenarioId =
         robot.faultScenario === 'S6_CLAY_SUCTION_LOCK' ||
         robot.faultScenario === 'S1_PLOW_PAN_BREACH' ||
-        robot.faultScenario === 'S2_ASYMMETRIC_YAW_TRAP'
+        robot.faultScenario === 'S2_ASYMMETRIC_YAW_TRAP' ||
+        robot.faultScenario === 'S8_ROW_PINCH_OCCLUSION'
           ? 'NONE'
           : robot.faultScenario;
 
@@ -446,14 +766,16 @@ export function executeManualTeleopCommand(
         faultReason:
           clearedFault === 'NONE'
             ? null
-            : 'Micro-rocking reduced suction; external winch assist still recommended.',
-        planSummary: `${robot.callsign.split('·')[0].trim()} executed +- micro-rocking torque pulse — clay suction broken`,
+            : 'Micro-rocking reduced stiction; rigid-dock pitch-lift assist recommended.',
+        planSummary: `${robot.callsign.split('·')[0].trim()} executed bounded micro-rocking pulse — mud stiction relieved`,
         telemetry: {
           ...robot.telemetry,
           trueVelocityMs: 0.18,
           wheelSpeedMs: 0.22,
           slipRatio: 0.18,
           motorCurrentAmps: 6.4,
+          wheelSinkageMm: 18.0,
+          bellyClearanceMm: 26.0,
         },
       };
       return { ...nextRobot, status: deriveRobotStatusCode(nextRobot) };
@@ -467,7 +789,7 @@ export function executeManualTeleopCommand(
         humanControlActive: true,
         faultScenario: clearedFault,
         faultReason: clearedFault === 'NONE' ? null : robot.faultReason,
-        planSummary: `${robot.callsign.split('·')[0].trim()} executed reverse-polarity hub oscillation — straw cleared`,
+        planSummary: `${robot.callsign.split('·')[0].trim()} executed bounded reverse-polarity clearing oscillation — straw shed`,
         telemetry: {
           ...robot.telemetry,
           motorCurrentAmps: 4.9,
@@ -477,24 +799,65 @@ export function executeManualTeleopCommand(
       return { ...nextRobot, status: deriveRobotStatusCode(nextRobot) };
     }
 
-    if (command.type === 'WINCH_TENSION') {
-      const rawTension = robot.telemetry.tetherTensionN + command.deltaN;
-      // Enforce INA240 emergency release if tension >= 400 N
-      const safeTension =
-        rawTension >= APP_CONFIG.safetyThresholds.emergencyReleaseTensionN
-          ? 0
-          : clampMetric(rawTension, 0, 395);
-
+    if (command.type === 'TOGGLE_CAM_LATCH') {
+      const nextLatched = !robot.telemetry.rigidDock.isRigidLatched;
+      const nextLatchRad = nextLatched ? 0.55 : 0.0;
       const nextRobot: RobotState = {
         ...robot,
         humanControlActive: true,
-        planSummary:
-          rawTension >= APP_CONFIG.safetyThresholds.emergencyReleaseTensionN
-            ? `${robot.callsign.split('·')[0].trim()} INA240 safety gate tripped (>= 400 N) — winch brake released!`
-            : `${robot.callsign.split('·')[0].trim()} manual winch tension set to ${safeTension} N`,
+        planSummary: nextLatched
+          ? `${robot.callsign.split('·')[0].trim()} engaged rotary cam-locking jaw (0.55 rad) — 8-wheel rigid train locked`
+          : `${robot.callsign.split('·')[0].trim()} released rotary cam-locking jaw (0.00 rad) — uncoupled`,
         telemetry: {
           ...robot.telemetry,
-          tetherTensionN: safeTension,
+          rigidDock: {
+            ...robot.telemetry.rigidDock,
+            camLatchRad: nextLatchRad,
+            isRigidLatched: nextLatched,
+          },
+        },
+      };
+      return { ...nextRobot, status: deriveRobotStatusCode(nextRobot) };
+    }
+
+    if (command.type === 'ADJUST_DOCK_PITCH') {
+      const nextPitch = clampMetric(
+        robot.telemetry.rigidDock.dockPitchRad + command.deltaRad,
+        APP_CONFIG.roverHomogeneousSpec.dockPitchMinRad,
+        APP_CONFIG.roverHomogeneousSpec.dockPitchMaxRad
+      );
+      const nextRobot: RobotState = {
+        ...robot,
+        humanControlActive: true,
+        planSummary: `${robot.callsign.split('·')[0].trim()} set front pitch-lift docking boom to ${nextPitch.toFixed(
+          2
+        )} rad (+Z suction pry)`,
+        telemetry: {
+          ...robot.telemetry,
+          rigidDock: {
+            ...robot.telemetry.rigidDock,
+            dockPitchRad: nextPitch,
+          },
+        },
+      };
+      return { ...nextRobot, status: deriveRobotStatusCode(nextRobot) };
+    }
+
+    if (command.type === 'TOGGLE_ANCHOR_SPADES') {
+      const deployed = robot.telemetry.rigidDock.anchorSpadeRad < 0.2;
+      const nextSpadeRad = deployed ? 0.75 : 0.0;
+      const nextRobot: RobotState = {
+        ...robot,
+        humanControlActive: true,
+        planSummary: deployed
+          ? `${robot.callsign.split('·')[0].trim()} deployed rear Danforth hardpan anchor spades (0.75 rad)`
+          : `${robot.callsign.split('·')[0].trim()} stowed rear hardpan anchor spades (0.00 rad)`,
+        telemetry: {
+          ...robot.telemetry,
+          rigidDock: {
+            ...robot.telemetry.rigidDock,
+            anchorSpadeRad: nextSpadeRad,
+          },
         },
       };
       return { ...nextRobot, status: deriveRobotStatusCode(nextRobot) };
@@ -525,6 +888,7 @@ export function executeManualTeleopCommand(
       humanControlActive: true,
       position: nextPos,
       targetWaypoint: nextPos,
+      plannedRoute: [nextPos],
       headingDeg: nextHeading,
       planSummary: `${robot.callsign.split('·')[0].trim()} driven manually by human operator to (${nextX.toFixed(
         1
@@ -532,9 +896,9 @@ export function executeManualTeleopCommand(
       breadcrumbs: updatedBreadcrumbs,
       telemetry: {
         ...robot.telemetry,
-        trueVelocityMs: clampMetric(0.32 * scale, 0.05, 0.6),
-        wheelSpeedMs: clampMetric(0.36 * scale, 0.06, 0.68),
-        slipRatio: calculateSlipRatio(0.32 * scale, 0.36 * scale),
+        trueVelocityMs: clampMetric(0.32 * scale, 0.05, 0.45),
+        wheelSpeedMs: clampMetric(0.35 * scale, 0.06, 0.45),
+        slipRatio: calculateSlipRatio(0.32 * scale, 0.35 * scale),
       },
     };
 
@@ -546,7 +910,7 @@ export function executeManualTeleopCommand(
 }
 
 /**
- * Injects one of the S1–S6 physical paddy immobilization scenarios onto a target robot.
+ * Injects one of the S1–S8 physical paddy immobilization scenarios or Negative Controls onto a target robot.
  * @param robots - Current list of fleet RobotState objects.
  * @param robotId - ID of the robot to affect.
  * @param scenarioId - FaultScenarioId to inject (or 'NONE' to clear).
@@ -567,7 +931,7 @@ export function injectFaultScenario(
     }
 
     if (scenarioId === 'NONE' || !scenarioDef) {
-      const restoredMode: TaskMode = robot.capabilities.canPlantSeed ? 'PLANT' : 'SAMPLE';
+      const restoredMode: TaskMode = robot.seedHopperCount > 0 ? 'PLANT' : 'SAMPLE';
       const restored: RobotState = {
         ...robot,
         faultScenario: 'NONE',
@@ -584,25 +948,31 @@ export function injectFaultScenario(
         ),
         telemetry: {
           ...robot.telemetry,
-          trueVelocityMs: 0.42,
-          wheelSpeedMs: 0.46,
-          slipRatio: 0.09,
+          trueVelocityMs: 0.39,
+          wheelSpeedMs: 0.42,
+          slipRatio: 0.07,
           pitchDeg: 0.8,
           rollDeg: -0.4,
           motorCurrentAmps: 5.1,
+          frontLidarRangeM: 3.4,
+          wheelSinkageMm: 15.0,
+          bellyClearanceMm: 29.0,
         },
       };
       return { ...restored, status: deriveRobotStatusCode(restored) };
     }
 
+    const isNegativeControl = scenarioDef.category === 'NEGATIVE_CONTROL';
     const updated: RobotState = {
       ...robot,
       faultScenario: scenarioId,
       faultReason: `${scenarioDef.code} ${scenarioDef.title}: ${scenarioDef.sensorSignature}`,
       humanControlActive: false,
-      taskMode: 'HOLD',
-      targetWaypoint: { ...robot.position },
-      planSummary: `${robot.callsign.split('·')[0].trim()} immobilized (${scenarioDef.code}: ${scenarioDef.title}) — awaiting rescue or human override`,
+      taskMode: isNegativeControl ? robot.taskMode : 'HOLD',
+      targetWaypoint: isNegativeControl ? robot.targetWaypoint : { ...robot.position },
+      planSummary: isNegativeControl
+        ? `${robot.callsign.split('·')[0].trim()} negative control (${scenarioDef.code}): ${scenarioDef.title} — NO rescue dispatched`
+        : `${robot.callsign.split('·')[0].trim()} immobilized (${scenarioDef.code}: ${scenarioDef.title}) — awaiting rigid-dock rescue or human override`,
       telemetry: {
         ...robot.telemetry,
         ...scenarioDef.defaultTelemetryOverride,
@@ -611,33 +981,51 @@ export function injectFaultScenario(
 
     return {
       ...updated,
-      status: 'IMMOBILIZED',
+      status: deriveRobotStatusCode(updated),
     };
   });
 }
 
 /**
- * Evaluates the 5 candidate rescue policies against the Antenna Multi-Objective Cost Function J(action)
- * for a given immobilized robot and current fleet state.
- * @param stuckRobot - The immobilized RobotState.
+ * Evaluates candidate rescue policies against the Pareto Multi-Objective Cost Function
+ * J = w_t*T + w_e*E + w_c*C + w_s*S + w_r*R (D-0011) and enforces Negative Control gating
+ * (`docs/IMMOBILIZATION_SCENARIOS.md`).
+ * @param stuckRobot - The target RobotState under evaluation.
  * @param allRobots - All robots in the Kinematic Quintet.
- * @returns Array of 5 RescueCandidateEvaluation objects sorted by recommendation and utility score.
+ * @param weights - Optional custom ParetoWeights from interactive UI sliders.
+ * @returns Array of RescueCandidateEvaluation objects sorted by recommendation and utility score.
  */
 export function evaluateRescueCandidates(
   stuckRobot: RobotState,
-  allRobots: RobotState[]
+  allRobots: RobotState[],
+  weights: ParetoWeights = APP_CONFIG.defaultParetoWeights
 ): RescueCandidateEvaluation[] {
   logFunctionCall('evaluateRescueCandidates', {
     stuckRobotId: stuckRobot.id,
     faultScenario: stuckRobot.faultScenario,
+    weights,
   });
 
-  // Find closest available helper with a winch tether
+  // Normalize weights so sum = 1.0
+  const totalW =
+    weights.timeWeight +
+    weights.energyWeight +
+    weights.cropDamageWeight +
+    weights.soilDisturbanceWeight +
+    weights.recoveryRiskWeight || 1.0;
+
+  const wt = weights.timeWeight / totalW;
+  const we = weights.energyWeight / totalW;
+  const wc = weights.cropDamageWeight / totalW;
+  const ws = weights.soilDisturbanceWeight / totalW;
+  const wr = weights.recoveryRiskWeight / totalW;
+
+  // Find closest available homogeneous peer with rigid docking mechanism
   const availableHelpers = allRobots
     .filter(
       (r) =>
         r.id !== stuckRobot.id &&
-        r.capabilities.hasWinchTether &&
+        r.capabilities.hasRigidDockMechanism &&
         r.faultScenario === 'NONE' &&
         !r.humanControlActive
     )
@@ -653,97 +1041,170 @@ export function evaluateRescueCandidates(
 
   const scenarioDef = FAULT_SCENARIO_CATALOG.find((s) => s.id === stuckRobot.faultScenario);
   const recommendedPolicy: RescuePolicyCode =
-    scenarioDef?.recommendedPolicy ?? 'DISPATCH_RESCUE_DIRECT';
+    scenarioDef?.recommendedPolicy ?? 'DISPATCH_RIGID_DOCK_DIRECT';
 
-  const candidates: RescueCandidateEvaluation[] = [
+  const rawCandidates: Array<
+    Omit<RescueCandidateEvaluation, 'netUtilityScore' | 'paretoCostJ' | 'recommended'> & {
+      normTime: number;
+      normEnergy: number;
+      normCrop: number;
+      normSoil: number;
+      normRisk: number;
+    }
+  > = [
     {
-      policyCode: 'DISPATCH_RESCUE_DIRECT',
-      title: 'Direct UWB Winch Tether Extraction',
-      recommended: recommendedPolicy === 'DISPATCH_RESCUE_DIRECT',
-      netUtilityScore: recommendedPolicy === 'DISPATCH_RESCUE_DIRECT' ? 88.4 : 71.2,
+      policyCode: 'DISPATCH_RIGID_DOCK_DIRECT',
+      title: 'Collinear Rigid-Dock, Cam-Latch & Pitch-Lift Extraction',
       coverageDeltaPct: 24.5,
-      cropDamageRiskPct: 1.4,
-      energyCostWh: 18.0,
-      secondaryImmobilizationProbPct: 6.5,
+      cropDamageRiskPct: 0.0,
+      energyCostWh: 16.5,
+      secondaryImmobilizationProbPct: 5.5,
+      normTime: 0.28,
+      normEnergy: 0.34,
+      normCrop: 0.0,
+      normSoil: 0.22,
+      normRisk: 0.18,
       assignedHelperId: primaryHelper?.id ?? 'ANT-01',
       rationale:
-        'Uses Dual-UWB PDoA alignment and INA240 strain-gauge tension control (<= 280 N) along a firm unplanted furrow.',
-      actionPlanText: `${helperCallsign} is going to retrieve ${stuckCallsign} via direct UWB winch tow at (${stuckRobot.position.x.toFixed(
+        'Approaches single-file inside 300mm row, locks rotary cam-latch (0.55 rad) onto rear strike bar, pitch-lifts (+0.35 rad) to break suction, and extracts in 8-wheel tandem reverse.',
+      actionPlanText: `${helperCallsign} is going to retrieve ${stuckCallsign} via collinear rigid docking & pitch-lift at (${stuckRobot.position.x.toFixed(
         1
       )}m, ${stuckRobot.position.y.toFixed(1)}m)`,
     },
     {
-      policyCode: 'DISPATCH_RESCUE_DETOUR',
-      title: 'Crop-Safe Perimeter Detour & Angled Tow',
-      recommended: recommendedPolicy === 'DISPATCH_RESCUE_DETOUR',
-      netUtilityScore: recommendedPolicy === 'DISPATCH_RESCUE_DETOUR' ? 86.9 : 74.0,
+      policyCode: 'DISPATCH_RIGID_DOCK_DETOUR',
+      title: 'Zero-Crop-Damage Headland Detour & Rigid-Dock Extraction',
       coverageDeltaPct: 23.0,
-      cropDamageRiskPct: 0.2,
-      energyCostWh: 26.5,
-      secondaryImmobilizationProbPct: 4.0,
+      cropDamageRiskPct: 0.0,
+      energyCostWh: 24.0,
+      secondaryImmobilizationProbPct: 3.0,
+      normTime: 0.42,
+      normEnergy: 0.48,
+      normCrop: 0.0,
+      normSoil: 0.12,
+      normRisk: 0.10,
       assignedHelperId: primaryHelper?.id ?? 'ANT-01',
       rationale:
-        'Routes rescuer around established rice hills to guarantee < 0.5% seedling trampling compliance before angled tether pull.',
-      actionPlanText: `${helperCallsign} is going to retrieve ${stuckCallsign} via perimeter detour tow at (${stuckRobot.position.x.toFixed(
+        'Enforces strict C=0 zero-crop-damage constraint by routing rescuer via perimeter headland before entering target row for rigid-dock latch extraction.',
+      actionPlanText: `${helperCallsign} is going to retrieve ${stuckCallsign} via headland detour & rigid dock at (${stuckRobot.position.x.toFixed(
         1
       )}m, ${stuckRobot.position.y.toFixed(1)}m)`,
     },
     {
       policyCode: 'SELF_RECOVER_BOUNDED',
-      title: 'Bounded <= 5s Micro-Rocking Self-Recovery',
-      recommended: recommendedPolicy === 'SELF_RECOVER_BOUNDED',
-      netUtilityScore: recommendedPolicy === 'SELF_RECOVER_BOUNDED' ? 91.0 : 58.5,
+      title: 'Bounded Reverse-Arc / Micro-Rocking Self-Recovery',
       coverageDeltaPct: 26.0,
-      cropDamageRiskPct: 0.8,
-      energyCostWh: 6.2,
+      cropDamageRiskPct: 0.0,
+      energyCostWh: 5.8,
       secondaryImmobilizationProbPct: 0.0,
+      normTime: 0.15,
+      normEnergy: 0.12,
+      normCrop: 0.0,
+      normSoil: 0.18,
+      normRisk: 0.0,
       assignedHelperId: stuckRobot.id,
       rationale:
-        'Applies alternating low-duty-cycle torque to break clay thixotropy or yaw pocket without risking a second rover.',
-      actionPlanText: `${stuckCallsign} is going to execute bounded 5s reverse-arc self-recovery along incoming breadcrumbs`,
+        'Executes bounded low-torque reverse along verified incoming breadcrumbs without risking a second Medic-Ant unit.',
+      actionPlanText: `${stuckCallsign} is going to execute bounded self-recovery along incoming breadcrumbs`,
     },
     {
       policyCode: 'REALLOCATE_AND_BEACON',
-      title: 'Convert to Stationary UWB Relay Beacon & Reallocate Queue',
-      recommended: recommendedPolicy === 'REALLOCATE_AND_BEACON',
-      netUtilityScore: recommendedPolicy === 'REALLOCATE_AND_BEACON' ? 84.2 : 64.8,
+      title: 'Isolate Unit as Stationary RTK/Gossip Relay & Reallocate Tasks',
       coverageDeltaPct: 19.5,
       cropDamageRiskPct: 0.0,
-      energyCostWh: 3.5,
+      energyCostWh: 3.0,
       secondaryImmobilizationProbPct: 0.0,
+      normTime: 0.20,
+      normEnergy: 0.08,
+      normCrop: 0.0,
+      normSoil: 0.0,
+      normRisk: 0.0,
       assignedHelperId: primaryHelper?.id ?? 'ANT-02',
       rationale:
-        'Disables stalled propulsion, turns immobilized rover into a fixed Dual-UWB localization anchor, and redistributes its seed sites.',
-      actionPlanText: `${stuckCallsign} converts to stationary UWB beacon; ${helperCallsign} takes over remaining planting sites`,
+        'Disables stalled wheel drive on S5 hub entanglement, keeps onboard radio active as a Mycelial gossip relay, and auctions remaining stand gaps to peers.',
+      actionPlanText: `${stuckCallsign} converts to stationary gossip relay; ${helperCallsign} takes over remaining planting sites`,
     },
     {
       policyCode: 'SAFE_ABSTAIN_DEFER_HUMAN',
-      title: 'Safe Abstention — Isolate Hazard & Defer to Human Operator',
-      recommended: recommendedPolicy === 'SAFE_ABSTAIN_DEFER_HUMAN',
-      netUtilityScore: recommendedPolicy === 'SAFE_ABSTAIN_DEFER_HUMAN' ? 89.5 : 61.0,
+      title: 'Rational Safe Refusal — Mark Hazard & Defer to Human Operator',
       coverageDeltaPct: 18.0,
       cropDamageRiskPct: 0.0,
       energyCostWh: 1.0,
       secondaryImmobilizationProbPct: 0.0,
+      normTime: 0.35,
+      normEnergy: 0.04,
+      normCrop: 0.0,
+      normSoil: 0.0,
+      normRisk: 0.0,
       assignedHelperId: null,
       rationale:
-        'Refuses high-risk tow (> 350 N or deep drainage ditch rollover risk) to prevent trapping a second robot; flags human teleop/retrieval.',
-      actionPlanText: `Mark 1.5m no-go hazard boundary around ${stuckCallsign} and engage Human Control Override`,
+        'Refuses dangerous extraction (S4 ditch rollover risk or S7 second-rover slip overload) where intervention risks a second casualty; flags human teleop.',
+      actionPlanText: `Mark 1.5m SLAM no-go hazard around ${stuckCallsign} and engage Human Control Override`,
     },
   ];
 
-  return candidates.sort((a, b) => Number(b.recommended) - Number(a.recommended) || b.netUtilityScore - a.netUtilityScore);
+  // If a Negative Control is active, prepend the explicit Negative Control gate result
+  if (recommendedPolicy === 'NEGATIVE_CONTROL_NO_RESCUE') {
+    rawCandidates.unshift({
+      policyCode: 'NEGATIVE_CONTROL_NO_RESCUE',
+      title: 'Negative Control Gate — Do Not Dispatch Rescue (False Positive Blocked)',
+      coverageDeltaPct: 28.0,
+      cropDamageRiskPct: 0.0,
+      energyCostWh: 0.0,
+      secondaryImmobilizationProbPct: 0.0,
+      normTime: 0.02,
+      normEnergy: 0.0,
+      normCrop: 0.0,
+      normSoil: 0.0,
+      normRisk: 0.0,
+      assignedHelperId: null,
+      rationale:
+        'Missing forward LiDAR rangefinder (range=None) or intentional stationary seed drop is NOT physical immobilization. Rescue call blocked.',
+      actionPlanText: `Negative control verified on ${stuckCallsign}: keep peers on normal planting/sampling tasks`,
+    });
+  }
+
+  const evaluated: RescueCandidateEvaluation[] = rawCandidates.map((c) => {
+    const costJ =
+      wt * c.normTime +
+      we * c.normEnergy +
+      wc * c.normCrop +
+      ws * c.normSoil +
+      wr * c.normRisk;
+    const isRec = c.policyCode === recommendedPolicy;
+    const baseUtility = Math.max(40, Math.min(98, (1 - costJ) * 100 + (isRec ? 9.5 : 0)));
+    return {
+      policyCode: c.policyCode,
+      title: c.title,
+      recommended: isRec,
+      paretoCostJ: Math.round(costJ * 1000) / 1000,
+      netUtilityScore: Math.round(baseUtility * 10) / 10,
+      coverageDeltaPct: c.coverageDeltaPct,
+      cropDamageRiskPct: c.cropDamageRiskPct,
+      energyCostWh: c.energyCostWh,
+      secondaryImmobilizationProbPct: c.secondaryImmobilizationProbPct,
+      assignedHelperId: c.assignedHelperId,
+      rationale: c.rationale,
+      actionPlanText: c.actionPlanText,
+    };
+  });
+
+  return evaluated.sort(
+    (a, b) => Number(b.recommended) - Number(a.recommended) || b.netUtilityScore - a.netUtilityScore
+  );
 }
 
 /**
- * Advances the swarm simulation by one deterministic tick (moving active robots toward their waypoints
- * and completing seed planting or peer retrieval when within target proximity).
- * @param state - Current robots and cropGapSites arrays.
+ * Advances the swarm simulation by one deterministic tick (moving active robots along their
+ * multi-waypoint planned routes, performing dynamic seed-depletion role switching when a planter
+ * runs out of seeds, and completing rigid-dock tandem peer extraction).
+ * @param state - Current robots, cropGapSites, and optional dynamic obstacles.
  * @returns Updated robots and cropGapSites after one simulation step.
  */
 export function stepSwarmSimulation(state: {
   robots: RobotState[];
   cropGapSites: CropGapSite[];
+  obstacles?: DynamicObstacle[];
 }): {
   robots: RobotState[];
   cropGapSites: CropGapSite[];
@@ -755,26 +1216,33 @@ export function stepSwarmSimulation(state: {
 
   const updatedSites = state.cropGapSites.map((site) => ({ ...site }));
   const rescuedRobotIds = new Set<string>();
+  const obstacles = state.obstacles ?? [];
 
   const nextRobots = state.robots.map((robot) => {
-    // Do not auto-translate robots in HUMAN_CONTROL, HOLD, BEACON_RELAY, or IMMOBILIZED states
     if (
       robot.humanControlActive ||
-      robot.faultScenario !== 'NONE' ||
+      (robot.faultScenario !== 'NONE' &&
+        robot.faultScenario !== 'NEG_INTENTIONAL_SEED_HOLD') ||
       robot.taskMode === 'HOLD' ||
       robot.taskMode === 'BEACON_RELAY'
     ) {
       return robot;
     }
 
-    const dist = computeMetricDistance(robot.position, robot.targetWaypoint);
+    // Determine next immediate waypoint from plannedRoute (if detouring around obstacle)
+    const activeRoute =
+      robot.plannedRoute && robot.plannedRoute.length > 1
+        ? robot.plannedRoute
+        : [robot.position, robot.targetWaypoint];
+    const nextImmediateTarget = activeRoute[1] ?? robot.targetWaypoint;
+
+    const distToImmediate = computeMetricDistance(robot.position, nextImmediateTarget);
+    const distToFinal = computeMetricDistance(robot.position, robot.targetWaypoint);
     const stepSize = robot.status === 'WARNING_SLIP' ? 0.22 : 0.38;
 
-    if (dist <= stepSize + 0.15) {
-      // Arrived at target waypoint
+    if (distToFinal <= stepSize + 0.15) {
       const arrivedPos = { ...robot.targetWaypoint };
 
-      // Check if planting a missing crop site
       if (robot.taskMode === 'PLANT' && robot.targetSiteId && robot.seedHopperCount > 0) {
         const siteIdx = updatedSites.findIndex((s) => s.id === robot.targetSiteId);
         if (siteIdx !== -1 && updatedSites[siteIdx].status !== 'PLANTED_VERIFIED') {
@@ -785,12 +1253,31 @@ export function stepSwarmSimulation(state: {
           };
         }
 
-        // Find next unplanted site
+        const remainingSeeds = Math.max(0, robot.seedHopperCount - 1);
+
+        // Dynamic Seed-Depletion Role Switching (D-0011): If hopper reaches 0, switch to SAMPLE (Scout) role!
+        if (remainingSeeds === 0) {
+          const nextSampleSite =
+            updatedSites.find((s) => s.status === 'MISSING_CROP') ?? updatedSites[0];
+          const scoutSummary = `${robot.callsign.split('·')[0].trim()} (0 seeds -> dynamic Scout role) is going to sample soil firmness at ${nextSampleSite.id}`;
+          return {
+            ...robot,
+            position: arrivedPos,
+            taskMode: 'SAMPLE' as TaskMode,
+            targetWaypoint: { ...nextSampleSite.position },
+            plannedRoute: computeDetourRoute(arrivedPos, nextSampleSite.position, obstacles),
+            targetSiteId: nextSampleSite.id,
+            seedHopperCount: 0,
+            planSummary: scoutSummary,
+            breadcrumbs: [...robot.breadcrumbs.slice(-5), arrivedPos],
+          };
+        }
+
         const nextUnplanted = updatedSites.find(
           (s) => s.status === 'MISSING_CROP' && s.id !== robot.targetSiteId
         );
 
-        if (nextUnplanted && robot.seedHopperCount > 1) {
+        if (nextUnplanted) {
           nextUnplanted.status = 'ASSIGNED';
           nextUnplanted.assignedRobotId = robot.id;
           const nextSummary = formatRobotPlanSummary(
@@ -805,15 +1292,15 @@ export function stepSwarmSimulation(state: {
             ...robot,
             position: arrivedPos,
             targetWaypoint: { ...nextUnplanted.position },
+            plannedRoute: computeDetourRoute(arrivedPos, nextUnplanted.position, obstacles),
             targetSiteId: nextUnplanted.id,
-            seedHopperCount: Math.max(0, robot.seedHopperCount - 1),
+            seedHopperCount: remainingSeeds,
             planSummary: nextSummary,
             breadcrumbs: [...robot.breadcrumbs.slice(-5), arrivedPos],
           };
         }
       }
 
-      // Check if retrieving a peer robot
       if (robot.taskMode === 'RETRIEVE_PEER' && robot.targetPeerId) {
         rescuedRobotIds.add(robot.targetPeerId);
       }
@@ -821,14 +1308,25 @@ export function stepSwarmSimulation(state: {
       return {
         ...robot,
         position: arrivedPos,
+        plannedRoute: [arrivedPos],
         breadcrumbs: [...robot.breadcrumbs.slice(-5), arrivedPos],
       };
     }
 
-    // Move along vector toward targetWaypoint
-    const dx = robot.targetWaypoint.x - robot.position.x;
-    const dy = robot.targetWaypoint.y - robot.position.y;
-    const ratio = stepSize / dist;
+    // Step toward nextImmediateTarget
+    if (distToImmediate <= stepSize + 0.1 && activeRoute.length > 2) {
+      const remainingRoute = [nextImmediateTarget, ...activeRoute.slice(2)];
+      return {
+        ...robot,
+        position: nextImmediateTarget,
+        plannedRoute: remainingRoute,
+        breadcrumbs: [...robot.breadcrumbs.slice(-5), nextImmediateTarget],
+      };
+    }
+
+    const dx = nextImmediateTarget.x - robot.position.x;
+    const dy = nextImmediateTarget.y - robot.position.y;
+    const ratio = stepSize / Math.max(0.01, distToImmediate);
     const nextPos: MetricCoordinate = {
       x: clampMetric(robot.position.x + dx * ratio, 0.8, APP_CONFIG.fieldGeometry.widthMeters - 0.8),
       y: clampMetric(robot.position.y + dy * ratio, 0.8, APP_CONFIG.fieldGeometry.heightMeters - 0.8),
@@ -839,11 +1337,12 @@ export function stepSwarmSimulation(state: {
       ...robot,
       position: nextPos,
       headingDeg: nextHeading,
+      plannedRoute: [nextPos, ...activeRoute.slice(1)],
       breadcrumbs: [...robot.breadcrumbs.slice(-5), nextPos],
     };
   });
 
-  // If any peer robot was rescued during this step, clear its immobilization fault
+  // Complete rigid-dock tandem extraction for any rescued peer
   const finalRobots = nextRobots.map((robot) => {
     if (!rescuedRobotIds.has(robot.id)) {
       return robot;
@@ -858,14 +1357,16 @@ export function stepSwarmSimulation(state: {
       faultReason: null,
       taskMode: 'NAVIGATE',
       targetWaypoint: fallbackWaypoint,
-      planSummary: `${robot.callsign.split('·')[0].trim()} extracted onto firm furrow by winch tow — resuming mission`,
+      plannedRoute: [robot.position, fallbackWaypoint],
+      planSummary: `${robot.callsign.split('·')[0].trim()} extracted >0.08m onto firm loam via rigid cam-latch & pitch-lift — resuming mission`,
       telemetry: {
         ...robot.telemetry,
         trueVelocityMs: 0.34,
-        wheelSpeedMs: 0.39,
-        slipRatio: 0.13,
-        motorCurrentAmps: 5.8,
-        tetherTensionN: 110,
+        wheelSpeedMs: 0.38,
+        slipRatio: 0.11,
+        motorCurrentAmps: 5.6,
+        wheelSinkageMm: 16.0,
+        bellyClearanceMm: 28.0,
       },
     };
     return {

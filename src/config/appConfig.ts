@@ -2,72 +2,102 @@
  * @file src/config/appConfig.ts
  * @description Centralized Configuration Module for the Antenna Swarm Control Console.
  *
- * This file aggregates all configurable parameters across the application, including:
- * - Flooded paddy terrace physical geometry (metric dimensions, grid resolution, crop row spacing).
- * - Low-level STM32H7 kinematic & sensor thresholds (wheel slip ratio gates, INA240 winch cable tension limits,
- *   IMU pitch/roll rollover safety limits, UWB proximity envelopes).
- * - Color-coded robot operational status visual mappings and accessible text symbols.
- * - Multi-objective rescue evaluation weights for the Antenna AI Coordinator.
- * - Optional AI advisor model configuration (centralized model identifiers and generation limits).
+ * This file aggregates all configurable parameters across the application, aligned with:
+ * - `src/ricebot/viewer/README.md` & `dashboard.py` (`antenna.dashboard.v1` continuous 2D RBF belief heatmaps,
+ *   robot belief vs. ground-truth perspective switcher, and Bekker–Wong terramechanics sizing calculator).
+ * - `src/ricebot/robot/README.md` (100% homogeneous "Medic-Ant" rover specs: 270×190×64 mm sealed hull,
+ *   276 mm outer wheel width for <300 mm paddy rows, Ø116×40 mm wheels, 3-ray LiDAR turret, BeiDou RTK GNSS,
+ *   and 4-part Rigid Docking Cone + Rotary Cam-Latch + Pitch-Lift Boom + Rear Hardpan Anchor Spades).
+ * - `docs/DECISIONS.md` (`D-0011` 3-tier cognitive fallback & Pareto multi-objective weights; `D-0012` dynamic
+ *   mid-sequence obstacle injection & offline edge compute budget telemetry).
+ * - `docs/IMMOBILIZATION_SCENARIOS.md` (S1–S8 physical immobilization hypotheses and negative controls).
  *
  * Use Cases:
- * 1. Adjusting paddy field dimensions or simulation tick frequency from a single source of truth.
- * 2. Referencing semantic color codes and accessible glyphs across the Map Canvas, Fleet Roster, and Telemetry Inspector.
- * 3. Configuring safety cutoff bounds for the Emergency Human Teleoperation mode.
+ * 1. Configuring field dimensions, staggered Section A / Section B batch geometry, and heatmap grid resolution.
+ * 2. Setting default Bekker–Wong vehicle sizing parameters and rigid-docking actuator limits.
+ * 3. Defining semantic status colors and accessible glyphs across all UI panels.
  */
 
 export const APP_CONFIG = {
-  /** Application branding and version metadata */
+  /** Application branding and schema contract identifiers */
   appTitle: 'Antenna',
-  fleetName: 'Kinematic Quintet (rice.v1)',
+  fleetName: 'Kinematic Quintet · Homogeneous Medic-Ant Swarm (rice.v1)',
+  dashboardSchemaVersion: 'antenna.dashboard.v1',
 
-  /** Centralized AI Model Names (for optional swarm incident advisor) */
+  /** D-0012 Edge Compute Budget Telemetry (100% Offline Standalone) */
+  edgeComputeBudget: {
+    decisionLatencyMs: 0.4,
+    powerWatts: 2.4,
+    computeNodes: 'STM32H7 (Tier-0) + RPi5/Orin (Tier-1)',
+    cloudGpuCostUsd: 0,
+    summaryBadge:
+      'Edge Compute Budget: ~0.4ms / decision · Power: ~2.4W (STM32/Pi5) · Cloud GPU: $0 (100% Offline Standalone)',
+  },
+
+  /** Centralized AI Model Names (Tier-2 Optional Deliberative Supervisor) */
   models: {
     defaultAdvisorModel: 'gemini-3-flash-preview',
     fallbackAdvisorModel: 'gemini-3.1-pro-preview',
   },
 
-  /** Flooded Paddy Field Metric Geometry (in meters) */
+  /** Flooded Paddy Field Metric Geometry (24.0m x 16.0m with Section A & Section B Staggered Batches) */
   fieldGeometry: {
     widthMeters: 24.0,
     heightMeters: 16.0,
-    gridCols: 12,
-    gridRows: 8,
+    sectionSplitXMeters: 12.0,
+    heatmapGridCols: 24,
+    heatmapGridRows: 16,
     cropRowCount: 7,
     furrowSpacingMeters: 2.0,
+    interRowLaneWidthMm: 300,
     depotPosition: { x: 2.0, y: 2.0 },
     relayTowerPosition: { x: 22.0, y: 2.0 },
+  },
+
+  /** Homogeneous "Medic-Ant" Rover Physical Spec (`src/ricebot/robot/README.md`) */
+  roverHomogeneousSpec: {
+    hullDimensionsMm: '270 × 190 × 64 mm',
+    outerWheelWidthMm: 276,
+    wheelDiameterMm: 116,
+    wheelRadiusMm: 58,
+    wheelWidthMm: 40,
+    defaultMassKg: 4.2,
+    maxLinearVelocityMs: 0.45,
+    maxAngularVelocityRadS: 1.4,
+    lidarRayAnglesDeg: [-18, 0, 18],
+    lidarCutoffMeters: 4.0,
+    probeRadiusMeters: 0.28,
+    dockPitchMinRad: -0.2,
+    dockPitchMaxRad: 0.45,
+    camLatchLockedThresholdRad: 0.3,
+    camLatchMaxRad: 0.65,
+    anchorSpadeMaxRad: 0.85,
   },
 
   /** Simulation & Telemetry Loop Timing */
   simulation: {
     defaultTickMs: 600,
-    stm32LoopHz: 200,
     manualStepDistanceMeters: 0.65,
-    manualRotationDegrees: 15,
     seedReleaseConsumption: 1,
   },
 
-  /** STM32H7 200Hz Physical & Safety Thresholds */
+  /** Physical & Kinematic Diagnostic Thresholds */
   safetyThresholds: {
     slipWarningRatio: 0.42,
-    slipCriticalRatio: 0.60,
+    slipCriticalRatio: 0.65,
     maxSafePitchDeg: 18.0,
     maxSafeRollDeg: 18.0,
-    minTetherTensionN: 20,
-    maxNominalTetherTensionN: 350,
-    emergencyReleaseTensionN: 400,
-    minUwbPeerDistanceM: 1.0,
-    optimalConvoySpacingM: 2.5,
-    wheelRadiusMeters: 0.14,
+    lidarStopDistanceM: 0.35,
+    dockContactDistanceM: 0.065,
   },
 
-  /** Multi-Objective Cost Function Weights J(action) */
-  rescueWeights: {
-    coverageWeight: 0.35,
-    cropProtectionWeight: 0.30,
-    energyConservationWeight: 0.15,
-    secondaryRiskWeight: 0.20,
+  /** Default Pareto Multi-Objective Rescue Weights (D-0011: J = w_t*T + w_e*E + w_c*C + w_s*S + w_r*R) */
+  defaultParetoWeights: {
+    timeWeight: 0.25,
+    energyWeight: 0.20,
+    cropDamageWeight: 0.30,
+    soilDisturbanceWeight: 0.15,
+    recoveryRiskWeight: 0.10,
   },
 
   /** Semantic Color-Coding & Accessible Symbols for Robot Statuses */
@@ -85,7 +115,7 @@ export const APP_CONFIG = {
     },
     RETRIEVING: {
       code: 'RETRIEVING',
-      label: 'Retrieving / Assisting Peer',
+      label: 'Rigid-Dock Tandem Rescue',
       shortLabel: 'Retrieving',
       glyph: '◆',
       hex: '#06b6d4', // Cyan 500
@@ -96,8 +126,8 @@ export const APP_CONFIG = {
     },
     WARNING_SLIP: {
       code: 'WARNING_SLIP',
-      label: 'Elevated Slip / Traction Alert',
-      shortLabel: 'Slip Alert',
+      label: 'Elevated Slip / Sensor Alert',
+      shortLabel: 'Alert / Slip',
       glyph: '▲',
       hex: '#f59e0b', // Amber 500
       ringHex: 'rgba(245, 158, 11, 0.30)',
