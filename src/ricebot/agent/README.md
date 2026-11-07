@@ -22,6 +22,19 @@ The `src/ricebot/agent/` package implements two complementary multi-robot coordi
 
 ---
 
+## Online residual recovery candidate (merged in PR #57)
+
+**Source and verification:** [PR #57](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/57), original [feature commit `dcdf0d9`](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/commit/dcdf0d995d9d338aeed6edb9bb9133dde3264d71), merged into [`main` at `2848593`](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/commit/2848593104d4946b94311a4fc28ede8fa2885237); [combined main CI passed 81 tests](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/actions/runs/42423011257). **This is an experimental learned technique selector, not the general fleet AI orchestrator, a deep neural network or deployed robot hardware.** No verified model-versus-deterministic rescue benefit or live multi-episode physical robustness is claimed.
+
+- **`rescue.py` — `ResidualRecoveryLearner`:** per-technique online **linear** residual correction to simplified terramechanics displacement, using four bounded features: bias, moisture, soil softness and slip/stall. It predicts displacement for alternative techniques; `update(... actual_displacement_m ...)` adjusts weights using observed outcomes. Its default coefficients and update rule are engineering assumptions, **not validated pretrained weights**.
+- **`rescue.py` — `RescueEngine`:** maintains stateful incident classification, risk estimates, rescue technique candidates and a method to supply recovery feedback. Some of its mechanical setpoint proposals assume actuator pitch/latch settings not independently accepted by the canonical M4-limited golden rescue.
+- **`mycelial_swarm.py`:** nodes can exchange `DistressSignal.residual_weights` through **simulated** gossip. The receiver currently imports peer weights directly; this is a candidate state-sharing mechanism, **not secure/validated model aggregation**. No physical UWB/HaLow messages were transmitted in these tests.
+- **`tests/test_agentic_swarm.py`:** tests the numerical weight update, technique re-ranking and direct peer-weight import. The test doesn't show real learned rescue improvement in the canonical MuJoCo golden episode; the caller must still supply the measured physical outcome.
+
+**Integration contract for the next reconciliation:** keep **one `SimulationPort`** and the existing bounded command/force constraints. Review the two `RescueAssessment` / `RescueVerdict` definitions (in `planner.py` and `rescue.py`) and select a canonical schema; separate permitted robot observations from simulator `is_bogged`/hidden truth; validate dropout does not spur unintended towing; gate any learned technique behind deterministic safety veto, valid actuation geometry and a measured outcome. Do not wire proposed setpoints straight to MuJoCo actuators. Use [simulator variant registry](../../../docs/SIMULATOR-VARIANTS.md) and [boundary audit](../../../docs/audits/2026-11-07-simulation-perception-viewer.md) to plan the feature-level merge and tests.
+
+---
+
 ## 2. Sensor Integration & Closed-Loop Reflexes
 
 As specified in [input_output.txt](../../../input_output.txt), rover observations incorporate physical telemetry for reflexive safety in `src/ricebot/control.py`:
@@ -59,7 +72,6 @@ As specified in [input_output.txt](../../../input_output.txt), rover observation
 ```powershell
 # Run Swarm Agent & Triage Unit Tests
 python -m unittest tests.test_agentic_swarm -v
-python -m unittest tests.test_swarm_agent -v
 
 # Run Closed-Loop Sensor Reflex Tests
 python -m unittest tests.test_sensor_reflexes -v
