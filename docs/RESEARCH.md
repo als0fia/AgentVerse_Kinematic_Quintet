@@ -1,5 +1,7 @@
 # Method references and useful hackathon evidence
 
+**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
 **Reviewed and updated 7 November 2026.** These are adaptable engineering ideas, **not official AgentVerse judging rules** and not proof that one library makes teams win. This is a short methods reference; product-specific prior art belongs next to the product hypothesis after selection.
 
 | Reference | Adapted technique | What we deliberately avoid |
@@ -13,9 +15,13 @@
 | [Devpost AI hackathon guide](https://www.devpost.com/) and public rules/examples | Value of idea, implementation and real-world impact as common dimensions | Claiming any generic 20/30% weights are AgentVerse's rubric |
 | [Official AgentVerse](https://agentverse.uclai.co.uk/) | Actual event timetable and current event authority | Treating last year's event or public guess as current track brief |
 
+## Rescue-first edge and physical recovery research update
+
+The [new evidence programme](RESCUE_EDGE_RESEARCH.md) separates verified **scripted MuJoCo docking/tandem extraction**, unimplemented autonomous risk/incident integration, learned policy research, real P2P partial beliefs and optional split-model inference. [CoSEI 2026](https://ieeexplore.ieee.org/abstract/document/11686281/) benchmarks eight-node distributed inference, [Prism 2026](https://arxiv.org/abs/2605.25682) measures Jetson Orin Nano Wi-Fi/staging, [RAYA 2026](https://raya-control.github.io/) studies recoverability, and [llama.cpp RPC](https://github.com/ggml-org/llama.cpp/blob/master/tools/rpc/README.md) warns of an insecure experimental backend. No actual team Jetson or pooled inference is verified. Do not claim co-operative auction, learned recovery or docking itself is novel.
+
 ## PaddyPatch-specific prior art and Isaac Sim readiness — 7 Nov 2026
 
-**Current user-selected mission:** physics-embodied **cooperative rice stand-gap survey, shared uncertain soil/stand mapping, physical seed placement and changing-route adaptation**, not primary flood monitoring or rescue. See [PRODUCT](PRODUCT.md) for precise acceptance and [DECISIONS](DECISIONS.md) D-0007. All soil/establishment values in the hackathon will be **synthetic proxies until field calibrated**. No Isaac Sim installation, sensors, video or robot result has been verified in this research entry.
+**Historical planting-only mission (superseded by the user's explicit rescue-first clarification):** cooperative rice stand-gap survey, map and physical seed placement. The current research priority is **risk-aware physical peer recovery and optional offline pooled inference** in this fieldwork context; see [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) and D-0009. See [PRODUCT](PRODUCT.md) for precise acceptance and [DECISIONS](DECISIONS.md) D-0007. All soil/establishment values in the hackathon will be **synthetic proxies until field calibrated**. No Isaac Sim installation, sensors, video or robot result has been verified in this research entry.
 
 **Current strongest comparisons:**
 - [IRRI, Rice Production Manual, Plant Establishment](https://www.knowledgebank.irri.org/images/docs/planting-establishment.pdf): target population depends on seedbed, sowing technique, depth, seed quality and variety. This argues against treating every gap as a seed opportunity without crop-stage/context.

@@ -1,6 +1,12 @@
 # Demonstration and submission gate
 
+**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
 **Status:** Robotics deliverables are now specified by organiser slides; no submission or tested product demo has been verified.
+
+## Rescue-first judge story
+
+Antenna robots visibly do useful rice-field work, a rover experiences a **real physical fault**, the system uses local observations and mission/terrain uncertainty to decide whether to assist, and the helper either executes a bounded **physical** rigid-docking extraction or safely refuses. Grade actual contact/displacement, second-robot risk and post-rescue fieldwork in the same continuous ≤60-second episode. Today's rigid-docking unit test is scripted physics, **not yet** an integrated recovery policy, learned skill or cloud-free distributed LLM. If it is not integrated before submission, show the actual agricultural physics and scripted extraction honestly, without implying autonomy. [Current PRODUCT](PRODUCT.md).
 
 ## Proof-first demonstration
 

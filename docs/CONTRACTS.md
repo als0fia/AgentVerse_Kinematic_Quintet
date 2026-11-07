@@ -1,6 +1,12 @@
 # Contracts and invariants — Antenna rice planting
 
+**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+
 **The Python `rice.v1` core is implemented and unit-tested, and a MuJoCo physics adapter tests the same `SimulationPort`. An Isaac Sim adapter and real agricultural deployment remain unverified.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
+
+## Proposed recovery action/result extension — not implemented as shared rice.v1 types
+
+The current `rescue_assist(...)` `SAMPLE` task is a waypoint, not a physical extraction command. The separate robot MJCF test has functioning rigid dock/cam-latch/pitch-lift **under scripted commands**, but is not wired into the main `SimulationPort` and mission supervisor. An integrator-owned compatible extension should include `FaultEvidence` (commanded vs observed movement; distinguish missing sensor), `IncidentReport` (source/time/validity), `RecoveryProposal` (risk, helper ability, target and urgency), `RecoveryCommand` (bounded physical skill, preconditions, TTL) and `RecoveryResult` (simulator-confirmed latch/contact, actual victim displacement, helper state and independent outcome). These names are proposals only. Keep evaluator truth private; no direct LLM torque control. P2P gossip and sharded LLM runtime are different interfaces. See [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md).
 
 ## World/robot/composition seam (developer agreement)
 
