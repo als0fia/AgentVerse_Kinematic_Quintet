@@ -1,0 +1,3 @@
+# Core simulation and agent need Python 3.10+ standard library only.
+# Optional physics visualisation: pip install mujoco
+# Optional end-state plotting: pip install matplotlib
