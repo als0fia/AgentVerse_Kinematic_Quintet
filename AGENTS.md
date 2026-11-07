@@ -13,12 +13,13 @@ The repo is public. It contains **shared submission engineering**, not personal 
 
 **Before selecting a project, changing the embodied system, declaring a feature complete, or preparing a judge-facing claim**, read the organiser-derived [challenge and scoring evidence](docs/EVENT.md), then use [testing](docs/TESTING.md) and [demo requirements](docs/DEMO.md) for the applicable task. A reviewer/evaluator must challenge any unsupported claim; a developer must not substitute the appearance of an agent for behaviour in simulation.
 
-Every candidate and its acceptance tests must address these four **onsite organiser judging dimensions**:
+Every candidate and its acceptance tests must address these five **onsite organiser judging dimensions**:
 
-1. **Perception-driven action:** at least one *real simulated sensor* informs the agent's decision, and that decision causes a meaningful action in the simulated world. No fixed-path animation, privileged-state shortcut disguised as perception, or static chat wrapper.
-2. **Adaptation to change:** introduce an unexpected **mid-episode** change, observe it through permitted sensors and demonstrate changed behaviour, recovery or justified safe stop—not a separate hand-scripted second trajectory.
-3. **Operational autonomy:** keep critical short-horizon decisions on-device/inside the simulator runtime where feasible, measure model calls and latency, and handle loss of any remote reasoning service honestly. A cloud-hosted *simulator* is distinct from a remotely dependent *control policy*.
-4. **Originality and quality:** name a genuine beneficiary, a useful outcome and a nontrivial contribution beyond a tutorial or ordinary scripted controller; compare one credible non-agent baseline and show reproducible evidence.
+1. **Perception-driven action (25%):** at least one *real simulated sensor* informs the agent's decision, and that decision causes a meaningful action in the simulated world. No fixed-path animation, privileged-state shortcut disguised as perception, or static chat wrapper.
+2. **Adaptation to change (25%):** introduce an unexpected **mid-episode** change, observe it through permitted sensors and demonstrate changed behaviour, recovery or justified safe stop—not a separate hand-scripted second trajectory.
+3. **Operational autonomy (15%):** keep critical short-horizon decisions on-device/inside the simulator runtime where feasible, measure model calls and latency, and handle loss of any remote reasoning service honestly. A cloud-hosted *simulator* is distinct from a remotely dependent *control policy*.
+4. **Relevance and impact (20%):** name an evidence-backed human need, a useful outcome, and the most critical failure handled visibly in the demo; compare one credible non-agent baseline and show reproducible evidence.
+5. **Ambition and technical quality (15%):** deliver a genuinely demanding, well-engineered robot capability rather than relying on a model brand or a scripted tutorial.
 
 **Submission gate:** prepare the organiser's **one-page technical PDF**, **≤60-second single continuous simulation recording** with perception and action visible plus a mid-run disturbance, and **five-minute pitch only if shortlisted**. Verify exact portal fields and actual deadline before submission. The newer clear organiser photograph verifies the **complete** Robotics weighting: perception 25%, adaptation 25%, autonomy 15%, **relevance/impact 20%**, ambition/technical quality 15%; [EVENT](docs/EVENT.md#confirmed-robotics-judging-rubric--clear-organiser-photograph-7-november-2026) is the canonical source. Require a real evidenced human need and on-screen handling of the critical failure.
 
