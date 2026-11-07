@@ -79,6 +79,11 @@ class MissionCore:
             elif cmd.release_seed:
                 self._pending_plant[task.robot_id] = (cmd.target_site_id, cmd.task_id, frame.time_s)
             commands.append(cmd)
+        # Optional planner feedback: only actual issued motor commands can
+        # substantiate a later commanded-motion stall; a task intent cannot.
+        record_commands = getattr(self.planner, "record_commands", None)
+        if record_commands is not None:
+            record_commands(tuple(commands))
         return Decision(intents, tuple(commands), accepted)
 
 

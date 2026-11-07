@@ -468,8 +468,8 @@ def build_rigid_docking_rescue_mjcf() -> str:
   </worldbody>
   <equality>
     <!-- Bidirectional Rigid Mechanical Latch Constraints (activated when docking cone locks into rear strike bar) -->
-    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.008 1.0"/>
-    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.008 1.0"/>
+    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.04 1.0"/>
+    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.04 1.0"/>
   </equality>
   <actuator>
     {actuators_xml}
@@ -486,7 +486,7 @@ def update_rigid_dock_latch(
     data: object,
     rescuer_id: str = "planter",
     target_id: str = "scout",
-    capture_radius_m: float = 0.065,
+    capture_radius_m: float = 0.022,
 ) -> bool:
     """Evaluate physical proximity between `rescuer_id` front cone and `target_id` rear funnel.
 

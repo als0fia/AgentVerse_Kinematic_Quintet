@@ -18,6 +18,7 @@ from ricebot.contracts import (
     PlantFeedback,
     Pose2D,
     RobotObservation,
+    RobotCommand,
     SensorKind,
     Site,
     SoilSample,
@@ -81,9 +82,11 @@ def robot(
     range_m: float | None = 4.0,
     seeds: int = 2,
     link_ok: bool = True,
+    bogged: bool = False,
 ) -> RobotObservation:
     return RobotObservation(
-        actor, Pose2D(x, y, 0.0), t, range_m, seeds, tuple(values), link_ok
+        actor, Pose2D(x, y, 0.0), t, range_m, seeds, tuple(values), link_ok,
+        is_bogged=bogged,
     )
 
 
@@ -134,11 +137,11 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
         fmap = MeasuredFieldMap(SITES)
         planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS)
 
-        # Case 1: RESCUE_NOW — rover-1 is stranded (range_m=None) with 2 needed seeds,
+        # Case 1: RESCUE_NOW — rover-1 reports a simulated bogged condition with 2 needed seeds,
         # while healthy rover-2 has 0 seeds left. Saving rover-1 is essential!
         f_rescue_now = frame(
             1.0,
-            robot("rover-1", 0.1, 0.0, 1.0, range_m=None, seeds=2),
+            robot("rover-1", 0.1, 0.0, 1.0, bogged=True, seeds=2),
             robot("rover-2", 1.4, 0.0, 1.0, seeds=0),
         )
         intents_now = planner.decide(f_rescue_now, fmap)
@@ -155,7 +158,7 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
         # seeds AND a confirmed eligible gap at 'b' right next to it -> plant 'b' first!
         f_defer = frame(
             2.0,
-            robot("rover-1", 0.1, 0.0, 2.0, range_m=None, seeds=1),
+            robot("rover-1", 0.1, 0.0, 2.0, bogged=True, seeds=1),
             robot("rover-2", 1.5, 0.0, 2.0, trio("rover-2", "b", 2.0, gap=0.9), seeds=2),
         )
         fmap.update(f_defer)
@@ -170,13 +173,100 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
         # (or has 0 seeds while rover-2 has plenty) -> not worth risking rover-2!
         f_hazard = frame(
             3.0,
-            robot("rover-1", 1.5, 1.15, 3.0, range_m=None, seeds=2),
+            robot("rover-1", 1.5, 1.15, 3.0, bogged=True, seeds=2),
             robot("rover-2", 1.5, 0.0, 3.0, seeds=3),
         )
         planner.decide(f_hazard, fmap)
         assessment_hazard = planner.last_rescue_assessments["rover-1"]
         self.assertEqual(assessment_hazard.verdict, RescueVerdict.ABANDON_ESCALATE)
         self.assertGreaterEqual(assessment_hazard.hazard_risk, 1.5)
+
+    def test_missing_front_range_is_not_an_immobilisation(self):
+        fmap = MeasuredFieldMap(SITES)
+        planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS)
+        planner.decide(frame(0.0, robot("rover-1", 0.0, 0.0, 0.0),
+                             robot("rover-2", 1.5, 0.0, 0.0)), fmap)
+        for tick in range(1, 5):
+            t = tick * 0.1
+            planner.record_commands((
+                RobotCommand("rover-1", t - 0.1, t + 0.1, linear_m_s=0.25),
+            ))
+            planner.decide(frame(t, robot("rover-1", 0.0, 0.0, t, range_m=None),
+                                 robot("rover-2", 1.5, 0.0, t)), fmap)
+            self.assertNotIn("rover-1", planner.last_rescue_assessments)
+
+    def test_obstacle_stop_and_intentional_hold_do_not_trigger_rescue(self):
+        fmap = MeasuredFieldMap(SITES)
+        planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS)
+        planner.decide(frame(0.0, robot("rover-1", 0.0, 0.0, 0.0),
+                             robot("rover-2", 1.5, 0.0, 0.0)), fmap)
+        for tick in range(1, 5):
+            t = tick * 0.1
+            planner.record_commands((
+                RobotCommand("rover-1", t - 0.1, t + 0.1, linear_m_s=0.25)
+                if tick <= 2
+                else RobotCommand("rover-1", t - 0.1, t + 0.1),
+            ))
+            planner.decide(frame(t, robot("rover-1", 0.0, 0.0, t,
+                                         range_m=0.20 if tick <= 2 else 4.0),
+                                 robot("rover-2", 1.5, 0.0, t)), fmap)
+            self.assertNotIn("rover-1", planner.last_rescue_assessments)
+
+    def test_sustained_commanded_stall_requires_independent_motion_mismatch(self):
+        fmap = MeasuredFieldMap(SITES)
+        planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS, stuck_ticks_threshold=2)
+        planner.decide(frame(0.0, robot("rover-1", 0.0, 0.0, 0.0),
+                             robot("rover-2", 1.5, 0.0, 0.0)), fmap)
+        planner.record_commands((RobotCommand("rover-1", 0.0, 0.2, linear_m_s=0.25),))
+        planner.decide(frame(0.1, robot("rover-1", 0.0, 0.0, 0.1),
+                             robot("rover-2", 1.5, 0.0, 0.1)), fmap)
+        self.assertNotIn("rover-1", planner.last_rescue_assessments)
+        planner.record_commands((RobotCommand("rover-1", 0.1, 0.3, linear_m_s=0.25),))
+        planner.decide(frame(0.2, robot("rover-1", 0.0, 0.0, 0.2),
+                             robot("rover-2", 1.5, 0.0, 0.2)), fmap)
+        self.assertIn("rover-1", planner.last_rescue_assessments)
+
+    def test_actual_motion_clears_candidate_stall(self):
+        fmap = MeasuredFieldMap(SITES)
+        planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS, stuck_ticks_threshold=2)
+        planner.decide(frame(0.0, robot("rover-1", 0.0, 0.0, 0.0),
+                             robot("rover-2", 1.5, 0.0, 0.0)), fmap)
+        planner.record_commands((RobotCommand("rover-1", 0.0, 0.2, linear_m_s=0.2),))
+        planner.decide(frame(0.1, robot("rover-1", 0.0, 0.0, 0.1),
+                             robot("rover-2", 1.5, 0.0, 0.1)), fmap)
+        planner.record_commands((RobotCommand("rover-1", 0.1, 0.3, linear_m_s=0.2),))
+        planner.decide(frame(0.2, robot("rover-1", 0.02, 0.0, 0.2),
+                             robot("rover-2", 1.5, 0.0, 0.2)), fmap)
+        self.assertNotIn("rover-1", planner.last_rescue_assessments)
+
+    def test_advisor_cannot_override_immobilized_hold_or_reserved_rescuer(self):
+        class UnsafeAdvisor:
+            def advise(self, event, obs_frame, estimates):
+                # Both tasks are syntactically valid but override the rescue.
+                return {
+                    "rover-1": (TaskMode.SAMPLE, "b", "move bogged robot"),
+                    "rover-2": (TaskMode.SAMPLE, "c", "abandon dispatched rescue"),
+                }
+
+        fmap = MeasuredFieldMap(SITES)
+        planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS, advisor=UnsafeAdvisor())
+        intents = planner.decide(
+            frame(
+                1.0,
+                robot("rover-1", 0.1, 0.0, 1.0, seeds=2, bogged=True),
+                robot("rover-2", 1.4, 0.0, 1.0, seeds=0),
+            ), fmap,
+        )
+        by_id = {i.robot_id: i for i in intents}
+        self.assertEqual(planner.advisor_calls, 1)
+        self.assertEqual(
+            planner.last_rescue_assessments["rover-1"].verdict,
+            RescueVerdict.RESCUE_NOW,
+        )
+        self.assertEqual(by_id["rover-1"].mode, TaskMode.HOLD)
+        self.assertIn("stranded(", by_id["rover-1"].reason)
+        self.assertEqual(by_id["rover-2"].target_site_id, "a")
+        self.assertIn("rescue_assist(", by_id["rover-2"].reason)
 
     def test_pluggable_traversal_cost_hook(self):
         fmap = MeasuredFieldMap(SITES)

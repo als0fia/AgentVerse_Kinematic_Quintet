@@ -38,6 +38,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import atan2, cos, hypot, pi, sin, sqrt
+from typing import Any
+
+import numpy as np
 
 from ..contracts import (
     Decision,
@@ -173,6 +176,7 @@ class LocalSlamGrid:
     def __init__(self, resolution_m: float = 0.15) -> None:
         self.resolution_m = resolution_m
         self.cells: dict[tuple[int, int], SlamHazardCell] = {}
+        self.version: int = 0
 
     def to_cell(self, x_m: float, y_m: float) -> tuple[int, int]:
         return (int(round(x_m / self.resolution_m)), int(round(y_m / self.resolution_m)))
@@ -221,6 +225,7 @@ class LocalSlamGrid:
             discovered_at_s=time_s,
         )
         self.cells[(ix, iy)] = cell
+        self.version += 1
         return cell if prev is None else None
 
     def integrate_mud_slip(
@@ -249,6 +254,7 @@ class LocalSlamGrid:
             discovered_at_s=time_s,
         )
         self.cells[(ix, iy)] = cell
+        self.version += 1
         return cell
 
     def merge_peer_cell(self, cell: SlamHazardCell) -> bool:
@@ -257,9 +263,11 @@ class LocalSlamGrid:
         existing = self.cells.get(key)
         if existing is None:
             self.cells[key] = cell
+            self.version += 1
             return True
         if cell.log_odds > existing.log_odds:
             self.cells[key] = cell
+            self.version += 1
             return True
         return False
 
@@ -291,6 +299,13 @@ class LocalMycelialMap:
         self._last_updated_s: dict[str, float] = {s.site_id: 0.0 for s in sites}
         self.planted_sites: set[str] = set()
         self.attempted_sites: set[str] = set()
+        self._sample_version: int = 0
+        self._grid_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+    @property
+    def state_version(self) -> tuple[int, int]:
+        """Monotonic version tuple `(sample_version, slam_version)` for zero-cost belief grid caching."""
+        return (self._sample_version, self.slam.version)
 
     def ingest_sample(self, sample: SoilSample, obs_precision: float = 4.0) -> bool:
         """Fuse a direct or peer-gossiped `SoilSample` if its `sample_id` has not been seen yet."""
@@ -309,6 +324,7 @@ class LocalMycelialMap:
         self._last_updated_s[sample.site_id] = max(
             self._last_updated_s[sample.site_id], sample.sampled_at_s
         )
+        self._sample_version += 1
         return True
 
     def estimate(self, site_id: str) -> SiteEstimate:
@@ -333,9 +349,11 @@ class LocalMycelialMap:
         return {site_id: self.estimate(site_id) for site_id in self.sites}
 
     def needs_remeasurement(self, site_id: str, envelope: SoilSafetyEnvelope) -> bool:
-        """Return True if a measured site has borderline soil confidence and only 1 robot has sampled it."""
+        """Return True if a measured site has borderline soil confidence and only 1 OTHER robot has sampled it."""
         est = self.estimate(site_id)
         if est.sample_count == 0 or len(est.source_robot_ids) >= 2:
+            return False
+        if self.owner_robot_id in est.source_robot_ids:
             return False
         if est.moisture is None or est.firmness is None:
             return True
@@ -1068,40 +1086,100 @@ def sample_continuous_belief_grid(
     y_bounds: tuple[float, float] = (-0.90, 0.90),
     length_scale_m: float = 0.52,
 ) -> dict[str, list[list[float]]]:
-    """Sample a robot's continuous 2D belief field across a `(ny x nx)` grid for top-down heatmap visualization."""
-    xs = [
-        x_bounds[0] + i * (x_bounds[1] - x_bounds[0]) / max(1, nx - 1)
-        for i in range(nx)
-    ]
-    ys = [
-        y_bounds[0] + j * (y_bounds[1] - y_bounds[0]) / max(1, ny - 1)
-        for j in range(ny)
-    ]
-    layers: dict[str, list[list[float]]] = {
-        "moisture": [],
-        "firmness": [],
-        "stand_gap": [],
-        "plant_density": [],
-        "uncertainty": [],
-        "traversability_risk": [],
-        "planting_fitness": [],
+    """Sample a robot's continuous 2D belief field across a `(ny x nx)` grid using vectorized 2D NumPy kernels + version caching."""
+    cache_key = (local_map.state_version, nx, ny, x_bounds, y_bounds, length_scale_m)
+    cached = local_map._grid_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    xs_arr = np.linspace(x_bounds[0], x_bounds[1], nx, dtype=np.float64)
+    ys_arr = np.linspace(y_bounds[0], y_bounds[1], ny, dtype=np.float64)
+    X, Y = np.meshgrid(xs_arr, ys_arr)
+
+    prior_weight = 0.22
+    l2 = 2.0 * length_scale_m * length_scale_m
+
+    w_m = np.full((ny, nx), prior_weight, dtype=np.float64)
+    w_f = np.full((ny, nx), prior_weight, dtype=np.float64)
+    w_g = np.full((ny, nx), prior_weight, dtype=np.float64)
+    acc_m = np.full((ny, nx), prior_weight * 0.50, dtype=np.float64)
+    acc_f = np.full((ny, nx), prior_weight * 0.50, dtype=np.float64)
+    acc_g = np.full((ny, nx), prior_weight * 0.50, dtype=np.float64)
+    info_density = np.zeros((ny, nx), dtype=np.float64)
+
+    # 1. Publicly known protected living rice stands (crop_nw, crop_ne)
+    inv_2s2_crop = 1.0 / (2.0 * 0.34 * 0.34)
+    for site in local_map.sites.values():
+        if not site.permitted:
+            dx = X - site.center.x_m
+            dy = Y - site.center.y_m
+            k = 3.2 * np.exp(-(dx * dx + dy * dy) * inv_2s2_crop)
+            acc_g += k * 0.05
+            w_g += k
+            info_density += 0.5 * k
+
+    # 2. Vectorized fusion across all samples in THIS robot's private LocalMycelialMap
+    inv_l2 = 1.0 / l2
+    for sample in local_map.all_samples.values():
+        dx = X - sample.location.x_m
+        dy = Y - sample.location.y_m
+        k = 2.8 * np.exp(-(dx * dx + dy * dy) * inv_l2)
+        if sample.kind == SensorKind.MOISTURE:
+            acc_m += k * sample.value
+            w_m += k
+            info_density += k
+        elif sample.kind == SensorKind.FIRMNESS:
+            acc_f += k * sample.value
+            w_f += k
+        elif sample.kind == SensorKind.STAND_GAP:
+            acc_g += k * sample.value
+            w_g += k
+
+    mean_m = np.clip(acc_m / w_m, 0.02, 0.98)
+    mean_f = np.clip(acc_f / w_f, 0.02, 0.98)
+    mean_g = np.clip(acc_g / w_g, 0.02, 0.98)
+    plant_density = np.clip(1.0 - mean_g, 0.02, 0.98)
+    uncertainty = np.clip(1.0 / (1.0 + 1.35 * info_density), 0.04, 1.0)
+
+    # 3. Continuous SLAM + mud-sinkage traversability risk
+    slam_risk = np.zeros((ny, nx), dtype=np.float64)
+    inv_2s2_slam = 1.0 / (2.0 * 0.24 * 0.24)
+    for cell in local_map.slam.cells.values():
+        dx = X - cell.x_m
+        dy = Y - cell.y_m
+        k_slam = np.exp(-(dx * dx + dy * dy) * inv_2s2_slam)
+        weight = 0.95 if cell.kind == "obstacle" else 0.80
+        np.maximum(slam_risk, weight * k_slam, out=slam_risk)
+
+    soil_mud_risk = (
+        np.maximum(0.0, (mean_m - 0.55) * 1.4)
+        * np.maximum(0.0, (0.55 - mean_f) * 1.4)
+        * (1.0 - 0.5 * uncertainty)
+    )
+    traversability_risk = np.clip(np.maximum(slam_risk, soil_mud_risk), 0.02, 0.99)
+
+    # 4. Continuous Rice-Planting Agronomic Fitness belief Φ_hat(x, y)
+    s_moisture = np.exp(-((mean_m - 0.56) ** 2) / (2.0 * 0.14 * 0.14))
+    s_firmness = np.exp(-((mean_f - 0.65) ** 2) / (2.0 * 0.16 * 0.16))
+    s_gap = np.clip((mean_g - 0.22) / 0.66, 0.0, 1.0) ** 1.25
+    planting_fitness = np.clip(
+        s_gap * (0.52 * s_moisture + 0.48 * s_firmness) * (1.0 - 0.35 * slam_risk),
+        0.0,
+        1.0,
+    )
+
+    layers_np = {
+        "moisture": np.round(mean_m, 4),
+        "firmness": np.round(mean_f, 4),
+        "stand_gap": np.round(mean_g, 4),
+        "plant_density": np.round(plant_density, 4),
+        "uncertainty": np.round(uncertainty, 4),
+        "traversability_risk": np.round(traversability_risk, 4),
+        "planting_fitness": np.round(planting_fitness, 4),
     }
-    for y in ys:
-        row_m, row_f, row_g, row_p, row_u, row_r, row_fit = [], [], [], [], [], [], []
-        for x in xs:
-            val = evaluate_continuous_belief_field(local_map, x, y, length_scale_m=length_scale_m)
-            row_m.append(val["moisture"])
-            row_f.append(val["firmness"])
-            row_g.append(val["stand_gap"])
-            row_p.append(val["plant_density"])
-            row_u.append(val["uncertainty"])
-            row_r.append(val["traversability_risk"])
-            row_fit.append(val["planting_fitness"])
-        layers["moisture"].append(row_m)
-        layers["firmness"].append(row_f)
-        layers["stand_gap"].append(row_g)
-        layers["plant_density"].append(row_p)
-        layers["uncertainty"].append(row_u)
-        layers["traversability_risk"].append(row_r)
-        layers["planting_fitness"].append(row_fit)
-    return layers
+    result: dict[str, list[list[float]]] = {k: v.tolist() for k, v in layers_np.items()}
+    # Keep only the latest 4 cache entries per robot to prevent unbounded memory growth
+    if len(local_map._grid_cache) >= 4:
+        local_map._grid_cache.clear()
+    local_map._grid_cache[cache_key] = result
+    return result

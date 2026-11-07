@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import cos, exp, hypot, sin
+import random
+from typing import Any
+
+import numpy as np
 
 from ..contracts import Pose2D, SensorKind, Site, SoilSample
 
@@ -79,6 +83,44 @@ UNEXPECTED_BAD_SOIL_TRUTH: dict[str, dict[SensorKind, float]] = {
         SensorKind.STAND_GAP: 0.88,
     },
 }
+
+
+def generate_hidden_soil_truth(
+    scenario: str,
+    seed: int,
+) -> dict[str, dict[SensorKind, float]]:
+    """Return evaluator-private hidden soil truth for a scenario and seed.
+
+    - `nominal` / `obstacle` / `sensor_degraded`: uses `DEFAULT_HIDDEN_SOIL_TRUTH`
+      (`patch_a`, `patch_d` are mud hazards; `patch_b`, `patch_c` are viable loam).
+    - `bad_soil`: uses `UNEXPECTED_BAD_SOIL_TRUTH` (`patch_b` is mud; `patch_c`, `patch_d` viable).
+    - `shifted_moisture`: deterministically permutes which 2 of the 4 permitted patches
+      (`patch_a..patch_d`) are viable stand gaps vs. waterlogged *Lannitian* mud hazards
+      using `random.Random(seed)`.
+    """
+    if scenario == "bad_soil":
+        return {k: dict(v) for k, v in UNEXPECTED_BAD_SOIL_TRUTH.items()}
+    if scenario != "shifted_moisture":
+        return {k: dict(v) for k, v in DEFAULT_HIDDEN_SOIL_TRUTH.items()}
+
+    rng = random.Random(seed)
+    patch_ids = ["patch_a", "patch_b", "patch_c", "patch_d"]
+    viable_pair = set(rng.sample(patch_ids, 2))
+    truth: dict[str, dict[SensorKind, float]] = {}
+    for pid in patch_ids:
+        if pid in viable_pair:
+            truth[pid] = {
+                SensorKind.MOISTURE: round(rng.uniform(0.46, 0.62), 2),
+                SensorKind.FIRMNESS: round(rng.uniform(0.64, 0.78), 2),
+                SensorKind.STAND_GAP: round(rng.uniform(0.80, 0.92), 2),
+            }
+        else:
+            truth[pid] = {
+                SensorKind.MOISTURE: round(rng.uniform(0.88, 0.95), 2),
+                SensorKind.FIRMNESS: round(rng.uniform(0.14, 0.19), 2),
+                SensorKind.STAND_GAP: round(rng.uniform(0.76, 0.88), 2),
+            }
+    return truth
 
 
 def compute_rice_planting_fitness(
@@ -152,6 +194,7 @@ class ContinuousPaddyTerrain:
         self._sites = sites
         self._anchors = dict(anchor_truth or DEFAULT_HIDDEN_SOIL_TRUTH)
         self.seed = int(seed)
+        self._grid_cache: dict[tuple[int, int, tuple[float, float], tuple[float, float], int], dict[str, Any]] = {}
 
     def elevation_and_gradient(self, x_m: float, y_m: float) -> tuple[float, float, float]:
         """Return `(elevation_m, dz_dx, dz_dy)` at `(x_m, y_m)` in metres."""
@@ -282,59 +325,100 @@ class ContinuousPaddyTerrain:
         x_bounds: tuple[float, float] = (-0.25, 2.95),
         y_bounds: tuple[float, float] = (-0.90, 0.90),
     ) -> dict[str, object]:
-        """Sample the continuous terrain over a regular 2D grid for dashboard heatmaps."""
-        xs = [
-            round(x_bounds[0] + i * (x_bounds[1] - x_bounds[0]) / max(1, nx - 1), 4)
-            for i in range(nx)
-        ]
-        ys = [
-            round(y_bounds[0] + j * (y_bounds[1] - y_bounds[0]) / max(1, ny - 1), 4)
-            for j in range(ny)
-        ]
-        elevation: list[list[float]] = []
-        moisture: list[list[float]] = []
-        firmness: list[list[float]] = []
-        mud_depth: list[list[float]] = []
-        plant_density: list[list[float]] = []
-        stand_gap: list[list[float]] = []
-        planting_fitness: list[list[float]] = []
+        """Vectorized NumPy 2D grid evaluation with O(1) cache lookup for dashboard heatmaps."""
+        cache_key = (nx, ny, x_bounds, y_bounds, self.seed)
+        cached = self._grid_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
-        for y in ys:
-            row_z, row_m, row_f, row_d, row_p, row_g, row_fit = [], [], [], [], [], [], []
-            for x in xs:
-                pt = self.evaluate(x, y)
-                row_z.append(pt.elevation_m)
-                row_m.append(pt.moisture)
-                row_f.append(pt.firmness)
-                row_d.append(pt.mud_depth_m)
-                row_p.append(pt.plant_density)
-                row_g.append(pt.stand_gap)
-                row_fit.append(pt.planting_fitness)
-            elevation.append(row_z)
-            moisture.append(row_m)
-            firmness.append(row_f)
-            mud_depth.append(row_d)
-            plant_density.append(row_p)
-            stand_gap.append(row_g)
-            planting_fitness.append(row_fit)
+        xs_np = np.linspace(x_bounds[0], x_bounds[1], nx, dtype=np.float64)
+        ys_np = np.linspace(y_bounds[0], y_bounds[1], ny, dtype=np.float64)
+        X, Y = np.meshgrid(xs_np, ys_np)
 
-        return {
+        phase_z = 0.17 * (self.seed % 11)
+        Z = (
+            0.012 * np.sin(1.35 * X + phase_z) * np.cos(1.65 * Y)
+            + 0.008 * np.cos(2.40 * X - 1.90 * Y)
+            - 0.005 * (X - 1.50)
+        )
+        sigma2_basin = 0.42 * 0.42
+        for site in self._sites:
+            truth = self._anchors.get(site.site_id)
+            if truth and truth[SensorKind.MOISTURE] > 0.80:
+                r2 = (X - site.center.x_m) ** 2 + (Y - site.center.y_m) ** 2
+                Z = Z - 0.028 * np.exp(-r2 / (2.0 * sigma2_basin))
+
+        phase_s = 0.13 * (self.seed % 11)
+        base_m = 0.56 + 0.06 * np.sin(1.1 * X + phase_s) * np.cos(1.4 * Y)
+        base_f = 0.62 - 0.05 * np.sin(1.1 * X + phase_s) * np.cos(1.4 * Y)
+        base_g = 0.42 + 0.08 * np.cos(1.8 * X) * np.sin(1.5 * Y)
+
+        w_sum = np.full_like(X, 0.35)
+        m_acc = 0.35 * base_m
+        f_acc = 0.35 * base_f
+        g_acc = 0.35 * base_g
+        sigma2_soil = 0.46 * 0.46
+
+        for site in self._sites:
+            r2 = (X - site.center.x_m) ** 2 + (Y - site.center.y_m) ** 2
+            w = 2.4 * np.exp(-r2 / (2.0 * sigma2_soil))
+            if not site.permitted:
+                m_acc = m_acc + w * 0.58
+                f_acc = f_acc + w * 0.66
+                g_acc = g_acc + w * 0.04
+                w_sum = w_sum + w
+            elif site.site_id in self._anchors:
+                truth = self._anchors[site.site_id]
+                m_acc = m_acc + w * truth[SensorKind.MOISTURE]
+                f_acc = f_acc + w * truth[SensorKind.FIRMNESS]
+                g_acc = g_acc + w * truth[SensorKind.STAND_GAP]
+                w_sum = w_sum + w
+
+        M = np.clip(m_acc / w_sum, 0.05, 0.98)
+        F = np.clip(f_acc / w_sum, 0.05, 0.98)
+        G = np.clip(g_acc / w_sum, 0.02, 0.98)
+
+        for site in self._sites:
+            d = np.hypot(X - site.center.x_m, Y - site.center.y_m)
+            mask = d <= 0.28
+            if np.any(mask):
+                blend = np.clip((d / 0.28) ** 2, 0.0, 1.0)
+                if not site.permitted:
+                    G = np.where(mask, (1.0 - blend) * 0.04 + blend * G, G)
+                elif site.site_id in self._anchors:
+                    truth = self._anchors[site.site_id]
+                    M = np.where(mask, (1.0 - blend) * truth[SensorKind.MOISTURE] + blend * M, M)
+                    F = np.where(mask, (1.0 - blend) * truth[SensorKind.FIRMNESS] + blend * F, F)
+                    G = np.where(mask, (1.0 - blend) * truth[SensorKind.STAND_GAP] + blend * G, G)
+
+        P = np.clip(1.0 - G, 0.0, 1.0)
+        D = np.clip(0.04 + 0.30 * (M**1.6) * ((1.0 - F) ** 1.2), 0.03, 0.35)
+
+        s_moisture = np.exp(-((M - 0.56) ** 2) / (2.0 * 0.14 * 0.14))
+        s_firmness = np.exp(-((F - 0.65) ** 2) / (2.0 * 0.16 * 0.16))
+        s_micro_topo = np.exp(-((np.minimum(0.0, Z + 0.008)) ** 2) / (2.0 * 0.018 * 0.018))
+        s_gap = np.clip((G - 0.22) / 0.66, 0.0, 1.0) ** 1.25
+        FIT = np.clip(s_gap * (0.46 * s_moisture + 0.42 * s_firmness + 0.12 * s_micro_topo), 0.0, 1.0)
+
+        res: dict[str, Any] = {
             "nx": nx,
             "ny": ny,
-            "xs": xs,
-            "ys": ys,
+            "xs": np.round(xs_np, 4).tolist(),
+            "ys": np.round(ys_np, 4).tolist(),
             "x_bounds": list(x_bounds),
             "y_bounds": list(y_bounds),
             "layers": {
-                "elevation_m": elevation,
-                "moisture": moisture,
-                "firmness": firmness,
-                "mud_depth_m": mud_depth,
-                "plant_density": plant_density,
-                "stand_gap": stand_gap,
-                "planting_fitness": planting_fitness,
+                "elevation_m": np.round(Z, 4).tolist(),
+                "moisture": np.round(M, 4).tolist(),
+                "firmness": np.round(F, 4).tolist(),
+                "mud_depth_m": np.round(D, 4).tolist(),
+                "plant_density": np.round(P, 4).tolist(),
+                "stand_gap": np.round(G, 4).tolist(),
+                "planting_fitness": np.round(FIT, 4).tolist(),
             },
         }
+        self._grid_cache[cache_key] = res
+        return res
 
 
 class PaddyTerraceWorld:

@@ -127,6 +127,10 @@ class MujocoPaddySimulationTests(unittest.TestCase):
         observed_rescue_now_verdict = False
         observed_rescue_command = False
 
+        max_efc_force = 0.0
+        max_chassis_z = 0.0
+        max_pitch_rad = 0.0
+
         for _ in range(195):
             decision = core.decide(frame)
             p_obs = next(r for r in frame.robots if r.robot_id == "planter")
@@ -140,6 +144,15 @@ class MujocoPaddySimulationTests(unittest.TestCase):
             if s_intent.mode == TaskMode.RESCUE and s_cmd.recovery_target_id == "planter":
                 observed_rescue_command = True
             frame = sim.step(decision.commands)
+            if len(sim.data.efc_force) > 0:
+                max_efc_force = max(max_efc_force, float(abs(sim.data.efc_force).max()))
+            max_chassis_z = max(
+                max_chassis_z,
+                float(sim.data.sensor("planter_pos").data[2]),
+                float(sim.data.sensor("scout_pos").data[2]),
+            )
+            for r in frame.robots:
+                max_pitch_rad = max(max_pitch_rad, abs(r.pitch_rad))
 
         # 1. True mud immobilization was sensed independently of LiDAR range failure
         self.assertTrue(observed_bogged_with_valid_lidar)
@@ -154,6 +167,10 @@ class MujocoPaddySimulationTests(unittest.TestCase):
         self.assertTrue(rec.latched)
         self.assertTrue(rec.extracted)
         self.assertGreaterEqual(rec.victim_displacement_m, 0.18)
+        # 3b. M4 Physical Audit Gate: No constraint-snap impulse (< 250 N), rovers remain grounded (< 0.072 m), no V-tent jackknife (< 0.12 rad)
+        self.assertLess(max_efc_force, 250.0)
+        self.assertLess(max_chassis_z, 0.072)
+        self.assertLess(max_pitch_rad, 0.12)
         # 4. After unlatching, planter resumed autonomous fieldwork and planted both viable stand gaps
         self.assertEqual(len(sim.completed_drops), 2)
         planted_sites = {d.target_site_id for d in sim.completed_drops}

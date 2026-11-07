@@ -102,9 +102,9 @@ class LocalController:
                     release_seed=False,
                     target_site_id=task.target_site_id,
                     recovery_target_id=task.target_robot_id,
-                    dock_pitch_rad=0.38 if distance <= 0.42 else 0.0,
-                    latch_rad=0.58,
-                    spade_rad=0.65 if distance <= 0.42 else 0.0,
+                    dock_pitch_rad=0.08 if distance <= 0.36 else 0.0,
+                    latch_rad=0.55,
+                    spade_rad=0.0,
                 )
 
         linear = angular = 0.0

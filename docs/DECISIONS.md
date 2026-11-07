@@ -110,6 +110,9 @@ This records **durable rationale**, not a running task/status list. Put implemen
 
 ## D-0011 — Closed-loop sensor suite reflexes and 3-tier edge-to-cloud cognitive fallback
 
+> **Verification correction (7 Nov 2026):** These are simulated/Python safety functions driven by optional `RobotObservation` fields—not physically connected 60 GHz radar, UWB transceivers, whiskers, IMU or microcontroller. The stated **<5ms and <20ms response times were not measured** on robot or edge hardware. `GeminiSwarmAdvisor` is a **synchronous, timeout-bounded REST task advisor** with a fallback, not asynchronous edge inference or a persistent physical-recovery tool loop. Do not repeat those historical figures as measured results. D-0013 is the authoritative current status.
+
+
 - **Date:** 7 November 2026.
 - **Status:** adopted in src/ricebot/contracts.py, src/ricebot/control.py, src/ricebot/agent/planner.py; verified by unit tests.
 - **Problem and constraints:**
@@ -138,6 +141,9 @@ This records **durable rationale**, not a running task/status list. Put implemen
 
 ## D-0012 — Interactive dynamic obstacle injection and edge compute budget telemetry
 
+> **Verification correction (7 Nov 2026):** The hard-coded `~0.4ms / decision`, `~2.4W (STM32/Pi5)` and `Cloud GPU: $0` label was **not backed by measurement**. It has been replaced in the legacy GUI with an explicit unmeasured latency/power notice and configuration-dependent cloud status. This decision records a UI feature, not demonstrated compute or electricity consumption. D-0013 owns the current evidence boundary.
+
+
 - **Date:** 7 November 2026.
 - **Status:** adopted in `src/riceswarm_ai/visualizer.py` and `tests/test_riceswarm_ai.py`.
 - **Context:** The AgentVerse 2026 Robotics Track Rubric allocates 25% to *Adaptation to Change* ("The scene changes mid-sequence and the agent visibly re-plans") and 15% to *Operational Autonomy* ("Runs within a stated edge-device budget and behaves sensibly when unsure").
@@ -150,6 +156,17 @@ This records **durable rationale**, not a running task/status list. Put implemen
   - `tests/test_riceswarm_ai.py`: Added `test_dynamic_obstacle_injection_and_mid_run_replanning`.
 - **Revisit trigger:**
   - Hardware deployment onto physical compute boards (e.g., Raspberry Pi 5 / Jetson Orin Nano).
+
+## D-0013 — One rescue-first MuJoCo P0, sensor evidence and agent safety
+
+- **Date/source:** 7 November 2026, user's request to repair live integration and document issues; reconciles the unique rescue-first architectural choices from formerly conflicting PR #32. **Status:** scope and safety fixes adopted; full physical autonomous rescue loop **not yet implemented**.
+- **One product/one scene:** reuse the existing MuJoCo rover/seed/field/dock model and one `rice.v1` runtime; do not spin up a separate farm simulator, full crop lifecycle, new winch, Isaac translation, RL controller, radio mesh or distributed Jetson LLM for P0.
+- **Beneficiary:** a small farming fleet operator needs a truly immobilised rover recovered safely while protecting crops/healthy robots and completing useful work. Planting and mapped soil measurements are the mission context, not a second project.
+- **Verified safety repair:** the central planner now receives *actual issued bounded commands* from MissionCore and compares next valid observation's movement and yaw. Missing front-range data and legitimate safe stops alone cannot trigger stranded triage. The synthetic `is_bogged` flag remains an explicit simulator status, not an instrumented field measurement. The optional advisor may not override stranded HOLD or an already-reserved helper. Regression tests cover these cases.
+- **Required remaining proof:** a physically observed fault, risk/benefit choice compared with never/always/responsible deterministic rescue, typed bounded rigid latch/extraction skill, independently checked victim displacement/helper damage and post-incident fieldwork in one reproducible episode. The stand-alone scripted rigid-docking physics test does **not** prove that loop.
+- **AI proposal, not implemented:** a single low-frequency fleet supervisor could inspect state, call numeric route/risk tools, choose approved actions and *monitor → revise/abort* on observed failures. Start/end-of-day parameter tuning could reuse the same supervisor later, not a new training platform; neither exists as verified integrated functionality.
+- **Measurement honesty:** previously claimed 0.4 ms/decision, 2.4 W, hardware radios and sub-5ms/sub-20ms tiers, and an external 12-case adaptive rescue result remain unverified. Legacy GUI no longer displays invented hardware/latency numbers.
+- **Revisit:** after real end-to-end rescue CI/host evidence and meaningful baseline. Preserve historical decisions in Git without resurrecting their superseded engineering priorities.
 
 ## Decision template
 

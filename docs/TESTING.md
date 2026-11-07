@@ -18,30 +18,25 @@ For an explicit independent audit, use [module-audit](../.agents/skills/module-a
 
 The [official weight table and source photo provenance](EVENT.md#confirmed-robotics-judging-rubric--clear-organiser-photograph-7-november-2026) are authoritative. Tests should yield **objective observations**, not fabricated scores: (a) trace every bounded action to timestamped simulated sensor data; (b) surprise the running episode and capture perceived change, replan and actual downstream effect; (c) measure bounded/local behaviour, uncertainty and optional network loss; (d) show that the **real beneficiary's most critical failure mode is handled on screen** with an evidence-supported meaningful benefit; (e) record originality relative to a serious existing controller/robot and actual implementation quality. A single polished 60-second episode does not replace repeated seeds and independent baseline comparisons. Model-generated prose cannot grade its own performance.
 
-## PaddyPatch P0 evaluation — required, not yet executed
+## Antenna P0 acceptance — rescue first, with fieldwork regression
 
-**Core outcome is physical rice replanting**, not flood diagnosis or robot recovery. One physically driven planter drops seed proxies into valid missing-stand patches; a second physical scout adds distinct soil/stand measurements to a shared *estimated* field map. Both plan around physically modelled terrain/obstacles and an injected mid-episode surprise. A policy sees only local sensors, timestamps, estimated poses and the shared belief map—not the true suitability, contact success precomputed by the world, or surprise flag. Score **physically measured seed landings** separately from synthetic establishment quality.
+**P0 has not passed end-to-end.** Existing MuJoCo nominal soil/seed tests and scripted standalone rigid docking are partial prerequisites. Rescue is the core claim; real seed-contact remains a regression and a useful post-recovery task, not a substitute for recovering a robot.
 
-| Test case | Scenario and permitted sensing | Grader acceptance |
+| Required scenario | Input / no-leak constraint | Independent pass/fail |
 | --- | --- | --- |
-| `rover_range_motion` (first integration) | one wheel-driven rover; actual ray sensor; new obstacle while moving | real sampled sensor changes → actual different bounded wheel commands or safe hold, not UI animation |
-| `physical_seed_drop` (next mandatory capability) | planter reaches accessible gap, hopper releases rigid-body seed proxy | released seed leaves tool, physics/contact shows landed cell; inventory reduces only after real release, out-of-reach PLANT refused |
-| `two_robot_soil_sampling` | two actuated rovers measure **different local** synthetic moisture/firmness/stand indicators | each sample timestamped, with source actor and physical sampling radius; no hidden-world oracle; merging samples changes shared estimated map |
-| `heterogeneous_gap_sites` | missing-stand cells vary in synthetic suitability; some should be skipped to avoid seed waste/crop trampling | site selector prioritises plausible positive marginal benefit and respects known no-go/seed budget; can abstain |
-| `cooperative_route_allocation` | shared survey/plant tasks and obstacles | assigns compatible sampling/planting tasks, avoids duplicate sample and rover collision; actual planner actions change robot motions |
-| `changed_site_or_blocked_route` | route obstruction or surprising low soil reading mid-episode | fresh sensor → new belief/route/site → real changed physical travel and later valid drop or justified safe abort |
-| `baseline_replay` | identical seeds/world, budget and measured observations, comparable plans | scores uniform/grid, capable deterministic sampled-map+route planner and optional agent; report seeds, failures, variance |
-| `headless_viewer_parity` | same run with viewer on/off | same simulator sensor/action/seed-contact trace (where deterministic), no UI-to-physics control |
+| `nominal_rice_work` | 2 physically moving MuJoCo rovers, local timestamped soil/range sensors; real seed-proxy release | seed contacts field, two local rover data sources, safe commands; existing partial tests pass in CI |
+| `missing_sensor_not_stranded` | front-range becomes invalid while rover is stationary or moving; no privileged stuck flag | **no** peer rescue dispatch solely due to missing range; planner regression test added |
+| `safe_stop_not_stranded` | physical obstacle/range stop, planned HOLD or zero motor command | no false positive despite zero displacement; command history is authoritative |
+| `commanded_motion_stall` | sustained issued positive wheel command, observed pose/yaw near-constant across frames, valid sensor status | bounded incident detection/triage; require genuine simulated physical stall in the final scene, not synthetic detector-only fixture |
+| `rescue_vs_abstain` | same incident with safe route, high-risk helper route, mission urgency and negative control | compare never-rescue, always-rescue and risk-aware deterministic policy; demonstrate rational abstention |
+| `bounded_rigid_dock_extract` | previously merged rigid cam/latch/pitch-lift; no teleport, tether or raw LLM torques | independent coupling/contact, victim displacement, force/geometry/interlock, secondary casualty and abort evidence; existing scripted mechanical test is **not** the integrated result |
+| `resume_fieldwork` | after actual recovery, continued job availability and new local observations | real sampled map/seed-contact result after the incident; otherwise safe task reallocation and explicit failure |
+| `surprise_and_link_outage` | mid-episode changed hazard, invalid sensors, radio blackout; hidden world values private to grader | changed bounded action, no unsafe agent command, measured latency and deterministic safe fallback |
+| `view_without_control` | same seed with UI on/off, on a real graphical host | read-only view must not alter model actions or outcome; **not covered by CI's headless MuJoCo suite** |
 
-**Priority gates:** P0a real Isaac rover/sensor, P0b actual seed release/contact, P0c two independent sample-producing robots/shared map/route choice, P0d surprise+independent baseline+video/PDF. P0a and P0b are required foundation but not automatically a completed two-robot planting claim. If only one rover works, report that honestly.
+**Fieldwork baselines still required:** original deterministic grid/coverage, single-rover planning, measured-map task/route allocation and actual physics seed-contact are reusable reference tasks, not the entire submission. Evaluate LLM context against a competent numerical rescue optimiser on matched incident states before calling the LLM essential.
 
-**Credible baselines:** (A) naive grid/coverage across identified gaps, with a documented local sensor and planting budget; (B) single-capable scout-planter with measured soil scoring, reactive obstacle avoidance, fixed route; (C) capable deterministic shared sampling + IDW/nearest interpolation and route assignment with **same sensor/action resources**; (D) optional deliberative agent planner. Compare against C before declaring LLM-specific improvement. Include counterexamples where fixed-coverage is better. No intentionally crippled competitor.
-
-**Metrics:** physically landed seed count and accuracy in actual gaps, synthetic incremental establishment benefit per used seed, healthy-crop/no-go incursions and collisions, route metres/time, invalid/duplicated probes, map RMSE/calibration vs hidden *synthetic* truth (grader only), actual robot utilization, unplanted good gaps, adaptation time, safe abstentions, launch/control latency. Make true soil generation/seeding rule explicit; **neither seed landing nor predicted soil suitability proves germination or real yield**. Retain existing JSONL evaluator format and use actual test runs before results.
-
-### Optional scenarios — NOT part of P0 or required video
-
-**Recovery:** stalled scout → local safe stop or helper allocation; physical rescue only if a second robot makes real coupled contact. **Rice flood mitigation:** suspect blocked drainage → additional inspection; only count intervention if a physically actuated gate/outlet and a visibly labelled simplified water model are implemented and verified. Reforestation/space are transfer hypotheses, not extra required simulated scenes.
+**Prior milestone:** the old Isaac planting-first P0a–P0d and rice-only acceptance matrix are preserved in Git history; Isaac remains an optional later translation, not a blocker for current MuJoCo rescue integration.
 
 ## Verification ladder
 

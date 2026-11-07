@@ -58,7 +58,7 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
   <option timestep="0.004" gravity="0 0 -9.81" integrator="implicitfast"/>
 
   <visual>
-    <global offwidth="960" offheight="720" azimuth="115" elevation="-34"/>
+    <global offwidth="1280" offheight="960" azimuth="115" elevation="-34"/>
     <headlight ambient="0.38 0.38 0.38" diffuse="0.65 0.65 0.62" specular="0.2 0.2 0.2"/>
     <map znear="0.02" zfar="25.0"/>
   </visual>
@@ -85,8 +85,8 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
   </worldbody>
 
   <equality>
-    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.008 1.0"/>
-    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.008 1.0"/>
+    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.04 1.0"/>
+    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.04 1.0"/>
   </equality>
 
   <actuator>
@@ -215,6 +215,17 @@ class MujocoPaddySimulation:
             "planter": mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "planter_body"),
             "scout": mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "scout_body"),
         }
+        self._wheel_geom_ids: dict[str, list[int]] = {
+            rid: [
+                mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{rid}_wheel_{w}")
+                for w in ("fl", "fr", "rl", "rr")
+            ]
+            for rid in ("planter", "scout")
+        }
+        for rid, gids in self._wheel_geom_ids.items():
+            for gid in gids:
+                if gid >= 0:
+                    self.model.geom_priority[gid] = 1
         self._seed_qpos_adrs = [
             int(self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"seed_{i}_free")])
             for i in range(PLANTER_SPEC.initial_seeds)
@@ -283,6 +294,8 @@ class MujocoPaddySimulation:
         self._bogged_origins: dict[str, tuple[float, float]] = {}
         self._rescued_robots: set[str] = set()
         self._active_latched_pair: tuple[str, str] | None = None
+        self._detach_backoff_ticks: dict[str, int] = {}
+        self._latched_substeps: int = 0
 
     def _populate_hfield_from_continuous_terrain(self) -> None:
         """Populate MuJoCo's 3D `paddy_micro_relief` heightfield directly from `ContinuousPaddyTerrain`."""
@@ -375,6 +388,12 @@ class MujocoPaddySimulation:
         self._bogged_origins = {}
         self._rescued_robots = set()
         self._active_latched_pair = None
+        self._detach_backoff_ticks = {}
+        self._latched_substeps = 0
+        for gids in self._wheel_geom_ids.values():
+            for gid in gids:
+                if gid >= 0:
+                    self.model.geom_friction[gid, 0] = 1.4
 
         mujoco.mj_resetData(self.model, self.data)
         px, py, pz = PLANTER_SPEC.initial_xyz
@@ -466,7 +485,13 @@ class MujocoPaddySimulation:
             latch_id = self._latch_act_ids.get(robot_id, -1)
             spade_id = self._spade_act_ids.get(robot_id, -1)
 
-            if cmd.recovery_target_id in ("planter", "scout") and cmd.recovery_target_id != robot_id:
+            if self._detach_backoff_ticks.get(robot_id, 0) > 0:
+                self._detach_backoff_ticks[robot_id] -= 1
+                w_back = compute_4wheel_skid_steer(spec, -0.42, -1.25)
+                self.data.ctrl[ctrl_offset : ctrl_offset + 4] = w_back
+                continue
+
+            if cmd.recovery_target_id in ("planter", "scout") and cmd.recovery_target_id != robot_id and cmd.recovery_target_id not in self._rescued_robots:
                 active_rescue_cmd = cmd
                 continue
 
@@ -514,8 +539,12 @@ class MujocoPaddySimulation:
                     or abs(self.robot_wheel_radius_m.get(robot_id, 0.058) - 0.058) > 0.003
                 )
                 is_bogged_now = robot_id in self._bogged_origins and self._active_latched_pair is None
+                for gid in self._wheel_geom_ids.get(robot_id, ()):
+                    if gid >= 0:
+                        self.model.geom_friction[gid, 0] = 0.002 if is_bogged_now else 1.4
                 if is_bogged_now:
-                    traction_factor = 0.0
+                    # Keep wheel servos spinning against low mud friction + viscous suction drag
+                    traction_factor = 1.0
                 elif sink_state is not None:
                     if sink_state.bellied_out:
                         traction_factor = 0.0
@@ -582,11 +611,14 @@ class MujocoPaddySimulation:
             if substep_i % 5 == 0:
                 self._apply_3d_terrain_and_mud_sinkage_pose()
 
-            # Apply physical mud suction damping to any unlatched bogged rover
+            # Apply physical mud suction drag force to any unlatched bogged rover while allowing wheel spin
             for bog_id in list(self._bogged_origins.keys()):
                 if self._active_latched_pair is None:
                     vadr = self._planter_qvel_adr if bog_id == "planter" else self._scout_qvel_adr
-                    self.data.qvel[vadr : vadr + 2] *= 0.15
+                    bid = self._body_ids[bog_id]
+                    self.data.xfrc_applied[bid, 0] = -35.0 * float(self.data.qvel[vadr])
+                    self.data.xfrc_applied[bid, 1] = -35.0 * float(self.data.qvel[vadr + 1])
+                    self.data.qvel[vadr : vadr + 2] *= 0.12
 
             # Execute closed-loop physical rigid-docking & tandem extraction if a RESCUE command is active
             if active_rescue_cmd is not None and active_rescue_cmd.recovery_target_id is not None:
@@ -615,23 +647,27 @@ class MujocoPaddySimulation:
                     self.data,
                     rescuer_id=helper_id,
                     target_id=target_id,
-                    capture_radius_m=0.095,
+                    capture_radius_m=0.022,
                 )
 
                 if not latched:
-                    # Phase 1: SE(2) Terminal Funnel Alignment toward victim's rear strike bar
+                    # Phase 1: SE(2) Terminal Funnel Alignment toward victim's rear strike bar (until <= 22 mm)
                     heading_err = _wrap_angle(atan2(dy, dx) - h_yaw)
-                    ang_cmd = max(-1.35, min(1.35, heading_err * 2.4))
-                    lin_cmd = min(0.38, max(0.12, dock_dist * 0.85)) if abs(heading_err) < 0.55 else 0.03
+                    ang_cmd = max(-1.35, min(1.35, heading_err * 2.6))
+                    lin_cmd = min(0.35, max(0.10, dock_dist * 0.90)) if abs(heading_err) < 0.45 else 0.02
                     self.data.ctrl[h_pitch_id] = 0.0
                     self.data.ctrl[h_spade_id] = 0.0
                     w_h = compute_4wheel_skid_steer(helper_spec, lin_cmd, ang_cmd)
                     self.data.ctrl[h_offset : h_offset + 4] = w_h
                 else:
-                    # Phase 2 & 3: Rigid Cam-Latch Engaged -> Pitch-Lift + 8-Wheel Synchronized Reverse Extraction
+                    # Phase 2 & 3: Rigid Cam-Latch Engaged -> Grounded Pitch-Lift (0.08 rad) + 8-Wheel Reverse Tow
                     self._active_latched_pair = (helper_id, target_id)
-                    self.data.ctrl[h_pitch_id] = max(0.38, active_rescue_cmd.dock_pitch_rad)
-                    self.data.ctrl[h_spade_id] = 0.25
+                    self._latched_substeps += 1
+                    for gid in self._wheel_geom_ids.get(target_id, ()):
+                        if gid >= 0:
+                            self.model.geom_friction[gid, 0] = 1.4
+                    self.data.ctrl[h_pitch_id] = min(0.15, max(0.08, active_rescue_cmd.dock_pitch_rad))
+                    self.data.ctrl[h_spade_id] = 0.0
                     w_rev_h = compute_4wheel_skid_steer(helper_spec, -0.40, 0.0)
                     w_rev_t = compute_4wheel_skid_steer(target_spec, -0.40, 0.0)
                     self.data.ctrl[h_offset : h_offset + 4] = w_rev_h
@@ -642,8 +678,19 @@ class MujocoPaddySimulation:
                     orig_x, orig_y = self._bogged_origins.get(target_id, (tx, ty))
                     disp_m = hypot(tx - orig_x, ty - orig_y)
 
-                    if disp_m >= 0.18:
-                        # Phase 4: Extracted clear of mud trap -> Release cam-latch & resume autonomous fieldwork
+                    h_roll, h_pitch_now, _ = _quat_to_rpy(h_quat)
+                    if (self._latched_substeps > 250 and disp_m < 0.02) or abs(h_pitch_now) > 0.30 or abs(h_roll) > 0.30:
+                        # Safety Abort Veto: High-drag stall or attitude exceedance -> unlatch and back away
+                        self.data.ctrl[h_latch_id] = 0.0
+                        self.data.ctrl[h_pitch_id] = 0.0
+                        self.data.ctrl[h_spade_id] = 0.0
+                        update_rigid_dock_latch(self.model, self.data, rescuer_id=helper_id, target_id=target_id, capture_radius_m=0.022)
+                        self._active_latched_pair = None
+                        self._latched_substeps = 0
+                        self._detach_backoff_ticks[helper_id] = 8
+                        active_rescue_cmd = None
+                    elif disp_m >= 0.18:
+                        # Phase 4: Extracted clear of mud trap -> Release cam-latch, back helper clear of UWB buffer, and resume fieldwork
                         self.data.ctrl[h_latch_id] = 0.0
                         self.data.ctrl[h_pitch_id] = 0.0
                         self.data.ctrl[h_spade_id] = 0.0
@@ -652,9 +699,14 @@ class MujocoPaddySimulation:
                             self.data,
                             rescuer_id=helper_id,
                             target_id=target_id,
-                            capture_radius_m=0.095,
+                            capture_radius_m=0.022,
                         )
+                        # Drive helper backward and victim forward slightly on unlatch so inter-rover distance > 0.36 m (clear of 0.24 m UWB brake)
+                        self.data.ctrl[h_offset : h_offset + 4] = compute_4wheel_skid_steer(helper_spec, -0.35, 0.0)
+                        self.data.ctrl[t_offset : t_offset + 4] = compute_4wheel_skid_steer(target_spec, 0.20, 0.0)
                         self._active_latched_pair = None
+                        self._latched_substeps = 0
+                        self._detach_backoff_ticks[helper_id] = 8
                         self._bogged_origins.pop(target_id, None)
                         self._rescued_robots.add(target_id)
                         step_t = round(float(self.data.time), 4)

@@ -88,7 +88,7 @@ class RiceSwarmVisualizer:
         ).pack()
         tk.Label(
             header_frame,
-            text="⚡ Edge Compute Budget: ~0.4ms / decision  |  Power: ~2.4W (STM32/Pi5)  |  Cloud GPU: $0 (100% Offline Standalone)",
+            text="Compute: local abstract simulator  |  Decision latency: not benchmarked  |  Power: not measured  |  Cloud use: depends on optional adviser",
             font=("Consolas", 8, "bold"),
             fg="#48bb78",
             bg="#1a202c",

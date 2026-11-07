@@ -224,6 +224,12 @@ class RobotCommand:
         )
         if not self.robot_id or self.expires_at_s <= self.issued_at_s:
             raise ValueError("invalid command TTL or actor")
+        if not (-0.20 <= self.dock_pitch_rad <= 0.15):
+            raise ValueError("dock_pitch_rad out of safe grounded bounds [-0.20, 0.15]")
+        if not (0.0 <= self.latch_rad <= 0.65):
+            raise ValueError("latch_rad out of bounds [0.0, 0.65]")
+        if not (0.0 <= self.spade_rad <= 0.85):
+            raise ValueError("spade_rad out of bounds [0.0, 0.85]")
         if self.release_seed and (not self.target_site_id or not self.task_id or self.linear_m_s or self.angular_rad_s):
             raise ValueError("plant release needs target and zero drive")
 

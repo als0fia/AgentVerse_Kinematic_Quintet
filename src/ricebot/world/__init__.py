@@ -10,13 +10,15 @@ Owns:
 - World-only MJCF terrain/bunds/crops/obstacle fragment (zero robot chassis/wheel/hopper definitions).
 """
 from .terrace import (
-     DEFAULT_HIDDEN_SOIL_TRUTH,
+    DEFAULT_HIDDEN_SOIL_TRUTH,
     DEFAULT_SITES,
     UNEXPECTED_BAD_SOIL_TRUTH,
     ContinuousPaddyTerrain,
     ContinuousTerrainPoint,
     PaddyTerraceWorld,
     build_world_terrain_xml,
+    compute_rice_planting_fitness,
+    generate_hidden_soil_truth,
 )
 
 __all__ = [
@@ -27,4 +29,6 @@ __all__ = [
     "UNEXPECTED_BAD_SOIL_TRUTH",
     "PaddyTerraceWorld",
     "build_world_terrain_xml",
+    "compute_rice_planting_fitness",
+    "generate_hidden_soil_truth",
 ]
