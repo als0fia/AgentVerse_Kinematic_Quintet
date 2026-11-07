@@ -10,11 +10,11 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
-    "README.md", "AGENTS.md", "CLAUDE.md", "docs/EVENT.md", "docs/PRODUCT.md",
+    "README.md", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "docs/EVENT.md", "docs/PRODUCT.md",
     "docs/ARCHITECTURE.md", "docs/CONTRACTS.md", "docs/TEAM.md", "docs/RUN.md",
     "docs/TESTING.md", "docs/DEMO.md", "docs/PROVENANCE.md", "docs/DECISIONS.md",
     "docs/RESEARCH.md", "schemas/episode.schema.json", "scripts/evaluate.py",
-    ".github/workflows/foundation-checks.yml",
+    ".github/workflows/foundation-checks.yml", "scripts/sync_skills.py",
 ]
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
 
@@ -49,6 +49,12 @@ def find_errors(root: Path = ROOT) -> list[str]:
             dest = (md.parent / path_part).resolve()
             if not dest.is_relative_to(root.resolve()) or not dest.exists():
                 errors.append(f"broken local link in {md.relative_to(root)}: {href}")
+    # Both discoverability paths must remain complete, not merely present.
+    if __package__:
+        from .sync_skills import find_skill_errors
+    else:
+        from sync_skills import find_skill_errors
+    errors.extend(find_skill_errors(root))
     return errors
 
 
@@ -58,7 +64,7 @@ def main() -> int:
         for error in errors:
             print("FAIL:", error, file=sys.stderr)
         return 1
-    print("OK: required docs, skills, schema syntax, and local Markdown links")
+    print("OK: required docs, portable skill parity, schema syntax, and local Markdown links")
     return 0
 
 

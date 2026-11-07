@@ -14,5 +14,7 @@ jobs:
           python-version: '3.12'
       - name: Validate repository references and skills
         run: python scripts/check_repo.py
+      - name: Verify cross-agent skill parity
+        run: python scripts/sync_skills.py --check
       - name: Run foundation tests
         run: python -m unittest discover -s tests -v

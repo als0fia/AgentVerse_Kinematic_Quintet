@@ -6,11 +6,12 @@
 
 ```bash
 python scripts/check_repo.py
+python scripts/sync_skills.py --check
 python -m unittest discover -s tests -v
 python scripts/evaluate.py --candidate tests/fixtures/candidate.jsonl --baseline tests/fixtures/baseline.jsonl
 ```
 
-Python 3.10+ standard library only. These checks validate **repo structure and evaluation tooling**, not any robotics entry.
+Run `python scripts/sync_skills.py --write` after editing any canonical `.agents/skills/` file. The check command fails if the complete Claude mirrors diverge or skills are missing/extra. Python 3.10+ standard library only. These checks validate **repo structure and evaluation tooling**, not any robotics entry.
 
 ## Fill immediately after selecting the product stack
 

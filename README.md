@@ -6,9 +6,9 @@
 
 ## Start here
 
-1. **Humans and coding agents:** read [AGENTS.md](AGENTS.md) and [team coordination](docs/TEAM.md).
+1. **Humans and coding agents:** follow [AGENTS.md](AGENTS.md), with [team coordination](docs/TEAM.md) when collaborating. Claude Code imports it through [CLAUDE.md](CLAUDE.md), Gemini CLI through [GEMINI.md](GEMINI.md), and Codex reads it natively.
 2. **Challenge revealed?** Update [event constraints](docs/EVENT.md) and choose the [product/mission](docs/PRODUCT.md) with the team. No proposal becomes the chosen project by implication.
-3. **Before parallel coding:** agree [architecture](docs/ARCHITECTURE.md) and versioned [interfaces](docs/CONTRACTS.md); assign file ownership in an issue/PR.
+3. **Before parallel coding:** agree the smallest shared interface needed for a runnable end-to-end path in [architecture](docs/ARCHITECTURE.md) and [contracts](docs/CONTRACTS.md). Divide **independent** modules by branch/owner (an issue, PR or short message suffices).
 4. **Build:** implement a smallest complete user-visible journey, then expand with tests and real [evaluation](docs/TESTING.md).
 5. **Demonstrate:** follow [demo and submission](docs/DEMO.md), verify all claims and keep adequate buffer before the real portal deadline.
 
@@ -18,6 +18,7 @@ Requires only Python 3.10+ for the included tooling (not a commitment to Python 
 
 ```bash
 python scripts/check_repo.py
+python scripts/sync_skills.py --check
 python -m unittest discover -s tests -v
 python scripts/evaluate.py --candidate tests/fixtures/candidate.jsonl --baseline tests/fixtures/baseline.jsonl
 ```
@@ -40,7 +41,13 @@ The fixture comparison is **synthetic tooling data, not product performance**. O
 | [DECISIONS](docs/DECISIONS.md) | Architecture/engineering decisions and trade-offs |
 | [RESEARCH](docs/RESEARCH.md) | Source-checked engineering/workflow and relevant prior-art references |
 
-GitHub Issues track tasks, PRs track reviewed implementation, source/tests specify actual behaviour. Avoid shadow task lists or dated session logs. The private hackathon management workflow is separate from this public team code repository.
+Use GitHub Issues for substantial tasks, PRs for reviewed integration and source/tests as the proof. **No ticket is needed for a five-minute fix.** When multiple agents work at once, follow [the short GitHub and human-prompting guide](docs/TEAM.md#practical-parallel-work-without-ceremony), not shadow task lists or dated session logs. The private hackathon management workflow is separate from this public team code repository.
+
+## Multi-model coding agents
+
+The six full workflow skills have one canonical source in `.agents/skills/` for Codex and Gemini CLI; `.claude/skills/` contains **byte-identical complete** Claude Code mirrors (not fragile shortcut wrappers). A deterministic parity check in CI prevents drift. Edit the canonical skill then run `python scripts/sync_skills.py --write`. Claude-native `.claude/agents/` subagents remain untouched. Human role/branch/handoff rules are shared in [TEAM](docs/TEAM.md).
+
+Codex: inspect the root `AGENTS.md` and use skills from `.agents/skills/`. Claude Code: use `CLAUDE.md`, its native `.claude/skills/` and optional `.claude/agents/`. Gemini CLI: use `GEMINI.md`, confirm `/memory show`, `/skills list`, and trust the repository if prompted. For web-only ChatGPT/Gemini/Claude, native discovery is not guaranteed: explicitly read the relevant repo files. None of these conventions automatically launches concurrent agents.
 
 ## Working agreement
 

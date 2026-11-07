@@ -1,5 +1,7 @@
 # Claude Code entrypoint
 
-Read [AGENTS.md](AGENTS.md) first. It is the cross-agent source of truth for ownership, implementation and verification. Task-specific procedures live in `.claude/skills/`; specialised role prompts live in `.claude/agents/`.
+@AGENTS.md
 
-Do not infer that the product architecture, simulator, API credentials, challenge brief or final submission has been selected merely because a template exists.
+Claude Code reads this `CLAUDE.md` at session start. The import above ensures the complete common contract is active, including when Claude prefers `CLAUDE.md` over `AGENTS.md`.
+
+Claude-native agents remain in `.claude/agents/`. Complete, discoverable Claude skill definitions remain in `.claude/skills/`; they are verified byte-identical mirrors of `.agents/skills/` via `python scripts/sync_skills.py --check`. Never replace them with partial wrappers.
