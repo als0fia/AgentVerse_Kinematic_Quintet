@@ -1,6 +1,6 @@
 # Runtime architecture
 
-**State: stack-neutral scaffold, architecture not chosen.** After project selection, keep this as the sole current architectural description. Avoid creating multiple incompatible diagrams.
+**State: Robotics challenge confirmed; simulator and product architecture remain unselected.** After project selection, keep this as the sole current architectural description. Avoid creating multiple incompatible diagrams.
 
 ## Component map
 
@@ -13,6 +13,23 @@
 | Independent verifier | Outcome and test instrumentation | TBD | TBD | unassigned | no |
 
 Delete irrelevant rows when deciding the project. Component boundaries should match actual folders, public functions and run commands, not decorative boxes.
+
+## Minimum required embodied loop (challenge constraint, not product selection)
+
+```text
+simulated world -> simulated sensor(s) -> perception / state estimate
+      ^                                     |
+      |                                     v
+ outcome / new observation <- bounded action <- decision / replanning
+      |                                     ^
+      +-- independent evaluator + disturbance injector + trace
+```
+
+A valid first episode must visibly **use at least one sensor input**, make an observable decision that is **not just a fixed waypoint script**, execute an action, and react to an **unexpected mid-run change** (for example a blocked route or displaced object). Keep an independent observer for success, perception/action frames and latency. **Avoid giving the agent perfect ground-truth simulator state if the submission claims sensor-based perception**; ground truth may be accessed by the evaluator only.
+
+The recommended control topology keeps the **time-sensitive action loop local to the simulator / robot runtime**, with explicit bounds, timeouts and graceful stop/re-plan. An optional remote reasoning model must have a narrow, infrequent role whose loss does not silently disable every decision. A remote *simulator/stream* (e.g. hosted Isaac Sim) is distinct from a remote *decision service*. Record both separately in RUN when selected.
+
+The simulation engine is undecided: NVIDIA Isaac Sim is organiser-recommended, but **MuJoCo / PyBullet / Gazebo / Webots** are organiser-named alternatives. Prefer the one that yields an observable running episode earliest on the actual team's resources; avoid costly GPU provisioning until compatibility, credits, streaming security and fallback are established.
 
 ## Required design information after decision
 
