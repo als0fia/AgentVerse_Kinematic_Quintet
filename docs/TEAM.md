@@ -84,7 +84,10 @@ At each natural sync, show a runnable demo or explicit blocker, not a slide. Con
 
 If branches conflict: integration lead preserves both contributors' intended behaviour and reruns affected interface and end-to-end tests. If new work breaks the demo, revert the **specific** bad change on a new safe commit or switch back to known-good commit; never force/reset others' history without human approval. Keep demo-safe branch/tag only when the team actively uses it.
 
-## First implementation / agent allocation (after core contract branch)
+## Historical planting-first implementation allocation (superseded)
+
+**Archive guard:** the following detailed Isaac/planting-first work split and Gate A–D entries document the *original* integration sequence, not the active weekend task. The current owner directions are in [the rescue-first handoff](#current-rescue-first-owner-handoff), [RUN](RUN.md#current-minimum-working-rescue-integration-assignment) and [ARCHITECTURE](ARCHITECTURE.md#single-runtime-and-one-rescue-episode-current-design-target). Preserve named original roles and historical context rather than rebuilding those milestones or changing robot geometry unilaterally.
+
 
 The first pure-Python `rice.v1` core and MuJoCo rover/seed simulation are already merged. **One human integrator** owns the shared types/runner; the existing rigid docking mechanics owner retains robot geometry. The next agent assignment is a MuJoCo *rescue skill integration*, not a new Isaac/planting-first skeleton. Keep other workstreams on narrow fixtures.
 
