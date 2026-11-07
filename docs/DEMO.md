@@ -23,15 +23,27 @@
 
 **Working pace suggested by the speaker:** Saturday morning reduce to one user/pain and one 30-second capability; Saturday afternoon prove core loop before styling; Saturday evening layer optional senses and rehearsals; Sunday stop new features roughly **two hours before the verified deadline**, record a short backup and test the demo from a clean checkout. These are suggested *internal timeboxes*, **not organiser schedule changes**. The published latest BuilderBase portal now says **Sunday 8 Nov 13:00 GMT** (older site was 14:00), so use the earlier deadline unless organiser verifies an extension.
 
-## Selected rice response: target continuous episode (not recorded)
+## RiceWatch: ≤60-second continuous P0 episode (not recorded)
 
-**Audience:** rice growers, irrigation and drainage operators; a drainage failure or excessive water rise needs inspection, not blanket assumption that all flooded-looking paddies are abnormal. The selected robotics proposal is *monitor → investigate → respond safely → verify*; robot rescue and other field domains remain possible extensions, not demonstrated features.
+**Pitch:** “A water gauge warns a rice farmer that something may be wrong. Instead of assuming every warning is real, an autonomous inspection robot **goes to gather evidence**, adapts if its path becomes unsafe, and reports what it could verify.” Normal shallow paddy water is not itself harmful; use site-defined synthetic abnormal readings rather than real agronomic damage claims.
 
-**≤60-second storyboard target:** (0–10 s) show paddy, bund-side physical rover and live gauge/sensor; abnormal rise triggers a reasoned inspection. (10–23 s) rover moves physically while camera/range or other true sensor observations appear alongside its actions. (23–35 s) a new obstacle/incorrect reading is introduced during the **same uninterrupted episode**, without privileged notification to policy. (35–50 s) rover perceives changed situation, picks a revised safe route or explicitly stops, and reaches a vantage or response point. (50–60 s) independent result: inspection outcome, safety trace, and **if really implemented** a gate-contact actuation followed by a measured water change. Keep narrative and numbers subordinate to what genuinely runs.
+**Target storyboard, continuous physics simulation with live sensor and command trace:**
 
-**Human mechanical review:** the rover should be a physically modelled machine, tentatively a simple bund/service-edge wheeled rover with mounted sensors; actual body/actuator selection requires teammate review. Do not promise off-road paddy travel, floodproof hardware, real gate torque or amphibious mobility without modelling, collision tests and evidence. A real in-water platform or multi-robot helper is optional next work.
+| Video segment | Physical and informational evidence |
+| --- | --- |
+| 0–10 s | Paddy with station water-gauge alert. Viewer identifies simulated fixed reading, its uncertainty and rover location; incident supervisor chooses a reachable inspection point. |
+| 10–25 s | Actuated rover travels along service bank; actual range/odometry readings and bounded local steering update. Local water reading is **not yet accessible** from the station. |
+| 25–38 s | Simulator injects an unexpected obstacle *during the same recording*. Rover's range sensor detects it; planner adjusts route to another valid viewpoint or safely stops. |
+| 38–52 s | Rover physically reaches the chosen local measurement position, samples **independent water-level evidence**, contrasts it with station gauge and updates incident belief. If unreachable, returns an honest unresolved assessment. |
+| 52–60 s | Show independent grader result and final `verified abnormal / likely false alarm / unresolved` report with source IDs. No need to touch water/gate; reference matched-seed baseline results only if genuinely run. |
 
-**Failure-focused explanation for judges:** after the mid-run obstruction or failed mitigation, the local controller must use a fresh observation to replan/abort safely; the high-level investigator chooses what to measure or which intervention to consider next. Show independent success/false-alarm and actual task disruption relative to a capable reactive baseline. If the actuation is only proposed, describe it as future work, not a completed demo.
+**Two additional evaluation episodes** (not necessarily all squeezed into the primary recording): true rise versus false gauge, with identical sensing/action budgets and a competent reactive planner. A visually rich screenshot is not independent proof; a real recording/trace is required.
+
+**Optional P1, only if there is surplus time:** physically actuate a separate drainage gate/control and show a subsequent synthetic water-proxy response. **Never make mitigation, lowering water, operating a gate or proving crop benefit a requirement of the P0 video, project or reviewer checklist.** Optional P2 robot rescue/domain transfer likewise not needed.
+
+**Robot design:** one physically credible wheeled inspection rover on a service bank, approved by human mechanical owner; no muddy in-crop driving, manipulator, waterproof hardware or flood control is presumed. Safety-critical local actions remain bounded without cloud LLM motor commands.
+
+**What can be claimed once measured:** autonomous on-site verification and adaptation in a stylised simulation. **Cannot claim** real crop protection, flood prevention, working gate manipulation, multi-robot rescue, real-world field hardware or unseen simulation outcomes.
 
 ## Demo card (fill with actual working entry)
 
