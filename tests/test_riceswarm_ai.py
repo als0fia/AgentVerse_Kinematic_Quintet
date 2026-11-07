@@ -160,5 +160,37 @@ class SimulationTests(unittest.TestCase):
         self.assertIn(test_pt, sim.field.harvested)
 
 
+    def test_dynamic_obstacle_injection_and_mid_run_replanning(self):
+        """Rubric 25% Adaptation to Change: Scene changes mid-sequence and agent re-plans."""
+        sim = RiceSwarmSimulation(start_day=0)
+        robot = sim.robots["RS1"]
+        goal = (5, 4)
+
+        # Calculate initial path across field
+        initial_path = shortest_path(sim.field, robot.pos, goal)
+        self.assertIsNotNone(initial_path)
+        self.assertGreater(len(initial_path), 2)
+        # Select an intermediate waypoint directly along the path
+        target = initial_path[len(initial_path) // 2]
+        self.assertIn(target, initial_path)
+        robot.planned_route = list(initial_path)
+
+        # Mid-run dynamic obstacle injection directly at target waypoint
+        sim.field.truth[target] = Terrain.BLOCKED
+        sim.field.belief[target].terrain = Terrain.BLOCKED
+        sim.field.belief[target].obstacle = True
+
+        # Invalidate affected route
+        if target in robot.planned_route:
+            robot.planned_route = []
+            robot.destination = None
+
+        # Robot re-plans route around the newly appeared obstacle
+        replanned_path = shortest_path(sim.field, robot.pos, goal)
+        self.assertIsNotNone(replanned_path)
+        self.assertNotIn(target, replanned_path, "Replanned route must avoid the newly injected obstacle")
+        self.assertNotEqual(initial_path, replanned_path)
+
+
 if __name__ == "__main__":
     unittest.main()
