@@ -15,18 +15,31 @@
 | Robotics theme (onsite slide) | **Embodied AI — “Turn perception into safe physical action.”** | Organiser presentation photographed by attendee on 7 Nov 2026. This is a track direction, **not** the exact scored challenge prompt or proof of mandated architecture |
 | Examples on Robotics slide | “3D drone fleets & assistive wearables”; “MuJoCo twins or offline Gemma 4”; caption “NVIDIA & UCL Robotics” | Illustrative slide examples and named collaborators, **not** evidence of supplied drones, wearables, simulator instances, GPUs, model access or credits |
 | Model/tool slide | “Gemini 4 Argon” (deep reasoning); “3.8 Flash + Gemma 4” (speed/offline); “3.8 Live + Speech” (vision/voice); “Banana · Lyria · Veo” (media) | Organiser slide photographed 7 Nov. **Gemini 4 Argon and Gemma 4 are distinct labels.** These are presentations, not verified entitlements, installed packages or tested model IDs |
-| Hardware/sim/credits | **Not verified** | Ask at reveal / official resources |
+| Simulation requirement | **Simulated embodied agent** with at least one simulated sensor, a decision made from current sensed state, and an observable action; not just a pre-scripted route | **Robotics track organiser slide 35**, attendee photo 7 Nov 2026; exact sensor type and solution unrestricted in captured slide |
+| Simulator choices | **NVIDIA Isaac Sim recommended**; MuJoCo, PyBullet, Gazebo or Webots named as alternatives | **Robotics slide 36**; not proof of provision/availability; Isaac Sim remote WebRTC requires compatible GPU and NVENC |
+| Modal credits/GPU | **Promised verbally, not provisioned or verified** | Presenter STT refers to GPU/streaming and offered example GitHub setup; exact GPU model obscured by transcription; check booth/account before committing |
+| Hardware/sim/credits | **No team instance/account/credit receipt verified** | Requires member preflight; local MuJoCo or equivalent is legitimate fallback |
 | Prior work, AI, IP, submission fields | **Not verified** | Obtain actual written event-specific rules |
 
 ## Challenge capture (fill only from verified reveal)
 
-- **Exact official problem statement/link:** not captured; do not reinterpret the broad Robotics track theme or example use cases as a mandatory challenge
-- **Judging rubric + sponsor eligibility:** not captured
-- **Mandatory technical constraints and resources:** not captured
-- **Demo/video/repository/format requirements:** not captured
+- **Observed Robotics challenge statement:** “Give an agent a body.” Build an embodied agent that perceives a simulated world, reasons from sensed observations and acts autonomously. **Slides 35–38**, user-shared organiser photos on 7 Nov 2026; written official portal PDF/link not yet captured.
+- **Judging:** perception-driven action, adaptation to a mid-run scene change, operational autonomy/local decision-making, originality/quality. Slide 36 shows 25%, 25%, 20%, 15% clearly while another segment/association is obscured: **do not publish a complete weighted scoring table** without a clearer primary source. Presenter says remote calls for each decision reduce autonomy score; using remote simulation itself is not necessarily disallowed. Sponsor prize eligibility remains unconfirmed.
+- **Technical constraints/resources:** at least one simulated sensor, observable action (navigation/movement/manipulation/communication), autonomous reaction to sensed state, and demonstrated recovery when a scene changes. Recommended Isaac Sim + headless streaming; others listed above. Actual Modal GPU credits, sensor feed, available GPU and model endpoints are *not* validated.
+- **Deliverables (slide 37):** (1) **one-page PDF technical summary** with beneficiary/problem, features, architecture, model placements, hardware/latency, limitations and safety; (2) **≤1-minute video from simulation stream** showing perception and actions side-by-side and an unexpected change in a **single continuous take**; (3) **five-minute live pitch only if shortlisted**. Portal submission fields, upload formats and link requirements still unverified.
 - **Allowed reuse, licences and AI disclosure:** not captured
-- **Observation time and source:** 7 Nov 2026, onsite organiser slides supplied by an attendee (photos in conversation); not independently confirmed by a written portal brief. Model slide also mentions a claimed 1M window / Antigravity sandbox for Gemini 4 Argon, Gemma 4 E2B/E4B offline, and a reasoning-effort dial. Treat these as **slide claims only**, not verified technical access or implementation decisions
+- **Observation time and source:** 7 Nov 2026, initial DeepMind introduction slides plus newer **Robotics-specific organiser slides 35–38** and attendee-provided presenter STT. The Robotics-specific later material supersedes earlier broad examples where narrower. Written brief link still pending. Model slide also mentions a claimed 1M window / Antigravity sandbox for Gemini 4 Argon, Gemma 4 E2B/E4B offline, and a reasoning-effort dial. Treat these as **slide claims only**, not verified technical access or implementation decisions
 - **Conflicts or interpretations for organiser clarification:** none recorded
+
+## Implementation implications from Robotics-specific official reveal
+
+**Perceive → decide → act, with feedback and variation.** The agent must consume **at least one sensor measured from the simulated world** and produce a grounded action that affects the next world state. Require visible changes in inputs and actions when an obstacle, goal, equipment state or scene condition changes. A prerecorded trajectory, fixed sequence, or UI narration without an actual closed loop is not a passing demo.
+
+**Autonomy is a behaviour, not a model brand.** Keep short-horizon action selection and safety checks inside the simulation/robot runtime where practical; benchmark an offline/network-loss condition rather than assuming cloud AI. A high-level LLM can help plan/diagnose if justified, but remote inference on every actuation tick is risky for latency, reliability and the rubric. **Remote GPU simulation/streaming is a separate issue from remote agent decision-making.**
+
+**NVIDIA caveats independently verified:** [Isaac Sim requirements](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html) are demanding and [WebRTC livestream docs](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/manual_livestream_clients.html) require NVENC, with a warning against insecure public stream exposure. [MuJoCo Python](https://mujoco.readthedocs.io/en/stable/python.html) is a documented alternative for a lighter local test loop. The presenter's vague GPU model in STT, the example GitHub launcher, issued Modal credits and live endpoint permissions remain unverified.
+
+**Engineering checklist:** a reproducible scene/seed; instrumented sensor; inspectable decision/log; action with bounds; mid-episode disturbance; behaviour change; objectively scored outcome; contrasted baseline; visible video capture; complete summary/pitch. No selected product, simulator, installed models, tests or credits are implied merely by this checklist. Official portal remains final authority for submission mechanics.
 
 ## DeepMind onsite technical guidance (attendee photographs, 7 November)
 
