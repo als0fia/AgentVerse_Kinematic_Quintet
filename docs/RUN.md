@@ -1,6 +1,6 @@
 # Reproducible setup, run and recovery
 
-**Application runtime not yet chosen.** Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
+**P0 product frozen as RiceWatch autonomous inspection/diagnosis, not mitigation.** Application runtime not yet chosen; no simulator run verified. Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
 
 ## Foundation checks — actually available
 
@@ -42,7 +42,8 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 **First coding agent assignment (copy into agent on its own branch/worktree):**
 
 ```text
-Build the FIRST executable Rice flood-response architecture, not the complete app.
+Build the FIRST executable RiceWatch autonomous INSPECTION architecture,
+NOT a flood-control or gate-manipulation robot.
 Read AGENTS.md, PRODUCT, ARCHITECTURE, CONTRACTS, RUN and the two matching
 embodied-loop/contracts-first skills. Use the latest main SHA and own the
 initial src/ricebot/contracts.py, sim adapter, runner and integration tests.
@@ -56,14 +57,14 @@ Freeze a minimal tested v0 observation/intent/control fixture and create a
 reproducible seed/reset/headless runner. A viewer may subscribe but cannot own
 world physics or command robot joints.
 Show ACTUAL commands executed, pass/fail results, a sensor-action-sensor
-trace, time/latency and limitations. No LLM, water CFD, manipulator,
+trace, time/latency and limitations. No LLM, water CFD, gate/valve/pump actuation, manipulator,
 multi-agent rescue or invented successful tests in the first PR.
 Do not merge, spend credits or submit without human approval.
 ```
 
 **First PR's independent acceptance:** an actual actuated wheel/position change, actual range value change, mid-run sensed obstruction, bounded changed controller action or safe HOLD, deterministic seed, a tested interface fixture, and exact setup/test commands. A mocked JSON sequence **alone** fails this gate. The intended future command shape is `python -m ricebot.runner --scenario blocked_route --seed 7 --headless`—this **does not exist yet**, and the next agent must replace it with an actually working invocation.
 
-**After first integration:** split world/water proxy, human-led robot mechanics/controller, investigation planner, and independent evaluator/UI across the other four owners. Desired P1 is a physically actuated accessible gate/lever or carefully distinguished separate field actuator that measurably changes a **synthetic** water model. P2 is optional second robot recovery. Do not claim flood prevention or physical rescue from advisory messages.
+**After first integration:** P0b **must** add an independently observed local water-level measurement only when the rover reaches an observation point; model both real abnormal rise and a false station-gauge alert, and return `verified abnormal / likely false alarm / unresolved` without using hidden simulator truth. P0c adds same-seed baseline, independent grader and continuous video. Human-owned parallel tasks: world/sensor, rover/control, incident planner, evaluation/UI. **P1 gate/valve/flood mitigation is wholly optional after P0**, as is P2 helper-robot recovery; neither is required for P0 success.
 
 ## Selected rice mission — proposed simulator smoke path
 
@@ -72,10 +73,11 @@ Do not merge, spend credits or submit without human approval.
 1. In an approved local development environment, install/run the exact simulator version after preflight; record actual commands, physics timestep, frames, operating system and GPU usage once verified.
 2. Spawn a physical rover beside a stylised rice paddy with a passable service edge and a drainage outlet; show real collision/terrain geometry, wheel actuation and at least one timestamped real simulator sensor value.
 3. Implement minimal waypoint movement under local feedback, bounded speed and collision/edge stop. Spawn a **mid-run unexpected obstruction** and show actual replanning in the same episode; reset deterministic seed and repeat.
-4. Feed a gauge/field observation into an incident triage component. If flood mitigation is feasible, build a *real contact/lever skill and a documented simplified water-balance process*; require follow-up water measurements. Otherwise stop at honest physical inspection + decision.
-5. Produce independent baseline and candidate JSONL results with real episode traces (not the included synthetic fixtures), and a continuous video; log unverified claims separately.
+4. **Required for P0:** feed an ambiguous fixed-gauge warning into an incident triage component. Rover travels to a second observation location, obtains an actual local sensor measurement (not a privileged true-state lookup), diagnoses `verified abnormal / likely false alarm / unresolved`, and records its sources. Test both a genuine abnormal rise and a faulty fixed gauge.
+5. **P1 completely optional, not a P0 requirement:** only if P0 is already reproducible and its demo secured, consider a separately physically actuated gate/lever and synthetic water-balance proxy. No gate or water reduction is needed for a finished RiceWatch submission.
+6. Produce independent baseline and candidate JSONL results with real episode traces (not the included synthetic fixtures), and a continuous video; log unverified claims separately.
 
-**Design gates for human approval:** bund and outlet dimensions, wheelbase/ground clearance, approximate mass/inertia, traction assumptions, range/camera mount, motion contact/force caps, battery return policy, crop no-go regions and whether a gate is realistically accessible. A water model is not a CFD flood forecast; a successful simulation is not evidence of actual yield protection. Agentic developer tooling may help draft the MJCF/URDF, but no hardware build, purchases or real-world deployment are authorised.
+**Design gates for human approval:** bund width and safe rover service path, wheelbase/ground clearance, approximate mass/inertia, traction assumptions, rover range/odometry plus **physically meaningful water-observation placement**, motor bounds, battery return policy and crop no-go regions. Gate access/contact-force design only if the team separately opts into P1. A water model is not a CFD flood forecast; a successful simulation is not evidence of actual yield protection. Agentic developer tooling may help draft the MJCF/URDF, but no hardware build, purchases or real-world deployment are authorised.
 
 ## Fill immediately after selecting the product stack
 

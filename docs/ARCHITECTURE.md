@@ -1,6 +1,6 @@
 # Runtime architecture
 
-**Selected application:** rice-field abnormal-water monitoring, active investigation and targeted response. **The robot body, simulator, models and actuator are design proposals, not built or proven.** This is the canonical architecture; the mission is in [PRODUCT](PRODUCT.md), shared wire contracts in [CONTRACTS](CONTRACTS.md), observed tests in [TESTING](TESTING.md).
+**Selected P0 application:** RiceWatch physical water-alert **verification and diagnosis**, plus safe rover adaptation. **Physical gate/flood mitigation is optional P1 only, NOT an initial capability or acceptance criterion.** **The robot body, simulator, models and actuator are design proposals, not built or proven.** This is the canonical architecture; the mission is in [PRODUCT](PRODUCT.md), shared wire contracts in [CONTRACTS](CONTRACTS.md), observed tests in [TESTING](TESTING.md).
 
 ## End-to-end system: a monitoring decision with physical consequences
 
@@ -14,7 +14,7 @@ Independent outcome verifier <- physical simulated environment <- safe local rov
 Mid-run disturbance injector                      optional gate/contact mitigation skill
 ```
 
-For P0, a **single real simulated rover** receives an abnormal-rise alert, drives to an inspection site using sampled sensors, encounters an unannounced route obstruction or sensor inconsistency, chooses a safe changed course and takes a follow-up observation. For P1, its **physical actuation** changes an explicit, simplified water/drainage model; an independent reading checks actual simulated effect. No scripted UI gate, magically cleared obstruction, oracle truth passed to the planner or mandatory cloud servo loop.
+For P0, a **single physically simulated rover** receives an ambiguous fixed-gauge alert, chooses an inspection site, physically travels using its local range/odometry and takes a **new independent location-dependent water-level observation**. The station gauge may be faulty and the rover may encounter an unannounced route obstruction; it diagnoses `verified abnormal` / `likely false alarm` / `unresolved` from observations and adapts its route or safely abstains. **It does not alter water flow, operate a gate, pump or mitigate the flood.** Only **if time permits after P0 is proven**, P1 introduces a separately validated physical drainage/gate actor and a synthetic water-change model, with an independent after-action reading; no P0 module may depend on its existence. No scripted UI gate, magically cleared obstruction, oracle truth passed to the planner or mandatory cloud servo loop.
 
 | Functional component | Input → output | Candidate method | Status |
 | --- | --- | --- | --- |
@@ -23,14 +23,14 @@ For P0, a **single real simulated rover** receives an abnormal-rise alert, drive
 | **Incident investigator** | Gauge/robot evidence → hypothesis and next useful observation | Bayesian belief + information gain; optional bounded LLM when it improves the baseline | Design only |
 | **Task coordinator** | Candidate inspection/response, battery, risk → approved robot task | Constrained planner/allocator; single robot to start | Design only |
 | **Robot control / safety** | Target task + fresh local sensing → bounded wheel/steering/contact forces | Deterministic navigation / motion planning / safety stop | Design only |
-| **Mitigation interface (P1)** | Inspected gate + reachable tool → bounded manipulation, then new water proxy | Simple lever/contact skill and simulated water balance, **only if implemented** | Wish / stretch |
+| **Mitigation interface (P1 OPTIONAL)** | Additional capability plugin for an *actual* separate gate/lever actor, no dependency in P0 | Simple contact actuation plus synthetic water-balance proxy **only if time permits** | Optional stretch; not part of P0 tests |
 | **Independent evaluator** | Hidden simulator state + trace → measurements and failed attempts | Scripted world disturbance, automatic physical result checker, same-seed baseline | Design only |
 
 ## Robot embodiment is a real engineering decision
 
-**A robot must have a physically plausible body and mechanisms; a moving map icon isn't enough.** For the first demo, the *recommended reference concept* is a compact wheeled inspection rover **travelling on a relatively firm rice-field bund/service edge**, looking into adjacent paddies and visiting an outlet. This is a deliberately restricted **simulated operating envelope**, not a claim a conventional rover can drive through flooded paddy crops.
+**P0 needs physically credible rover movement and independently sampled water-level readings, not a drainage actuator.** A robot must have a physically plausible body and mechanisms; a moving map icon isn't enough. For the first demo, the *recommended reference concept* is a compact wheeled inspection rover **travelling on a relatively firm rice-field bund/service edge**, looking into adjacent paddies and visiting an outlet. This is a deliberately restricted **simulated operating envelope**, not a claim a conventional rover can drive through flooded paddy crops.
 
-**Human-led design review is required before implementation commitments**: a teammate should approve where it operates, whether wheels/tracks/flotation are appropriate, approximate chassis dimensions, mass/centre of mass, wheelbase/track footprint, traction and clearance assumptions, motor/steering layout, battery and return reserve, sensor position, water ingress/splash limits, crop/no-go clearance, reach to a gate and safe contact-force limits. The AI may help generate concept options, parametrised models and tests but **must not invent a fabricated robot design as finished hardware** or autonomously decide to procure/modify hardware.
+**Human-led design review is required before implementation commitments**: a teammate should approve where it operates, whether wheels/tracks/flotation are appropriate, approximate chassis dimensions, mass/centre of mass, wheelbase/track footprint, traction and clearance assumptions, motor/steering layout, battery and return reserve, sensor position (including where it samples local water), water ingress/splash limits and crop/no-go clearance; **gate reach/contact-force limits matter only for optional P1**. The AI may help generate concept options, parametrised models and tests but **must not invent a fabricated robot design as finished hardware** or autonomously decide to procure/modify hardware.
 
 | Design alternative | Benefit | Principal burden and suitability |
 | --- | --- | --- |
@@ -39,13 +39,15 @@ For P0, a **single real simulated rover** receives an abnormal-rise alert, drive
 | **Floating / amphibious rice-row platform** | Can directly inspect submerged field and adapt to water level | Buoyancy, water propulsion, clearance around plants, contact realism and greater simulation complexity; P2 research path |
 | **Fixed station + small mobile rover** | Grounded water monitor and mobile verification, with local/offline control | Distributed sensors and possibly radio model; start with a local message interface, not a required second physical robot |
 
-**Mechanical simulation acceptance:** actuated joints/wheels; real collision geometries; reasonable mass and inertia; traversable/non-traversable surfaces, obstacle and crop-protection zones; locally sampled sensors with timestamps; a measurable stop/replan after surprising contact or obstacle; and one explicit fall/slip/battery/blocked-gate failure. A later manipulator must physically reach and operate the outlet with collision/force limits; if it does not, label the mitigation as a *recommendation* only.
+**Mechanical simulation acceptance:** actuated joints/wheels; real collision geometries; reasonable mass and inertia; traversable/non-traversable surfaces, obstacle and crop-protection zones; locally sampled sensors with timestamps; a measurable stop/replan after surprising contact or obstacle; and a clearly modelled route obstruction or safe-stop failure. Blocked-gate failures belong to optional P1 only. A later manipulator must physically reach and operate the outlet with collision/force limits; if it does not, label the mitigation as a *recommendation* only.
 
 **Relevant engineering precedents:** [2026 paddy chassis review](https://pmc.ncbi.nlm.nih.gov/articles/PMC12901939/) reports tracked versus wheeled terrain/soil-disturbance trade-offs; a [2026 floating two-wheel paddy weeding robot](https://www.fujipress.jp/jrm/rb/robot003800020404/?lang=ja) uses floats and a four-bar wheel mechanism. Neither design is automatically our hardware or a ready-made MuJoCo asset. Do not extrapolate demonstrated paddy-row capability from an unverified bund-rover model.
 
 ## Generalisable intervention framework, without claiming transfer
 
 Domain-neutral core: **detect uncertain event → decide inspect / wait / intervene / escalate → assign constrained physical skill → verify consequence / replan**. Rice-specific water-level interpretation, bund geometry, crop protection and outlet mechanism are **adapters**; forest restoration and space/construction would need *different bodies, sensors, safety and effect models*. They are pitch-level potential applications until separately simulated and evaluated.
+
+**Explicit scope boundary:** P0 finishes at observation, incident diagnosis and safe abstention; **never mark a gate/valve/pump or flood-control effect as required for the first build**. The agent's potential generic actor-dispatch interface should support optional future capabilities without instantiating them now.
 
 **Robot-to-robot rescue (P2 optional):** when the rover becomes trapped, disconnected or low on reserve, a future fleet agent weighs wait/self-recovery versus human contact versus safe helper dispatch and lost task productivity. A genuine rescue demo would require another physics-enabled robot physically assisting, not only a text assignment. It must not delay P0/P1.
 
