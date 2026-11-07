@@ -87,7 +87,7 @@ Output **critical / major / minor findings with file/line and proof**, exact unr
 
 1. Kernel integrator supplies one **tested** `rice.v1` fixture and code snapshot.
 2. World developer builds tiny field and physical mock rover; robot developer builds the real articulated asset/reference scene **in parallel**, each on owned paths; both send dimension/coordinate/sensor/hopper seam details.
-3. One Isaac adapter writer integrates both into the existing `SimulationPort` (no separate kernel). **Physical seed drop/contact before sophisticated map/UI.**
+3. **Current P0:** one MuJoCo integrator reuses both existing modules and `SimulationPort` (no parallel kernel) to connect detected fault, bounded rigid-dock recovery and independent resumed fieldwork. The tested seed-drop remains a regression. A later Isaac adapter is only a separately tested translation.
 4. Map/scout and evaluator consume valid observations and contact records; inject mid-run obstacle/new local sample.
 5. Independent reviewer runs direct + combined tests, records matched-seed baseline, and keeps the ≤60-second continuous demo reproducible.
 

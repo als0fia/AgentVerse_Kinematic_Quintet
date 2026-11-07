@@ -1,4 +1,6 @@
-# RiceSwarm AI — Complete Condition-Based Rice Farming Lifecycle Simulation
+# RiceSwarm AI — legacy, abstract full-season simulator (NOT Antenna's submission runtime)
+
+**Repository status:** Retained for teammate experiments and historical reproducibility, **not** the current Antenna P0 application. The actual rescue-first MuJoCo physics/docking and rice.v1 runtime are in [`src/ricebot/`](../ricebot/) and [root README](../../README.md). This full-season six-robot environment models abstract grid/task events; its rescue decision is **not** the tested physical rigid-docking/extraction or the autonomous end-to-end episode. Do not build a parallel simulator for the submission or cite its synthetic planting/yield figures as agronomic performance.
 
 **RiceSwarm AI** is an autonomous multi-agent robotic coordination system for sustainable rice farming in flooded Chinese paddy environments (田埂 dikes, flooded irrigation, variable puddling resistance).
 
@@ -45,11 +47,11 @@
 ### 1. Run Interactive Visualizer (Tkinter GUI)
 
 ```bash
-python sample/riceswarm_ai/run_demo.py --gui
+python src/riceswarm_ai/run_demo.py --gui
 ```
 Or directly:
 ```bash
-python -m riceswarm_ai.cli --gui
+PYTHONPATH=src python -m riceswarm_ai.cli --gui
 ```
 
 **GUI Controls:**
@@ -66,7 +68,7 @@ python -m riceswarm_ai.cli --gui
 ### 2. Run Headless Full-Season Simulation (CLI)
 
 ```bash
-python sample/riceswarm_ai/run_demo.py --season --days 140
+python src/riceswarm_ai/run_demo.py --season --days 140
 ```
 Outputs complete seasonal metrics in JSON and saves event traces:
 ```json
@@ -103,7 +105,7 @@ Outputs complete seasonal metrics in JSON and saves event traces:
 ### 3. Run Automated Unit Tests
 
 ```powershell
-$env:PYTHONPATH = 'sample'
-python -m unittest discover -s sample/riceswarm_ai/tests -v
+$env:PYTHONPATH = 'src'
+python -m unittest discover -s src/riceswarm_ai/tests -v
 ```
-All 12 lifecycle tests pass covering two-section staggered calendar phases, continuous environmental monitoring, mud risk tiers, condition-gated transplanting/weeding, pre-harvest drainage, harvesting, and peer mud rescue.
+These tests are included in the repository's CI suite, but verify the *abstract legacy lifecycle rules* rather than physical rescue, true field yields or the Antenna integrated mission. Run the commands on your own host before asserting live desktop-GUI success.

@@ -13,13 +13,14 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from math import hypot
+from math import hypot, pi
 from typing import Protocol
 
 from ..contracts import (
     ObservationFrame,
     Pose2D,
     RobotCapability,
+    RobotCommand,
     RobotObservation,
     Site,
     TaskIntent,
@@ -351,6 +352,8 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         self._previous_eligible: set[str] = set()
         self._blocked_approaches: dict[tuple[str, str], float] = {}
         self._last_pose: dict[str, Pose2D] = {}
+        self._last_commands: dict[str, RobotCommand] = {}
+        self._last_episode: str | None = None
         self._stuck_counts: dict[str, int] = {}
         self.last_rescue_assessments: dict[str, RescueAssessment] = {}
         self.advisor_calls: int = 0
@@ -361,31 +364,76 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
             return self.travel_cost_fn(pose, site)
         return hypot(pose.x_m - site.center.x_m, pose.y_m - site.center.y_m)
 
+    def record_commands(self, commands: tuple[RobotCommand, ...]) -> None:
+        """Keep *issued* movement evidence for the next observation frame.
+
+        An active SAMPLE/PLANT task does not prove the controller commanded
+        motion: obstacle avoidance, seed release, missing sensors and safe HOLD
+        can all correctly produce zero wheel commands.
+        """
+        self._last_commands = {
+            command.robot_id: command
+            for command in commands
+            if command.robot_id in self.capabilities
+        }
+
     def _update_stranded_tracking(self, frame: ObservationFrame) -> set[str]:
-        """Detect robots that are stranded (sensor fault range_m=None, or immobilized for N ticks)."""
+        """Conservative incident detection; never treat a missing range as stuck.
+
+        Detect a genuine commanded-motion mismatch over repeated valid frames.
+        A physics adapter may also report an explicit synthetic is_bogged
+        observation. The high-level mission should still independently test
+        actual wheel/pose evidence before claiming physical rescue success.
+        """
+        if frame.episode_id != self._last_episode:
+            self._last_episode = frame.episode_id
+            self._last_pose.clear()
+            self._stuck_counts.clear()
+            self._last_commands.clear()
+
         stranded: set[str] = set()
         for robot in frame.robots:
-            prev_pose = self._last_pose.get(robot.robot_id)
-            prev_mode, _ = self._previous_targets.get(robot.robot_id, (TaskMode.HOLD, None))
-            moved = (
-                hypot(robot.pose.x_m - prev_pose.x_m, robot.pose.y_m - prev_pose.y_m)
-                if prev_pose is not None
-                else 1.0
+            previous_pose = self._last_pose.get(robot.robot_id)
+            previous_command = self._last_commands.get(robot.robot_id)
+            displacement_m = (
+                hypot(
+                    robot.pose.x_m - previous_pose.x_m,
+                    robot.pose.y_m - previous_pose.y_m,
+                )
+                if previous_pose is not None else float("inf")
             )
-            sensor_fault = robot.front_range_m is None
-            blocked_immobile = (
-                prev_mode != TaskMode.HOLD
-                and moved < 0.02
-                and robot.front_range_m is not None
-                and robot.front_range_m <= self.obstacle_trigger_range_m
+            yaw_delta_rad = (
+                abs((robot.pose.yaw_rad - previous_pose.yaw_rad + pi) % (2 * pi) - pi)
+                if previous_pose is not None else float("inf")
             )
-            if sensor_fault or blocked_immobile:
-                self._stuck_counts[robot.robot_id] = self._stuck_counts.get(robot.robot_id, 0) + 1
+            actively_commanded = (
+                previous_command is not None
+                and previous_command.issued_at_s < robot.time_s
+                and robot.time_s <= previous_command.expires_at_s + 0.05
+                and (
+                    abs(previous_command.linear_m_s) >= 0.04
+                    or abs(previous_command.angular_rad_s) >= 0.10
+                )
+            )
+            # An obstacle or failed sensor may properly cause a safety stop.
+            # The controller must not call that an immobilisation incident.
+            clear_range = (
+                robot.front_range_m is not None
+                and robot.front_range_m > self.obstacle_trigger_range_m
+            )
+            motion_failed = (
+                actively_commanded and clear_range and robot.link_ok
+                and displacement_m < 0.005 and yaw_delta_rad < 0.02
+            )
+            if motion_failed:
+                self._stuck_counts[robot.robot_id] = (
+                    self._stuck_counts.get(robot.robot_id, 0) + 1
+                )
             else:
                 self._stuck_counts[robot.robot_id] = 0
             self._last_pose[robot.robot_id] = robot.pose
 
-            if sensor_fault or self._stuck_counts[robot.robot_id] >= self.stuck_ticks_threshold:
+            if robot.is_bogged or self._stuck_counts[robot.robot_id] >= self.stuck_ticks_threshold:
                 stranded.add(robot.robot_id)
         return stranded
 
@@ -723,7 +771,9 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         winning_bids: dict[str, AgentBid] = dict(rescue_assignments)
 
         for robot in robots_sorted:
-            if advisor_override and robot.robot_id in advisor_override:
+            # Advisory task suggestions must never override a verified stranded
+            # robot's HOLD or a safety-gated helper rescue assignment.
+            if advisor_override and robot.robot_id in advisor_override and robot.robot_id not in winning_bids:
                 mode, target_id, reason = advisor_override[robot.robot_id]
                 if target_id is not None:
                     assigned_sites.add(target_id)

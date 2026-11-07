@@ -1,6 +1,6 @@
 # Runtime architecture — Antenna rescue-first collective rice-field robotics
 
-**Current canonical mission:** Antenna is **rescue-first**. Physical rice-field soil/stand sensing, map, navigation and seed placement supply a real useful task; the principal agent decision is risk-aware physical recovery or safe abstention. The new Paddy Ant rigid-dock MJCF and scripted towing test prove one **test-level** physical mechanism, but not automatically detected recovery and resumed field operations. MuJoCo is checked in; Isaac Sim remains unverified. See [PRODUCT](PRODUCT.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) and D-0009.
+**Current canonical mission:** Antenna is **rescue-first**. Two robots do a small amount of useful fieldwork and must handle a genuine stranded teammate. The mission-level supervisor should reason across robot state, human priorities and calculated risk, use tools to dispatch/monitor a recovery, and adapt when its first plan fails; field mapping and planting remain context. The new Paddy Ant rigid-dock MJCF and scripted towing test prove one **test-level** physical mechanism, while the command-versus-motion incident classifier has separate passing tests; neither proves automatically actuated recovery or resumed field operations. MuJoCo is checked in; Isaac Sim remains unverified. See [PRODUCT](PRODUCT.md), [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) and D-0009.
 
 **Update after merged PR #28 (7 Nov 2026):** `src/ricebot/agent/mycelial_swarm.py` now implements **simulated Policy B**: separate `LocalMycelialMap` and `LocalSlamGrid` instances for each rover, event-triggered `MycelialGossipPacket` exchanges with modelled distance/link blackout, provenance deduplication, and task bids. Tests include isolated vs connected maps, blackout recovery and changed planting target. It runs inside a shared Python/MuJoCo simulation; **no physical UWB or Wi-Fi HaLow radios, deployed distributed processes, Jetson inference or integrated autonomous physical rescue have been verified**. Policy A's `CooperativeSwarmPlanner` remains a centralised baseline. The merged PR #24 separate scripted MuJoCo rigid-docking/tandem extraction test is physical simulation mechanics, not the full sensed-rescue mission.
 
@@ -12,39 +12,44 @@ Next ownership seam: physically observable fault → typed bounded evidence and 
 
 ## Current module ownership and mock/real replacement boundary
 
-The [canonical component guide](COMPONENTS.md) splits the world/field/probe owner, human-led robot/seed-tool designer, one Isaac scene-composition/SimulationPort writer, kernel integrator, planner and independent evaluator. The human using ChatGPT and the human using Gemini can exchange the world/robot roles without changing this boundary. Keep `src/ricebot/runtime.py`'s **implemented** `SimulationPort.reset(seed)/step(commands)` interface as the only cross-engine mission seam; the actual Isaac implementation must drive real joints and detect real seed contact.
+The [canonical component guide](COMPONENTS.md) splits the **existing** MuJoCo world/probe, homogeneous robot/mechanical rescue, one simulation composition writer, `rice.v1` kernel integrator, coordination/agent and independent evaluator. Keep the **implemented** `SimulationPort.reset(seed)/step(commands)` seam; add the smallest compatible fault/recovery action/result integration through its sole owner. Any future Isaac translation would reuse that seam and require separate physical validation.
 
-Develop the 3–6-site world against a *physically actuated* mock rover if the designed rover is not ready. Swap the asset and motor/sensor mapping in the Isaac composition layer after human approval; **retest** clearance, wheel radius, turning limits, mounting frames, reach, release and contact. No second episode kernel, independent planner, direct world-truth read or teleporting seed. The full [mock-to-real acceptance checklist](COMPONENTS.md#mock-rover-first--approved-designed-rover-next) is the reference.
+For the weekend, **reuse the committed MuJoCo rover bodies and small field**, not a second mock world or a new Isaac scene. The human mechanical owner controls dock/traction limits; the integrator wires actual contact, result and stop feedback. A future asset/engine swap would require retesting geometry, force, collision and sensor/actuator mapping under the [existing swap checklist](COMPONENTS.md#mock-rover-first--approved-designed-rover-next). Never create a second episode kernel, hidden-truth oracle or animation-only recovery.
 
-## Physical simulation and task flow
+## Single runtime and one rescue episode (current design target)
 
 ```text
-                 ISAAC SIM OpenUSD + PhysX world
-    prepared/partly drained rice patch, gaps, synthetic soil,
-    existing plants, lanes/no-go, surprise obstacles, seed proxies
-       |                                        ^
-       | local sampled sensor readings          | actual wheel/seed-drop actions
-       v                                        |
-  [rover-1: planter]  [rover-2: scouting robot] |
-       |                   |                    |
-       +---- measured samples & pose estimates--+
-                           |
-                 SHARED BELIEF MAP
-          estimated moisture/firmness/stand gap
-         mean, uncertainty, provenance, freshness
-                           |
-                   MISSION PLANNER
-         choose SAMPLE vs PLANT vs HOLD,
-         which robot, site and safe route
-                           |
-             BOUNDED LOCAL CONTROLLERS ---------+
-                           |
-                independently observed landing
-                           |
-         READ-ONLY VIEWER + SEPARATE TRUTH GRADER
+              ONE MuJoCo simulation / reset+step loop
+ tiny rice-field mission + two homogeneous robots + one traction/fault event
+                          | sensed state / physics feedback
+                          v
+                  rice.v1 ObservationFrame
+                          |
+              fault evidence + fleet/field context
+                          v
+       ONE mission supervisor / coordination seam
+       - existing: numerical triage and Policy A task bids
+       - alternative implemented: simulated Policy B per-rover gossip
+       - proposed: LLM tool loop for inspect -> assess -> act -> monitor/revise
+                          |
+                     risk/safety gate
+                          v
+         typed recovery skill request (NOT YET IMPLEMENTED)
+                          |
+          bounded drive -> dock -> latch -> lift/tow
+                          |
+               MuJoCo physical outcome
+                          |
+            supervisor feedback + continued work
+                          |
+          independent evaluator / read-only viewer
 ```
 
-**Separation rule:** Isaac Sim owns all physics and hidden true synthetic soil/stand map. Sensors must be sampled at physical robot positions; an imaginary soil score or object-location oracle is not an observation. Each robot contributes independently timestamped samples to the same map. The mission planner acts on the **estimated** map, not hidden truth. Local controllers own high-rate wheel/obstacle/no-go safety. The planter needs a **physically simulated hopper/dropper and rigid-body seed proxy with observed contact/landing**, not text saying “planted”. UI is a subscriber, not a second world engine. Hidden truth exists only for evaluation.
+**Integration gaps:** the `SimulationPort`, rover hardware model, rice world, planting contact and scripted rigid-dock extraction already exist in the shared MuJoCo codebase. **A corrected central fault detector now records actual issued drive commands and filters missing front-range or deliberate safe stops**; its regression tests pass, but the autonomous sensed-fault → rescue decision → typed physical command → measured outcome → task continuation episode **does not exist yet**. `front_range_m=None` is sensor invalidity, not immobilisation; do not use hidden simulator truth in agent decisions. The optional Gemini advisor can currently suggest task intents, not execute a persistent tool loop. Do not show an LLM-generated rescue sentence as an actuated rescue.
+
+**One simulator, alternatives inside it:** use the checked-in MuJoCo composition for the hackathon. Isaac Sim remains a separate, unverified translation target and is **not** a parallel demo obligation. Policy A (central shared map) and Policy B (simulated independent maps/gossip) are alternative coordinators, not two worlds or two simultaneous products. Pick one physical rescue integration path and use the other as a baseline/optional comparison. Keep the same `rice.v1` seam and physics assets.
+
+**Scope/order:** P0 integrate one physically credible recovery skill and safety stop; monitor and react to its feedback (a limited second strategy or abort if genuinely executable). P1, using the **same** supervisor and telemetry, is a bounded start/end-of-day analysis → parameter experiment → validate/deploy/rollback cycle. Do not implement a separate training platform, multi-technique RL suite, realistic suction physics, live radio network, model-parallel Jetsons or a second simulator to prove this product. The 12-case adaptive mud-extraction benchmark described in an external conversation has **not** been located as an executable, committed `main` evaluation and is not currently validated product evidence.
 
 ## Human-led robot and farm design
 
@@ -56,19 +61,20 @@ Develop the 3–6-site world against a *physically actuated* mock rover if the d
 
 `src/ricebot/contracts.py`, `mission.py`, `control.py` and `runtime.py` form the **pure-Python** observation → measured map → task → bounded command seam. **`src/ricebot/mujoco_sim/` now implements it in MuJoCo** with articulated rover models, synthetic local probes, range/obstacle scenarios and a physical seed-contact test. Headless CI runs its physics tests with the pinned optional dependency. **The Isaac Sim implementation and cross-engine parity tests remain unimplemented.** The baseline still uses site-local means and conservative straight-line HOLD rather than a complete optimal route planner. One human integration owner controls shared contracts.
 
-## Parallel module seams (proposed paths, partially implemented)
+## Current implementation seams and minimal rescue integration (one MuJoCo stack)
 
-| Module | What to implement | Owner |
+| Existing owner/module | Existing contribution | Only necessary rescue-first addition |
 | --- | --- | --- |
-| `src/ricebot/contracts.py`, `runner.py` | tested `rice.v1` observation/sample/map/task/drive/drop/result contracts, Isaac launcher/step and logging; only one integration writer | 1 Integrator |
-| `src/ricebot/robot/` | human-approved rover bodies, wheel articulated motion, local no-go/collision safe controls, **hopper/dropper physics** | 2 Mechanical + control |
-| `src/ricebot/world/`, `sim/` | OpenUSD field, hidden synthetic soil distribution, sample-radius sensor bridge, stand gaps, second rover/scout, injected surprise | 3 World/physics |
-| `src/ricebot/agent/` | shared map interpolation/uncertainty, site scoring, active sample-vs-plant decision, robot/site assignment and route planning | 4 Agent/planning |
-| `src/ricebot/evaluation/`, `viewer/` | hidden-truth grader, uniform/greedy/map-aware baselines, seed contact outcomes, telemetry and ≤60s continuous demo | 5 Evaluation/UI |
+| `src/ricebot/world/` | Small synthetic rice field, local probes and terrain context | One reproducible physical stall and valid observed fault indicators, no new farm simulator |
+| `src/ricebot/robot/` | Reusable homogeneous bodies and **scripted** rigid docking/cam-latch/tow physics | Expose one bounded rescue sequence as a callable skill with progress/contact evidence |
+| `src/ricebot/mujoco_sim/` | **Current** shared MuJoCo physics composition and `SimulationPort` | Wire fault, recovery command and result into the **same** step/reset loop |
+| `src/ricebot/contracts.py`, `runtime.py`, `control.py` | Typed observations/commands, orchestration and safety-constrained drives | Integrator-owned minimal fault/recovery action/result seam; preserve existing callers |
+| `src/ricebot/agent/` | Policy A numerical bids/triage/optional REST advisor; Policy B simulated per-rover maps/gossip | Select **one** coordination integration path, monitor the real rescue result, compare to baseline; optional bounded tool-using LLM supervisor |
+| Existing `tests/` and evaluation scripts | Unit and MuJoCo physics checks, field/seed tests and policy comparisons | Independent end-to-end incident/rescue/resumption test on same seeds; true/false incident and safe-abstain cases |
 
-**First freeze:** smallest running Isaac scene + one moving rover + range sensor and `rice.v1` fixture. **Second:** physically drop a seed proxy and prove landing before chasing complex intelligence. **Third:** second moving scout and distinct local samples, shared mean/uncertainty map and route allocation. **Fourth:** inject an unannounced obstruction or locally discovered unsuitable patch; alter actual plant location/route safely; run baselines and record. Merge components in these dependency stages and keep the latest `main` runnable.
+**Dependency order:** (1) physically detectable immobilisation in the existing MuJoCo scene; (2) typed rescue skill invocation that uses the existing rigid dock; (3) observed extraction/second-helper safety; (4) mission continuation and a deterministic comparison; (5) optional LLM tool loop and one tested feedback-driven correction. No team member should build a second world engine, duplicate `SimulationPort`, another crop model or parallel recovery prototype to satisfy these steps.
 
-## Isaac Sim implementation choices and limits
+## Deferred Isaac Sim translation notes — not part of the current rescue P0
 
 - Verify the **actual installed version** and exposed API before importing version-specific extensions. NVIDIA offers OpenUSD scenes, PhysX articulations, raycast/contact/IMU sensors and standalone scripting; use **simpler physics sensors** before heavy multi-camera RTX perception. [Isaac Sim documentation](https://docs.isaacsim.omniverse.nvidia.com/latest/py/index.html).
 - Official requirements list **32 GB RAM / 16 GB VRAM minimum** on an RTX GPU for supported full usage; several discussed 8 GB laptop GPUs may be below spec. Run the compatibility checker on the actual host, then measure an actual physics/render episode. Do not promise that an 8 GB machine or remote streaming is functional. Cloud host requires explicit provisioning/cost approval. [Official requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
@@ -79,5 +85,5 @@ Develop the 3–6-site world against a *physically actuated* mock rover if the d
 
 ## Integration falsification
 
-The product fails its core claim if no seed physically contacts a legitimate planting patch, if map values come from hidden truth instead of measured rover samples, if second rover has no distinct contribution, if a changed route triggers a scripted scene swap, or if apparent success is an unverified UI animation. One self-contained actual runnable episode with *physical seed placement and task-driven replanning* matters more than additional agents.
+The product fails its **core rescue-first claim** if a physically genuine incident is not identified from valid evidence, if only a rendezvous or text decision is made without a bounded physical skill, if simulated docking merely replays a standalone script, if helper safety and victim displacement are not independently measured, or if no meaningful fieldwork resumes after a claimed recovery. The existing seed-contact and separate per-rover soil observations are necessary *mission context* and must remain honest, not become another world to build. An abstention is success only when its risk reasoning and alternative task outcome can be demonstrated.
 

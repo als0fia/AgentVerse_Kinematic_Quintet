@@ -29,24 +29,20 @@ Antenna robots visibly do useful rice-field work, a rover experiences a **real p
 
 **Working pace suggested by the speaker:** Saturday morning reduce to one user/pain and one 30-second capability; Saturday afternoon prove core loop before styling; Saturday evening layer optional senses and rehearsals; Sunday stop new features roughly **two hours before the verified deadline**, record a short backup and test the demo from a clean checkout. These are suggested *internal timeboxes*, **not organiser schedule changes**. The published latest BuilderBase portal now says **Sunday 8 Nov 13:00 GMT** (older site was 14:00), so use the earlier deadline unless organiser verifies an extension.
 
-## PaddyPatch: ≤60-second continuous rice-planting episode (not recorded)
+## Antenna: rescue-first continuous demonstration target (NOT yet recorded)
 
-**User-facing pitch:** “A rice field has irregular failed emergence. Two autonomous robots gather different soil and crop-condition measurements, build a shared suitability map and coordinate where to replant—with fewer wasted seeds and safer routes. They must keep planting when new ground conditions invalidate their plan.” **Simulated benefit only; no claim of measured rice survival/yield.**
+**Beneficiary story:** two cooperative agricultural rovers perform real mapped/sampled rice work. One becomes physically immobilised; the other must judge whether intervention is safer and more valuable than continuing its own tasks. The system verifies recovery (or justified abstention) in physical simulation before claiming any benefit. Agricultural yield, farm labour savings and real mud behaviour are *not measured*. See [PRODUCT](PRODUCT.md) and [TESTING](TESTING.md).
 
-| Target video segment | What the judge must actually see |
-| --- | --- |
-| 0–10 s | Prepared/partly drained stylised rice plot with patchy crop stand, two physical rovers, seed inventory and **uncertain shared soil map**; no hidden-quality labels in agent view |
-| 10–23 s | Two robots **physically move and sample separate local areas**; sensor readings, robot IDs/timestamps and belief/uncertainty heatmap change as evidence is fused |
-| 23–33 s | Planner chooses viable stand-gap sites and distinct **safe routes** for scout and planter; actual bounded drive commands and positions shown |
-| 33–44 s | Mid-episode new obstacle or locally discovered unsuitable soil **invalidates a chosen target/route**; fresh sensor drives map/target/route update; no scripted second clip |
-| 44–55 s | Planter physically reaches a valid gap and **releases seed proxy from its tool**, with rigid-body landing/contact/inventory result visible |
-| 55–60 s | Independent outcome: actual landed seeds in valid gaps, synthetic benefit/seed or coverage, safety violations and a baseline comparison **only if truly measured** |
+| Target 60-second segment | What judges should actually observe | Evidence requirement |
+| --- | --- | --- |
+| 0–10 s | Two physical rovers already carrying out a sampled soil/seed task in one MuJoCo scene | live poses, issued motor commands and sensed local task observations |
+| 10–20 s | **Unexpected** stall/traction event affects one rover during active movement | previous commanded motion, subsequent measured displacement/heading, sensor-validity and incident timer; not just a “stuck” toggle or missing front range |
+| 20–32 s | Supervisor weighs crop/mission value, uncertain route risk, rescuer traction and recovery alternatives | typed calculated verdict with alternative baseline including possible **defer/abstain**; model output never drives wheel torques |
+| 32–47 s | If judged feasible, helper approaches, physically couples rigid latch and extracts; otherwise safe refusal, hazard mark and task reassignment | coupling/contact state, bounded actuator events, **measured victim displacement and helper safety**; isolated scripted docking test alone is insufficient |
+| 47–55 s | Recovered rover or remaining helper returns to meaningful sensing/seed task | new *actual* probe/seed-contact feedback after incident, or an explicit safe abort |
+| 55–60 s | Independent result and clear limitations | timestamps, success/failure, second casualty, time/energy/crop risk, comparison baseline using the same scenario seed |
 
-The real episode may need simplification; do not falsify elapsed runtimes or pretend video transitions are continuous. Maintain one genuine changing-world episode showing sensor → decision → physical actuation → new observation; even if video cannot fit every metric, provide logs and one-page PDF with tested independent results. The UI is **read-only**, no hidden world truth steering policy.
-
-**Not in the P0 demo:** flood warning as main mission, opening a drainage gate or lowering water, robot towing/rescue, extra reforestation or lunar environment, VLA training, photorealistic field science. These can be named as optional future applications only after planting is real. Present a failed/drop misfire as a real failure, not a successful ghost planting.
-
-**Mechanical plausibility:** direct-seeded or partially drained field, safe traversable lanes, physical rover wheels/dropper and local probe/range. Synthetic soil quality and establishment evaluation explicitly labelled. [PRODUCT](PRODUCT.md) and [TESTING](TESTING.md) govern what is actually claimed.
+**Hard truth gate:** the repo currently lacks this fully integrated autonomous rescue episode. The merged PR #24 scripted rigid docking physics test and the real seed-contact/Policy B unit tests are separate evidence. Do not splice separate recordings or describe a scripted reset as an adaptive uninterrupted run. Preserve the planting-only storyboard as historical Git history. Flood gates, full crop season, multi-GPU model splitting and additional rescue mechanisms are not P0.
 
 ## Demo card (fill with actual working entry)
 
