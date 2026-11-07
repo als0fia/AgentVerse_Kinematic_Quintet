@@ -20,7 +20,7 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Decision:** A submission must be evaluated as a closed simulated **sensor → decision → action → feedback** loop, including an observable unplanned change. Avoid a scripted sequence dressed as autonomy. Use local/inside-runtime core decisions where practical; isolate optional remote LLM deliberation from the short-horizon control loop.
 - **Options open:** Isaac Sim headless stream on verified suitable compute, or MuJoCo/PyBullet/Gazebo/Webots where team resources make a faster deterministic first episode possible. No hardware, GPU, model credits, simulator or project is selected or verified in this record.
 - **Engineering impact:** product selection needs a meaningful human problem; architecture must expose actual sensor and action interfaces; testing must compare fixed-path and disturbed episodes; demo needs one continuous ≤60s video and one-page technical PDF.
-- **Trade-off:** premature advanced engine/cloud integration could consume the whole hackathon; fallback simulator and network-off tests preserve an achievable demo. Some rubric percentages and account/credit details remain unverified.
+- **Trade-off:** premature advanced engine/cloud integration could consume the whole hackathon; fallback simulator and network-off tests preserve an achievable demo. The earlier glare-related rubric uncertainty is **superseded by D-0003's full clear-slide evidence**; account/credit details remain unverified.
 - **Revisit:** once team selects mission, tests available compute and proves first simulated episode.
 
 ## D-0003 — Full rubric verified; impact is an evidence and demonstration gate
