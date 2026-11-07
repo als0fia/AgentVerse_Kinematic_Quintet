@@ -1,84 +1,72 @@
-# Runtime architecture — Rice flood response
+# Runtime architecture
 
-**Status:** selected *working project direction*, architecture specification **proposed**, implementation and simulator runtime **not yet demonstrated**. The human integrator owns the first executable vertical slice and final interface freeze. The human robot-design owner decides geometry/sensors/actuators; these are not hardware claims. See [PRODUCT](PRODUCT.md) for the user need and minimal demo, [CONTRACTS](CONTRACTS.md) for versioned messages and [TEAM](TEAM.md) for work boundaries.
+**Selected application:** rice-field abnormal-water monitoring, active investigation and targeted response. **The robot body, simulator, models and actuator are design proposals, not built or proven.** This is the canonical architecture; the mission is in [PRODUCT](PRODUCT.md), shared wire contracts in [CONTRACTS](CONTRACTS.md), observed tests in [TESTING](TESTING.md).
 
-## Architectural principle
-
-**The agent is not the simulator, controller or UI.** Keep a narrow testable boundary: **simulator/world → measured observation → estimator/supervisor → bounded task intent → local controller/actor adapter → physical simulation → next observation.** Independent evaluator sees privileged world truth; planner never does. Read-only visualisation receives a render/telemetry copy but **never directly drives the robot or owns the world state**.
+## End-to-end system: a monitoring decision with physical consequences
 
 ```text
-          INDEPENDENT SCENARIO / EVALUATOR (hidden truth, event injector)
-                               |
-                               v
-           WORLD ENGINE + ROBOT PHYSICS + SIMPLE WATER PROXY
-                  |                            ^
-      sampled rover sensors                  | bounded actuation
-                  v                            |
-          ObservationV0 ────> MISSION SUPERVISOR (monitor, inspect, mitigate, hold)
-                                      |
-                             TaskIntentV0
-                                      v
-                     LOCAL NAVIGATION / SAFETY CONTROLLER
-                                      |
-                              DriveCommandV0
-                                      |
-                           SIM ACTUATOR ADAPTER
-                                      
-           read-only renderer / UI  <--- render snapshot and trace
-           evaluator / JSONL       <--- hidden truth and actual results
+Field gauges / rover sensors -> belief + incident triage -> pick next informative task
+       ^                                                       |
+       |                                                       v
+Independent outcome verifier <- physical simulated environment <- safe local rover controller
+       ^                                                       ^
+       |                                                       |
+Mid-run disturbance injector                      optional gate/contact mitigation skill
 ```
 
-**v0 policy:** one robot and one changed world. Do not confuse system-level planner (which task, why investigate) with local numerical controller (how to move). The first runnable loop may use a straightforward reactive supervisor until the real simulator seam is validated. No LLM/large RL training, network service or extra agent subprocess is a requirement.
+For P0, a **single real simulated rover** receives an abnormal-rise alert, drives to an inspection site using sampled sensors, encounters an unannounced route obstruction or sensor inconsistency, chooses a safe changed course and takes a follow-up observation. For P1, its **physical actuation** changes an explicit, simplified water/drainage model; an independent reading checks actual simulated effect. No scripted UI gate, magically cleared obstruction, oracle truth passed to the planner or mandatory cloud servo loop.
 
-## Proposed module ownership and seams
-
-These are **planned paths** for the next coding agent to create, **not files that already exist**. Names may be adjusted once to fit a proved working engine, with one integrator signing off before parallel workers begin.
-
-| Boundary / proposed path | Responsibility | Owner role | First acceptance |
+| Functional component | Input → output | Candidate method | Status |
 | --- | --- | --- | --- |
-| `src/ricebot/contracts.py` | Typed, validated `ObservationV0`, `TaskIntentV0`, `DriveCommandV0` and step result; version + units | **Integrator only** | contract unit tests, invalid/stale command rejection |
-| `src/ricebot/sim/adapter.py`, `scene.xml` | MuJoCo (preferred if verified) world step/reset and embodied rover sensor/actuator bridge, sealed hidden state | **Integrator initially**, later simulation owner for `sim/world/` | wheel joint actually moves; range/encoder changes in next observation |
-| `src/ricebot/robot/` | Robot geometry/MJCF, mobility and safe local controller; collision, speed/turn bounds | **Human robot/mechanics owner** + scoped coding agent | physically credible rover path + collision/timeout stop |
-| `src/ricebot/agent/` | Observation-driven supervisor: anomaly triage, inspection viewpoint, planning, actor selection and optional bounded reasoning | **Agent/planning owner** | substitutes fixed, nearest and belief-aware decisions through identical API |
-| `src/ricebot/world/` | Discrete irrigation geometry, sensor placement, water-level/flow **proxy**, outlet and scripted event injection | **World/simulation owner** | route block or water rise occurs inside engine, not delivered as an oracle |
-| `src/ricebot/viewer/` | Read-only view of rover, measurements, chosen action, episode metrics | **Evaluation/UI owner** | can disable UI without changing control outcomes |
-| `src/ricebot/evaluation/`, `tests/ricebot/` | Hidden-state grader, reproducible scenarios, competing baselines, traces and video runner | **Evaluation/UI owner**, integrator coordinates shared runner | same seeds, evidence + failing tests, independent scoring |
-| `src/ricebot/runner.py` | Single composition root, CLI, timings, event ordering, stop/reset and recording | **Integrator only** | one command runs nominal and surprising episodes on a clean machine |
+| **Field / sensors** | Timed water/flow *measurements*, RGB/depth/range/contacts, time, noise → observations | Transparent simplified water-balance model and simulated sensors | Design only |
+| **Rover perception** | Local measured ranges, image/depth, odometry → obstacles and pose *estimates* | Classical perception/state estimation, small classifier only if necessary | Design only |
+| **Incident investigator** | Gauge/robot evidence → hypothesis and next useful observation | Bayesian belief + information gain; optional bounded LLM when it improves the baseline | Design only |
+| **Task coordinator** | Candidate inspection/response, battery, risk → approved robot task | Constrained planner/allocator; single robot to start | Design only |
+| **Robot control / safety** | Target task + fresh local sensing → bounded wheel/steering/contact forces | Deterministic navigation / motion planning / safety stop | Design only |
+| **Mitigation interface (P1)** | Inspected gate + reachable tool → bounded manipulation, then new water proxy | Simple lever/contact skill and simulated water balance, **only if implemented** | Wish / stretch |
+| **Independent evaluator** | Hidden simulator state + trace → measurements and failed attempts | Scripted world disturbance, automatic physical result checker, same-seed baseline | Design only |
 
-**Engine choice:** organiser email favours laptop MuJoCo; try it first on actual team machines. PyBullet is a permitted fallback if a real sensor/physics loop runs sooner. Do not split into independent UI physics and agent physics. No assumed GPU/Modal/Isaac access.
+## Robot embodiment is a real engineering decision
 
-## First executable vertical slice — mandatory integration gate
+**A robot must have a physically plausible body and mechanisms; a moving map icon isn't enough.** For the first demo, the *recommended reference concept* is a compact wheeled inspection rover **travelling on a relatively firm rice-field bund/service edge**, looking into adjacent paddies and visiting an outlet. This is a deliberately restricted **simulated operating envelope**, not a claim a conventional rover can drive through flooded paddy crops.
 
-1. A **human integrator names the first owner**; verify clean current `main`, system Python, MuJoCo availability, and chosen rover model. If MuJoCo cannot run, record the exact failure and pick one allowed fallback with human agreement.
-2. In a **single owned integration branch**, define only the `v0` dataclasses and fixture needed for **one rover, one forward range sensor, wheel motion and a sudden obstacle**. The simulator adapter returns only measurable observations; its hidden state is evaluator-only.
-3. Make one physical scene: service-bank track, rover at point A, inspect marker B; wheel actuation is bounded, the rover senses an unexpected obstruction, changes steering/route or stops safely. Record the observed sensor before/after the action.
-4. Add a minimal station water-level sample to support real **flood investigation** decisions (with source/validity), then tie a task intent to inspect a channel checkpoint. Keep water-flow proxy intentionally simple and labelled.
-5. Add a test for `reset(seed)`, bounded `step(action)`, monotonic observation sequencing, stale-action rejection, unexpected event reaction, and independence from UI or remote service.
-6. Only **after a real local smoke run**: integrate modules from other humans through agreed `v0` contracts; commit an actually reproducible runner and update [RUN](RUN.md) with measured commands and dependencies. **An unrun suggested command is not a verified smoke test.**
+**Human-led design review is required before implementation commitments**: a teammate should approve where it operates, whether wheels/tracks/flotation are appropriate, approximate chassis dimensions, mass/centre of mass, wheelbase/track footprint, traction and clearance assumptions, motor/steering layout, battery and return reserve, sensor position, water ingress/splash limits, crop/no-go clearance, reach to a gate and safe contact-force limits. The AI may help generate concept options, parametrised models and tests but **must not invent a fabricated robot design as finished hardware** or autonomously decide to procure/modify hardware.
 
-**Suggested future CLI (not implemented or tested):** `python -m ricebot.runner --scenario blocked_route --seed 7 --headless`. The next agent must choose/create a correct installable package layout and replace this with the exact tested command; do not tell judges it already works.
+| Design alternative | Benefit | Principal burden and suitability |
+| --- | --- | --- |
+| **Bund / field-edge wheeled rover (provisional P0)** | Simple reproducible physics, visual line of sight to drain, low crop disturbance, reachable outlet | Edges may be narrow, sloped or slippery; must confirm sufficient clear width and no-fall boundaries in the simulated scene |
+| **Tracked muddy-ground rover** | Potential traction on softer soil | Higher turning resistance, disturbance to rice roots/soil, track physics; P2 only if field access demands it |
+| **Floating / amphibious rice-row platform** | Can directly inspect submerged field and adapt to water level | Buoyancy, water propulsion, clearance around plants, contact realism and greater simulation complexity; P2 research path |
+| **Fixed station + small mobile rover** | Grounded water monitor and mobile verification, with local/offline control | Distributed sensors and possibly radio model; start with a local message interface, not a required second physical robot |
 
-## Timing, state and safety
+**Mechanical simulation acceptance:** actuated joints/wheels; real collision geometries; reasonable mass and inertia; traversable/non-traversable surfaces, obstacle and crop-protection zones; locally sampled sensors with timestamps; a measurable stop/replan after surprising contact or obstacle; and one explicit fall/slip/battery/blocked-gate failure. A later manipulator must physically reach and operate the outlet with collision/force limits; if it does not, label the mitigation as a *recommendation* only.
 
-- **Physics time:** fixed simulation step chosen by implementation owner and recorded; controller and planner rates are independent, with bounded, logged decision latency. Do not hard-code LLM calls inside motor loops.
-- **Frames:** world X/Y in metres, yaw in radians; positive forward speed `m/s`, turn rate `rad/s`; origin/handedness and camera/range frames recorded in simulator adapter. Odometry/pose **estimate** is not hidden physics truth.
-- **Inputs:** timestamped samples with source, freshness/validity, rover status and battery proxy. A station/fixed sensor is a distinct origin from rover sensors. Unknown/out-of-range water readings are `null` or explicitly invalid, **not zero**.
-- **Safety:** cap velocity/turn; enforce no-go/crop boundary, collision/stop condition, battery reserve if modelled, stale command expiry, watchdog stop/hold; commands with unknown actors or malformed units fail closed.
-- **Events:** the world/scenario controller injects obstacles, water rise, blocked outlet, drift or link loss at runtime; agent gets **only the physical sensor consequences**. Do not encode the event label as an agent feature.
-- **Mitigation actor (v1 stretch):** a simulated hinge/valve must move visibly on an authorised request and update a **labelled simplified** water proxy; invalid gate actuation refuses/aborts. Its control becomes a separate actor interface, not a fake change of ground-truth numbers by the planner.
-- **Rescue actor (v2 stretch):** additional rover shares the same observation/task/actor interfaces. Real contact/towing requires verified physics. If not, only demonstrate dispatch/reallocation with explicit limitations.
+**Relevant engineering precedents:** [2026 paddy chassis review](https://pmc.ncbi.nlm.nih.gov/articles/PMC12901939/) reports tracked versus wheeled terrain/soil-disturbance trade-offs; a [2026 floating two-wheel paddy weeding robot](https://www.fujipress.jp/jrm/rb/robot003800020404/?lang=ja) uses floats and a four-bar wheel mechanism. Neither design is automatically our hardware or a ready-made MuJoCo asset. Do not extrapolate demonstrated paddy-row capability from an unverified bund-rover model.
 
-## Adaptation beyond rice — design for extension, not implementation scope
+## Generalisable intervention framework, without claiming transfer
 
-Use distinct **environment adapters, sensed capabilities, actor registries and mission objectives** rather than rice-specific fields inside all planner decisions. A `hazard` has observable evidence, uncertainty, urgency, available investigations, authorised interventions, constraints and independent outcome. A new application **must implement its own physical sensing/action adapter and prove its own results**:
-- **Reforestation:** monitor a damaged planting patch, investigate uncertainty, decide protect/plant/defer.
-- **Firewatch:** watch alert → dispatch safe scouting / authorised response, with human escalation.
-- **Space:** inspect degraded route/equipment, allocate constrained recovery work.
-- **Swarm rescue:** a robot fault triggers inspect/self-recover/wait/assist/escalate and perhaps physical helper action.
+Domain-neutral core: **detect uncertain event → decide inspect / wait / intervene / escalate → assign constrained physical skill → verify consequence / replan**. Rice-specific water-level interpretation, bund geometry, crop protection and outlet mechanism are **adapters**; forest restoration and space/construction would need *different bodies, sensors, safety and effect models*. They are pitch-level potential applications until separately simulated and evaluated.
 
-The demo is **rice only**. Do not create generic plugin registries, orchestration microservices, extra simulated worlds or dozens of actor classes before the rice rover works.
+**Robot-to-robot rescue (P2 optional):** when the rover becomes trapped, disconnected or low on reserve, a future fleet agent weighs wait/self-recovery versus human contact versus safe helper dispatch and lost task productivity. A genuine rescue demo would require another physics-enabled robot physically assisting, not only a text assignment. It must not delay P0/P1.
 
-## Independent proof and ownership boundaries
+## Build ownership
 
-The world/evaluator may read true blockage, water state, collision geometry and successful interventions. A policy receives `ObservationV0` only; an evaluation copy may annotate source truth **outside the policy API**. The UI must remain read-only; hiding it cannot change run outcome. Each module owner proves a fixture and hands it to the integrator; one integration owner resolves schema changes. Document actual control, sensing, latency, simulator engine and runtime topology in [RUN](RUN.md).
+The human integrator should first verify that one candidate robot model can **move from sensor-conditioned commands in the actual local simulator**. Only then freeze a minimal observation/action schema, assign distinct perception/controller/mission/evaluator modules, and measure each. Core controller stays local; optional LLM reasoning may be offline/unavailable without causing unsafe motion. Record actual simulator/robot choices and tested parameters in [RUN](RUN.md) and versioned message contracts in [CONTRACTS](CONTRACTS.md).
 
+## Required details to confirm as the build proceeds
+
+- **Data and control flow:** observation → optional AI decision → validation → bounded execution → measured outcome; show retries, human override and failure exits.
+- **Runtime topology:** executable entrypoints, model/server/process placement, data sources, simulator/robot if any, ports, external APIs and trust boundaries.
+- **Units and frames:** metres vs centimetres, radians vs degrees, body/world/camera frames, timestamp origin, coordinate handedness, seed format. Never assume a convention.
+- **Performance budgets:** intended latency for control loops vs deliberation, compute and monetary budgets; measure observed values separately.
+- **Safety:** tool allowlist, action limits, invalid-state handling, timeouts, permission boundary, kill switch for physical motion.
+- **Operational recovery:** expected failures, restart/reset path, deterministic fixtures, fallback seed, clean reproduction command.
+- **Versioning:** any incompatible inter-module change updates `docs/CONTRACTS.md`, fixtures/tests, callers, and the integration owner before merge.
+
+## Engineering principles
+
+1. Start with a walking skeleton: input → at least one actual operation → independent observable result.
+2. Hide optional LLMs, VLMs and simulation behind narrow replaceable interfaces; they may fail or be offline.
+3. Keep hard realtime/safety control in a deterministic controller rather than an unbounded language-model loop.
+4. Make state transitions and errors machine-inspectable (structured logs, IDs, timestamps and seeds), not just natural-language narration.
+5. Test the seams between modules before polishing internal implementations.

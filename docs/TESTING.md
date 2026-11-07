@@ -1,27 +1,28 @@
 # Testing, baseline and independent evidence
 
-**Rice flood monitoring/mitigation is now the selected working project. Current tests still validate only repository scaffolding and evaluator; no actual ricebot/simulator/mitigation capability has been tested.**
+**Current tests cover only the repository scaffolding and evaluator. No project capability has yet been tested.**
 
 ## Judge-aligned verification map — confirmed Robotics rubric
 
 The [official weight table and source photo provenance](EVENT.md#confirmed-robotics-judging-rubric--clear-organiser-photograph-7-november-2026) are authoritative. Tests should yield **objective observations**, not fabricated scores: (a) trace every bounded action to timestamped simulated sensor data; (b) surprise the running episode and capture perceived change, replan and actual downstream effect; (c) measure bounded/local behaviour, uncertainty and optional network loss; (d) show that the **real beneficiary's most critical failure mode is handled on screen** with an evidence-supported meaningful benefit; (e) record originality relative to a serious existing controller/robot and actual implementation quality. A single polished 60-second episode does not replace repeated seeds and independent baseline comparisons. Model-generated prose cannot grade its own performance.
 
-## Selected rice episode matrix — proposed, not run
+## Selected rice-field evaluation plan (proposal; none executed)
 
-**Agent sees only `ObservationV0` and measured sensor provenance; hidden truth stays in independent scenario/evaluator.** The water/flow system may be a **simplified synthetic proxy**, not validated agricultural hydrology. Never use simulator cause labels to guide the policy.
+**Task claim to prove:** an actuated rover can interpret changing real simulated sensor measurements, investigate an abnormal water/drainage incident, adapt after a previously unannounced obstruction, and safely recommend or physically perform a bounded mitigating action. Normal shallow ponding **must not** count as a dangerous flood. If outlet actuation is not physically implemented, the result is **inspection and diagnosis**, not demonstrated mitigation.
 
-| Test case | Mid-run change or uncertainty | Observable physical response / failure gate |
+| Scenario | Environmental surprise and observation boundary | Independent result |
 | --- | --- | --- |
-| `nominal_inspection` | clear service track and nominal water readings | rover actuates real wheels, reads changing range/odometry and reaches inspection point |
-| `blocked_route` — **first compulsory test** | unexpected obstacle appears in rover route | sensor detects obstruction; controller changes course or safely stops; no scripted reset |
-| `rising_outlet_level` | suspected harmful excess water near outflow | supervisor dispatches rover to collect independent observation, updates its diagnosis |
-| `false_level_alarm` | station water sensor drifts; true water proxy remains normal | investigates/defers; avoids unnecessary gate action |
-| `gate_jam` — stretch | physically actuated drainage gate obstructed | limited actuation, re-measure, bounded retry or escalation; never set water magically |
-| `stranded_scout` — stretch | rover stuck or station link drops | safe local stop/return; helper action only counts as physical rescue with working contacts |
+| **Nominal field check** | Sensor indicates abnormal rise; rover uses actual local range/depth/odometry or camera measurements to reach an inspection point; no privileged drain state | Verified movement, measured inspection and incident report |
+| **Unexpected route obstruction (must run)** | After rover has begun moving, environment introduces new obstacle or slippery section **unknown to policy**; rover perceives and replans or stops safely | No collision/crop-no-go violation; recovered/abstained, latency and energy |
+| **Normal ponding / false gauge** | Water stands at a plausible controlled level, or one gauge reports faulty high water while independent site check disagrees | Avoids unnecessary mitigation; uncertainty surfaced |
+| **Drain blockage / gate failure (P1)** | Actual modelled drain restriction or contact-limited gate is introduced; rover must measure and **physically interact** if such skill exists | Independent flow/depth model changes or appropriately refuses; no fake mitigation from a changed UI label |
+| **Damaged rover / offline control (P2)** | Only after rover P0/P1 works: local immobilisation or control-link break | Safe stop/recovery and optional genuine helper interaction, not a text-only rescue |
 
-**First measurable acceptance:** one real moving rover, sensor-change trace and `blocked_route` replanning in a continuous episode. The rice-specific application needs at least one physical investigation response to changing water evidence. Mitigation requires a **moving gate/actor and observed water-proxy consequence**; no claims of preventing real flood losses without field data.
+**Comparators on identical unseen seeds, budgets and safety bounds:** (A) fixed gauge threshold + predetermined inspection waypoint, (B) credible reactive replanner and Bayesian investigation / simple rule-based gate operation, (C) proposed active-investigation/mitigation policy, with optional slow-model ablation. Record task success with denominator, false alarms and unnecessary intervention, delay to verifying cause, contact/crop disturbance, collision/no-go breaches, local command continuity, distance/energy, simulated water-proxy improvement **only if mitigation actually runs**, and computation p95. Evaluate decisions with **hidden simulator truth only in grader**, never passed as sensor input.
 
-**Baselines, same seeds and observation/action budgets:** fixed-route/static alarm, competent reactive or nearest-inspection controller, a constrained active-information-gain/Bayesian planner if feasible, and proposed agent. If LLM added, ablate it. Independent metrics: confirmation/false-alarm counts, unnecessary dispatch, response time, collision/no-go violations, gate result (synthetic), safe stopping, episode completion, energy proxy and decision latency. Record denominator and failures; no invented performance.
+**Human-led robot design acceptance:** have the team confirm selected chassis operating zone (bund versus paddy), geometry/inertia, mobility actuators, collisions, traction/clearance, sensor mounting, accessible drain/gate and safety envelopes. The first tested simulator asset must be explicitly labelled **simulation-only**, with untested hardware suitability. Include a test for a physically plausible restriction (too-narrow bund, low traction, unreachable gate or low battery) and safe abstention. Cite researched chassis trade-offs in [ARCHITECTURE](ARCHITECTURE.md), not assumed measured machine abilities.
+
+**Go/no-go gates:** (0) physics-actuated rover and sensed motion; (1) observed surprise changes rover's action; (2) independent seeded grader and baseline; (3) true gate actuator and water response if feasible; (4) optional second rover and domain adapters. No LLM, multi-agent coordination or environment-transfer claim before those specific behaviours are working.
 
 ## Verification ladder
 

@@ -60,59 +60,6 @@ At each natural sync, show a runnable demo or explicit blocker, not a slide. Con
 
 If branches conflict: integration lead preserves both contributors' intended behaviour and reruns affected interface and end-to-end tests. If new work breaks the demo, revert the **specific** bad change on a new safe commit or switch back to known-good commit; never force/reset others' history without human approval. Keep demo-safe branch/tag only when the team actively uses it.
 
-## Selected rice project: five-human work split (proposed, not yet assigned by name)
-
-**The team is building one rice-field flood investigation/mitigation demo.** [PRODUCT](PRODUCT.md) owns the scope, [ARCHITECTURE](ARCHITECTURE.md) owns module seams and [CONTRACTS](CONTRACTS.md) is the **only interface authority**. These roles are *ownership suggestions*, not claims the five humans have confirmed assignments or that five autonomous coding agents exist. A team of four can combine roles 1 and 5; spare capacity should help test a running demo, not invent new frameworks.
-
-| Human role / specialty | Exclusive ownership after first seam | Deliverable and pass signal | Boundary / risk |
-| --- | --- | --- | --- |
-| **1 — Integrator / architecture owner** | `src/ricebot/contracts.py`, `src/ricebot/runner.py`, root package/dependencies, integration tests, `docs/CONTRACTS.md`, integration PRs | First working MuJoCo or approved fallback episode: real sensor → bounded wheel motion → new sensor; one frozen tested `v0` fixture and one run command | **Sole writer** of shared seam/runtime composition; approves code integration, not external submission |
-| **2 — Physical robot design + low-level control (human-led)** | `src/ricebot/robot/`, wheeled model/MJCF, motion/safety controller and its tests | Credible rover footprint, wheel joints, range/odometry, bounded motion and stop/obstacle behavior; human approves sensor/actuator layout | Do not have an agent silently select physical hardware, fabricate terrain handling or build a complex manipulator. Coordinate gate interface with role 3 |
-| **3 — Field / simulation / mitigation physics** | `src/ricebot/world/`, irrigation scene, water proxy and change injectors, gate/valve environmental actor (when ready) and tests | repeatable outlet/rising-water anomaly, visually changing scene, independent world truth and physically actuated gate if feasible | World model **never passes true cause** to agent; synthetic hydrology labelled, no real flood-performance claims |
-| **4 — Mission supervisor / active sensing and planning** | `src/ricebot/agent/` and narrow planner tests | inspect vs wait vs escalate decision using `ObservationV0`; replan on changed evidence; optional mitigation request via capability check | No direct simulator internals, no shared contract edits, no LLM controlling servo ticks. Include ordinary planning alternative |
-| **5 — Independent evaluation + demo/visualisation** | `src/ricebot/evaluation/`, `src/ricebot/viewer/`, `tests/ricebot/evaluation/`, product metrics/evidence | non-LLM hidden-truth grading, same-seed baseline, readable observed sensor + actual robot display, ≤60s continuous demo once working | UI is **read-only**; don't tune metrics to make agent win; don't spend entire event polishing graphics |
-
-**Robot design approval:** Role 2 owns the *physical* concept (body, wheel configuration, footprint, sensor positions, traction assumptions, reach, whether a gate actuator is separate or contacted by the rover). Role 3 supplies feasible environment geometry. Role 1 arbitrates the *software boundary*. Human team explicitly agrees the initial robot before agents generate MJCF/geometry. Suggested minimal choice: wheeled inspection rover on an accessible paddy service bank. Physically manipulating a gate, driving through mud, and towing another rover are **not** implicit assumptions.
-
-### Sequential integration gates before broad parallel work
-
-1. **Gate 0 — human product/robot check (~one short meeting):** select core goal and whether a **single rover plus separate controlled outlet** is feasible; choose human integrator and role owners. Keep alternative robot suggestions short. Team checks available local simulator; no automatic hardware/Modal/Isaac commitment.
-2. **Gate 1 — first integrator implementation (one agent, one worktree):** implement the `v0` observation, bounded control, physical rover, simulator reset/step and **one nominal + one changed-world episode**. A mock-only bus is not sufficient. Freeze one fixture and tested package/command; integrate into `main` before others branch against it.
-3. **Gate 2 — focused parallel modules:** roles 2–5 each branch from **latest integrated `main`** with unique paths, the identical `v0` fixture, one observable definition of done and their own module tests. World owner may create an independent scene piece while agent owner creates a pure-function policy on fixture data; UI/evaluation can work from captured traces. No parallel schema rewrites.
-4. **Gate 3 — integrate in dependency order:** robot/controller → world events/mitigation → planner → evaluation/UI, then rerun a **full unexpected-event episode** and record current known-good SHA. The human integrator resolves any contract change. Keep a runnable fallback at each merge.
-5. **Gate 4 — expand only if proven:** physical outlet mitigation, remote link loss, second scout, robot rescue and cross-domain story *in that order of utility*. If a physical mitigation actuator cannot be completed, show **safe inspection/triage only** and make the absence explicit.
-
-### How humans should direct developer agents
-
-**Default: small, vertical, verifiable features—not repeated unrestricted passes across an entire area.** An agent should implement one bounded capability + relevant tests, present exact evidence and stop. Human owners may run a **design pass** before coding if the interface or robot geometry needs thought, and an **independent review/debug pass** after, but do not ask three agents to rewrite the same subsystem in parallel. A whole-area pass is warranted only for an explicitly assigned integrator-level refactor *after* a working seam and failing reproduction exist.
-
-**Good assignments:** “Implement the `ObservationV0` validator, reject stale readings, add 3 exact tests; touch only `src/ricebot/contracts.py` and its tests”; “Make the MuJoCo ray sensor report actual range on a moving rover; same fixtures, show trace”; “On changed outlet evidence, choose safe INSPECT rather than blindly open the gate; test one false alarm and one true case.”
-
-**Bad assignments:** “Build the whole AI”, “Make rice farming autonomous”, “Improve the robotics”, “Design the entire rover + planning stack + UI” or “Add a thousand general-purpose agents.”
-
-**Standard copy/paste first assignment for the integrator** (only after a human takes ownership and verifies clean `main`):
-
-```text
-ASSIGN: Build the first executable Rice flood-monitoring robotics architecture.
-Read AGENTS.md, docs/PRODUCT.md, docs/ARCHITECTURE.md,
-docs/CONTRACTS.md, docs/RUN.md and the embodied-loop/contracts-first skills.
-Base: latest verified main SHA. Make a new owned branch/worktree.
-Own: shared v0 types, runner, minimal simulator adapter and integration tests.
-Use local MuJoCo if it actually installs; report/choose an organiser-allowed
-fallback with the human if not. Implement one physically moving rover, one
-actual simulated range sensor, observation-driven bounded control, reset(seed),
-and a mid-episode new obstacle detected through that sensor. No LLM, cloud,
-water-CFD, gate manipulator or second rover in this first PR.
-Deliver: exact clean-install/run/test commands and actual output; a sensor and
-action trace, reproducible nominal and changed episode, v0 contract fixture;
-failing cases; latency and known limits. Do not assert success without a run.
-Do not edit other contributors' owned modules or merge/submit automatically.
-```
-
-**Templates for specialist agent commands:** each owner passes `base SHA + owned paths + v0 fixture + one changed-scene case + exact tests + stop conditions`, not their entire conceptual workstream. If two features collide at the contract, **one agent pauses** and asks the integrator. For robot design, ask the agent to produce **two small feasible models and tests**, then let the human choose before implementation. To reduce context, provide only the relevant `PRODUCT` excerpt, `ARCHITECTURE` boundary and `CONTRACTS` type, not private research or all chat history.
-
-**Cadence:** each owner delivers a runnable component after each short slice. Reassign idle people to integration/evaluation instead of multiplying speculative tasks. Show exact real test outcomes and the strongest blocker at each sync. Humans own decisions about physics realism, domain safety, budget, merge and final submission.
-
 ## Model and context routing for human-led coding (not robot app architecture)
 
 **Goal:** use frontier reasoning for genuine synthesis, and smaller/faster isolated contexts for bounded work. **Do not** flood a lightweight worker with an entire repository or conversation. These are recommended *roles*, not a fixed model requirement, API access grant or one agent per person.

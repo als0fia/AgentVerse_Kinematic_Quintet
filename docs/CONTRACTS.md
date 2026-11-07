@@ -1,88 +1,47 @@
-# Contracts and invariants — selected rice monitoring project
+# Contracts and invariants
 
-**Interface proposal `rice.v0`, not yet implemented or integration-tested.** The human integrator is the **sole owner of shared contract changes** and must freeze an executable fixture before other people/agents develop producers and consumers in parallel. Architecture [here](ARCHITECTURE.md); actual product [here](PRODUCT.md). Other applications must adapt their sensors and actions behind the same *types of boundaries*, not pretend a universal rover/sensor exists.
+**Product direction is selected: rice-field flood monitoring, investigation and safe response. The actual simulator interfaces remain unimplemented.** This file will own versioned types and fixtures when the human integrator chooses the stack; the following are **draft boundary proposals only**, not published Python/ROS schemas.
 
-## v0 seam: simulator, supervisor, robot controller and UI
+## How to add a contract
 
-**Suggested Python dataclasses/protocols for first coding agent** (actual names/type paths become authoritative when code and tests exist, not this unexecuted documentation):
+Copy this miniature specification into a new subsection for **every shared boundary**:
 
-| Contract | Producer → consumer | Minimum fields and constraints |
-| --- | --- | --- |
-| `ObservationV0` | simulator sensor sampler → estimator/supervisor/controller | `episode_id: str`, `seq: int`, `sim_time_s: float` (monotonic), `robot_id: str`, `robot_status`, `pose_estimate_xy_yaw: [float,float,float]?` (odometry estimate, not true pose), `sensor_samples: list[SensorSampleV0]`, `link_ok: bool`; optional `battery_fraction: float?` only if simulated |
-| `SensorSampleV0` | simulation adapter → perception | `sensor_id`, `kind` (`front_range`, `water_level`, `wheel_odometry`, etc.), `source_actor_id`, `sample_time_s`, `value`, `unit`, `valid`, `location_id?`, `confidence?`; no arbitrary hidden fault labels or true water map |
-| `TaskIntentV0` | supervisor/planner → local controller/actor registry | `episode_id`, `issued_at_s`, `mode` = `INSPECT` / `HOLD` / `REQUEST_MITIGATION` / `ESCALATE`, optional `target_site_id`, reason/evidence IDs, `expires_at_s`; `REQUEST_MITIGATION` is **future v1 and must fail closed while unsupported** |
-| `DriveCommandV0` | local safety/controller → simulator actuator adapter | `episode_id`, `issued_at_s`, `ttl_s > 0`, `linear_m_s` and `angular_rad_s` finite within human-agreed physical speed/turn limits; `HOLD` maps to zero bounded control |
-| `StepResultV0` | `sim.step(command)` → runner | **next** `ObservationV0`, `done: bool`, optional safe failure code and public status; **no environment truth or hidden injected event in policy-visible return** |
-| `RenderPacketV0` | runner/sim renderer → UI, read-only | RGB/depth/scene view when available, observation subset, selected intent, timestamp and status. Visual overlay may optionally show *evaluator-only annotations for judges* but never feed them back to agent |
-| `EvaluatorTruthV0` | simulator evaluator → independent scoring only | world blockage, true water proxy state, geometry/collisions, intervention effect and scenario event schedule; never exported to the planner, sensor adaptor or policy |
-
-**Spatial/temporal rules:** metres, seconds, radians, `m/s` and `rad/s`, explicit world/body frames, one episode-local simulation clock and monotonic observation sequence numbers; `yaw` angle range and coordinate frame documented in the chosen engine. A reading of 0 is **not** the same as unavailable; use `valid=false`/`null`. All commands must include freshness/TTL, may be refused with typed errors, and always end in a safe zero-velocity fallback on expiry or missing sensor. Battery/flow are *synthetic proxies* until implementation and calibration are verified.
-
-**Sample only — illustrative fixture, not measured output:**
-
-```json
-{
-  "episode_id": "rice-demo-007",
-  "seq": 12,
-  "sim_time_s": 6.0,
-  "robot_id": "scout-1",
-  "robot_status": "ACTIVE",
-  "pose_estimate_xy_yaw": [0.8, 0.1, 0.0],
-  "sensor_samples": [
-    {
-      "sensor_id": "front-ray",
-      "kind": "front_range",
-      "source_actor_id": "scout-1",
-      "sample_time_s": 6.0,
-      "value": 0.45,
-      "unit": "m",
-      "valid": true
-    },
-    {
-      "sensor_id": "drain-probe",
-      "kind": "water_level",
-      "source_actor_id": "station-outlet",
-      "sample_time_s": 5.9,
-      "value": 0.33,
-      "unit": "m",
-      "valid": true,
-      "location_id": "outlet"
-    }
-  ],
-  "link_ok": true
-}
+```text
+ID/version: observation.v1
+Producer/consumer: <specific module names>
+Transport/API entrypoint: <file/function/route/topic>
+Input/output shape: <schema or exact type path>
+Fields: <names, types, required/optional, allowed range, nullable semantics>
+Units/frames/timing: <explicit SI units, coordinate frames, clock semantics>
+Invariants: <preconditions, postconditions, ordering, idempotency>
+Failure: <typed error, retry limit, timeout, safe fallback>
+Determinism: <seed, stable replay, external service variation>
+Test fixture: <path and pass/fail test command>
+Owner/version-change protocol: <person/issue/PR and compatibility policy>
 ```
-
-**The fact that the station reports an alarming level is a *measurement*, not simulator truth.** Fault scenarios must be able to return a drifting station measurement while the actual level differs. A scout's probe must only measure when it genuinely reaches the modelled sensing area.
-
-## v0 call sequence and first fixtures
-
-1. `sim.reset(seed: int, scenario_id: str) -> ObservationV0`; deterministic initial robot/world state and sensor readings.
-2. `supervisor.decide(observation) -> TaskIntentV0`; initial implementation may choose `INSPECT(site)` or `HOLD`, with explicit provenance and an optional simple Bayesian alternative.
-3. `local_controller.step(observation, intent) -> DriveCommandV0`; bounded velocity and collision/range checks even if supervisor unavailable.
-4. `sim.step(drive_command) -> StepResultV0`; advances physics, returns **new** sensor readings. `scenario` alone injects surprise into world physics and is invisible to planner. `renderer.consume` is optional and read-only.
-5. `evaluator.score(episode trace, hidden simulator truth) -> episode JSONL`; independent pass/failure and metrics. Existing `scripts/evaluate.py` accepts the final metadata records, not motor commands.
-
-**Minimum v0 tests:** `reset` same seed reproducibility; real `step` causes physical pose/sensor change; stale/NaN/out-of-bounds action refusal; sensor drop is invalid rather than zero; new obstacle only discovered via range; GUI disabled produces equivalent action trace; no hidden truth passed into `supervisor.decide`; local HOLD works without station/model; same-seed baseline pairing. If the simulator or robot geometry forces an interface adjustment, the **integrator changes one versioned contract and updates producers, consumers and tests together**.
-
-## v1 extensibility (design only; explicitly out of v0)
-
-- **FieldActorCapabilities**: `actor_id`, allowed `inspect`/`open_gate`/`assist` actions, position/safety limits, energy and freshness. Avoid permanent hard-coded `if rice` conditionals inside the planner.
-- **MitigationRequestV1**: target actor/site, requested bounded gate movement, expiry, authorisation and expected observation for verification. The physical actuator must change its simulated joint; simplified water proxy responds *through the world model*, not via the agent rewriting its success state.
-- **RecoveryRequestV1**: failed robot ID, observed symptoms, local self-recovery history and constraints; helper allocation and any simulated physical assistance require a genuine second actor. Dispatch and towing are not synonymous.
-- **Link partition**: station may go away, but local controller remains independent and can hold/retreat; all rejoined reports are time-stamped and stale assignment commands rejected.
-
-## Shared-interface change protocol
-
-**Only the integrator edits this document or `src/ricebot/contracts.py` during parallel development.** Others propose a small PR/issue delta containing field name, data type, units/semantics, producer and consumer, fixture, migration and failure handling. Never silently add required fields or move simulator truth into policy inputs. Human robot designer approves actuator capability and geometry changes. Frontend/UI and evaluator cannot dictate control interfaces by using hidden world state.
 
 ## Rules that prevent integration defects
 
-- Distinguish measured observation from inference or confidence. No model-generated claim is automatically ground truth.
-- Reject unknown units, corrupt/partial inputs, invalid transitions, stale timestamps and forbidden actor commands. Do not hide failures with guessed defaults.
-- Version breaking semantic changes and update both sides, fixtures and tests; keep episode IDs, seeds, robot IDs and source timestamps through logs.
-- Keep test doubles for unavailable hardware/cloud models. Mark synthetic data as synthetic; mock tests are not hardware or physical simulation results.
-- Use Python dataclasses / Protocol / validation for a light first implementation; avoid two concurrent JSON/pydantic/protobuf schemata without an actual need.
+- Distinguish measured observation from inference or confidence. No model-generated claim is automatically a ground-truth measurement.
+- Validate at module boundaries; reject unknown units, corrupt/partial inputs, invalid transitions and stale timestamps with a useful error. Do not hide errors by making up defaults.
+- Version any breaking field change (including meaning, coordinate frame and units), and update producer + consumer + fixtures together.
+- Preserve correlation IDs, episode/case IDs and random seeds through logs and metrics.
+- Keep a test double or fixture for unavailable hardware/cloud models. Mark synthetic data as synthetic; passing a mock test is not a hardware result.
+- Use normal type checking, JSON Schema, dataclasses, protobuf, typed TypeScript or equivalent **once the actual stack is chosen**; avoid competing parallel schemas.
+
+## Proposed shared boundaries for first robot episode (not yet implemented)
+
+| Boundary | Proposed producer → consumer | Candidate fields (not locked names/types) | Required constraint |
+| --- | --- | --- | --- |
+| **Field / incident observation** | Simulated gauge/field adapter → incident detector | episode ID, sensor ID, monotonic timestamp, position/frame, sampled water depth (m) or rate of change (m/s), sensor uncertainty | Measured/observable **not** privileged actual cause, blockage flag or true future depth; classify normal paddy water against case-specific baseline |
+| **Robot observation** | Physical simulator + sensor adapter → local controller/estimator | pose estimate with frame and uncertainty, range/camera or contact measurements, estimated wheel slip, battery proxy, link status, timestamp | Reject stale/invalid sensor values; do not treat unobservable simulator truth as measured pose |
+| **Incident belief and mission** | Detector/investigator/allocator → rover task selector | candidate cause and confidence/evidence provenance; inspect point and information value; urgency, safe limits, capabilities, task ID/TTL | Belief may remain uncertain; permit inspect, wait, abort and human escalation |
+| **Robot action** | Approved local controller → actuated simulator | bounded velocity / steering / optional gate-contact command, frame, duration, force/speed caps, task version, safe-stop condition | Controller must not execute stale commands, travel through crop no-go regions or exceed safe collision/energy limits |
+| **Outcome feedback** | Simulated sensors → observer; hidden truth → *independent evaluator only* | observed rover motion, changed water proxy if present, gate state if physically sensed, failure/retry and timestamps; separate grader pass/fail | Explicitly distinguish a physical gate actuation from an advisory recommendation; log every failed attempt |
+
+**Human-led embodiment contract:** after choosing the physical scene and candidate robot body, establish actual geometry, wheel/track and contact dynamics, approximate mass/inertia, coordinate frames, joint identifiers, actuator force/speed caps, splash clearance, traversable surface restrictions, sensor mounting, battery/return reserve and a stop policy. Do not freeze fields or ask independent agents to code consumers until the integrator approves **one measured executable rover/sensor fixture**. An in-paddy amphibious body is a separate simulator and risk model from a bund-side inspection rover. Never claim field deployment or mechanically verified load capacities from a conceptual MJCF/URDF.
+
+**Rescue extension:** leave room in the incident/task model for `robot_failed`/dispatch/helper outcomes, but **do not add fictional rescue payloads or force an extra worker before a real second-robot capability is selected**. Likewise, reforestation/space need separate real-world adapters, not only a renamed environment string.
 
 ## Evidence artifact contract (implemented)
 
