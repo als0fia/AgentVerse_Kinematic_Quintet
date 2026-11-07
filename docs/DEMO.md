@@ -1,5 +1,7 @@
 # Demonstration and submission gate
 
+**Post-merge evidence (7 Nov 2026):** [PR #48](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/48) brought the typed, bounded MuJoCo rescue path and `golden_rescue` test into `main` at [`16768dc`](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/commit/16768dc6d8f7d5edd3dd5e34c9ec23454dcfbd29). [GitHub Actions](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/actions/runs/42418413738) passed **78 tests** including force/pitch constraints and resumed planting. This is automated **simulated-fixture** evidence only; independent rescue refusal/second-casualty sweeps, sensor-truth isolation, local GUI/video, model-vs-deterministic ablations and submission delivery are still open.
+
 **Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
 
 **Status:** Robotics deliverables are now specified by organiser slides; no submission or tested product demo has been verified.
@@ -42,7 +44,7 @@ Antenna robots visibly do useful rice-field work, a rover experiences a **real p
 | 47–55 s | Recovered rover or remaining helper returns to meaningful sensing/seed task | new *actual* probe/seed-contact feedback after incident, or an explicit safe abort |
 | 55–60 s | Independent result and clear limitations | timestamps, success/failure, second casualty, time/energy/crop risk, comparison baseline using the same scenario seed |
 
-**Hard truth gate:** the repo currently lacks this fully integrated autonomous rescue episode. The merged PR #24 scripted rigid docking physics test and the real seed-contact/Policy B unit tests are separate evidence. Do not splice separate recordings or describe a scripted reset as an adaptive uninterrupted run. Preserve the planting-only storyboard as historical Git history. Flood gates, full crop season, multi-GPU model splitting and additional rescue mechanisms are not P0.
+**Hard truth gate (updated after PR #48):** the integrated `golden_rescue` MuJoCo scenario and an automated golden-episode test now exist and pass on `main`, but no recorded single continuous demo or independent full safety/sensor-perception validation has been confirmed here. The older PR #24 scripted docking fixture and Policy B unit tests remain *separate* evidence. Do not splice separate recordings or describe a scripted reset as an adaptive uninterrupted run. Preserve the planting-only storyboard as historical Git history. Flood gates, full crop season, multi-GPU model splitting and additional rescue mechanisms are not P0.
 
 ## Demo card (fill with actual working entry)
 
