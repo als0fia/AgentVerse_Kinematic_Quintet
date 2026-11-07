@@ -1,6 +1,6 @@
 # Reproducible setup, run and recovery
 
-**Selected project:** PaddyPatch cooperative rice-field stand-gap mapping and simulated seed placement. **Checked-in development backend:** MuJoCo 4.0.0 (rover/seed-contact prototype, testable headlessly). **Isaac Sim is the user-selected intended integration target, not yet implemented or verified.** A MuJoCo test is not agricultural validation or a completed judge demo; don't claim unseen resources or outcomes.
+**Selected project:** **Antenna** cooperative rice-field stand-gap mapping and simulated seed placement (earlier working name: PaddyPatch). **Checked-in development backend:** MuJoCo 4.0.0 (rover/seed-contact prototype, testable headlessly). **Isaac Sim is the user-selected intended integration target, not yet implemented or verified.** A MuJoCo test is not agricultural validation or a completed judge demo; don't claim unseen resources or outcomes.
 
 ## New teammate or agent onboarding
 

@@ -1,6 +1,6 @@
 # Runtime architecture — cooperative rice planting (MuJoCo prototype; Isaac target)
 
-**Canonical mission:** [PaddyPatch PRODUCT](PRODUCT.md), superseding RiceWatch alarm-only monitoring. **MuJoCo is the checked-in development adapter; Isaac Sim remains the user-selected integration target (not yet verified).** P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
+**Canonical Antenna mission:** [PRODUCT](PRODUCT.md), superseding RiceWatch alarm-only monitoring. **MuJoCo is the checked-in development adapter; Isaac Sim remains the user-selected integration target (not yet verified).** P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
 
 ## Current module ownership and mock/real replacement boundary
 

@@ -80,6 +80,16 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Falsification:** first real seed placement must occur early. A pretty soil heatmap, moving UI sprite, hard-coded ideal soil map, imagined sample, text-only planter, fake rescue, unvalidated soil yield claim or staged video fails selected scope. Compare against competent uniform/greedy and deterministic joint mapping/routing baselines on same hidden synthetic conditions.
 - **Revisit:** failed Isaac compatibility, inability to drop a seed physically, lack of distinct two-rover measurements, unrealistic soil model, no credible baseline or explicit later user/team directive.
 
+## D-0008 — Antenna is the canonical selected product name; do not fork scope
+
+- **Date:** 7 November 2026.
+- **Source:** direct human team instruction in ChatGPT project conversation: “Antenna is canonical.”
+- **Decision:** **Antenna** is the current official internal product name for the cooperative rice stand-gap mapping and targeted replanting submission. **PaddyPatch** was the earlier working name for the same P0 mission, not an alternative active entry. **RiceWatch** denotes superseded flood-warning investigation scope. The separately pushed **RiceSwarm AI** full-season/fleet concept is independent exploratory work, not the canonical application path.
+- **Implementation owner:** the integrated `main` source under `src/ricebot/` and the existing `rice.v1` interface; keep package/file names stable during the hackathon rather than renaming working code for branding.
+- **Branch authority:** merged historical branch heads and open research/experimental branches are not competing canonical product definitions. Integrate only specifically reviewed changes through a compatible PR. Do not mass-replace historical decision names, overwrite current simulator/CI setup, or merge an unrelated full farming simulation into P0.
+- **Scope remains unchanged:** measured local sensing → shared map → coordinated task/route selection → physically simulated planting and contact → response to an unexpected change. Recovery/flood mitigation optional; MuJoCo is the current tested development backend, Isaac Sim a separately unverified integration target.
+- **History:** D-0005, D-0006 and D-0007 are preserved verbatim as earlier decisions, not rewritten to imply that Antenna was a prior rejected inspection-only product.
+
 ## Decision template
 
 ```text

@@ -1,6 +1,6 @@
 # Product mission and acceptance criteria
 
-**Current selected hackathon direction (7 November 2026; supersedes the earlier RiceWatch inspection-only scope): PaddyPatch — cooperative rice-field stand-gap mapping and targeted replanting.** The robots must **perform the agricultural task**, not simply detect faults, avoid obstacles or discuss how they would plant. A credible physical seed/seedling placement and measured completion of a small, variable field are the central result. Recovery and flood mitigation are supporting optional capabilities, **not** the main goal. Name is a working label, not a registered product.
+**Current selected hackathon direction (7 November 2026; supersedes the earlier RiceWatch inspection-only scope): Antenna — cooperative rice-field stand-gap mapping and targeted replanting.** “PaddyPatch” was the earlier working title for this **same** mission; the naming correction is not a scope or code change. The robots must **perform the agricultural task**, not simply detect faults, avoid obstacles or discuss how they would plant. A credible physical seed/seedling placement and measured completion of a small, variable field are the central result. Recovery and flood mitigation are supporting optional capabilities, **not** the main goal. Name is a working label, not a registered product.
 
 ## Real human problem and agronomic boundary
 
