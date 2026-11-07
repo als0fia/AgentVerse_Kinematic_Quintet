@@ -14,10 +14,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL = Path('.agents/skills')
 CLAUDE = Path('.claude/skills')
-# Preserve the original six workflows: accidental removal is a regression.
+# Preserve the six original workflows plus one challenge-specific workflow: accidental removal is a regression.
 EXPECTED_SKILLS = frozenset({
     'problem-first', 'contracts-first', 'implement-and-verify',
     'root-cause-debug', 'parallel-handoff', 'evaluate-and-demo',
+    'embodied-loop',
 })
 
 
@@ -89,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         for error in errors:
             print('FAIL:', error, file=sys.stderr)
         return 1
-    print('OK: all six skills are valid and byte-identical in both native locations')
+    print('OK: all registered skills are valid and byte-identical in both native locations')
     return 0
 
 
