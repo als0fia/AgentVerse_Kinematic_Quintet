@@ -1,6 +1,6 @@
 # Reproducible setup, run and recovery
 
-**P0 product frozen as RiceWatch autonomous **inspection/diagnosis**, not mitigation.** Application runtime not yet chosen; no simulator run verified. Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
+**P0 product frozen as RiceWatch autonomous inspection/diagnosis, not mitigation.** Application runtime not yet chosen; no simulator run verified. Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
 
 ## Foundation checks — actually available
 
