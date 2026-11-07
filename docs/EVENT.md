@@ -7,8 +7,8 @@
 | Event | AgentVerse 2026, UCL AI Society | Organiser site |
 | Dates | 7–8 November 2026, London time | Organiser site |
 | Track reveal | Saturday **12:30** | Organiser timetable, checked 7 Nov |
-| Team formation deadline | Saturday **14:00** | Organiser timetable, checked 7 Nov |
-| Hacking | Saturday **14:00–22:00** sessions; Sunday **09:00–14:00** final sprint | Organiser timetable; breaks as posted |
+| Team formation deadline | Saturday **15:00** (extension announced by organiser 7 Nov 13:56) | Organiser email supersedes the earlier 14:00 timetable |
+| Hacking | Saturday **14:00–22:00** sessions; Sunday **09:00–14:00** published sprint, but **stop for the earlier 13:00 portal submission cutoff** | Organiser timetable versus newer participant portal; don't treat the session end as a submission extension |
 | **Submission — latest portal** | **Sunday 8 Nov, 13:00 GMT** latest BuilderBase dashboard (7 Nov ~15:30); older organiser site/deck listed 14:00 | **Conflict:** use earliest 13:00 until staff/portal clarify; do not assume an extra hour |
 | Judging | Sunday **15:00–16:00** | Organiser timetable |
 | Team size | Organiser site says **3–5** | Check actual portal and any contradictory listing |
