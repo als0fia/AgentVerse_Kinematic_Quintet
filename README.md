@@ -68,6 +68,7 @@ The fixture comparison is **synthetic tooling data, not product performance**. C
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | Modules, data/control flow, ownership and dependencies |
 | [CONTRACTS](docs/CONTRACTS.md) | Versioned inter-module messages, units, errors and invariants |
 | [COMPONENTS](docs/COMPONENTS.md) | World/robot/Isaac/kernel boundaries, mock swap, per-module documentation, independent audits |
+| [SIMULATOR-VARIANTS](docs/SIMULATOR-VARIANTS.md) | Known teammate simulator/UI/agent variants, source commits, feature-selection matrix and safe reconciliation procedure |
 | [WORKSTATION-SETUP](docs/WORKSTATION-SETUP.md) | Every teammate/agent: safe Windows setup, core checks, optional MuJoCo, gated Isaac, account hygiene |
 | [TEAM](docs/TEAM.md) | Ownership protocol, parallel tasks, integration and handoff |
 | [RUN](docs/RUN.md) | Reproducible setup, start, smoke and recovery commands |
