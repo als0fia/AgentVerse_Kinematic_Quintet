@@ -17,9 +17,14 @@ class ControlLimits:
     turn_rad_s: float = 0.75
     stop_range_m: float = 0.35
     site_reach_m: float = 0.15
+    max_pitch_roll_rad: float = 0.35
+    max_slip_ratio: float = 0.60
+    min_peer_distance_m: float = 1.0
+    kp_row: float = 1.0
 
     def __post_init__(self) -> None:
-        if min(self.speed_m_s, self.turn_rad_s, self.stop_range_m, self.site_reach_m) <= 0:
+        if min(self.speed_m_s, self.turn_rad_s, self.stop_range_m, self.site_reach_m,
+               self.max_pitch_roll_rad, self.max_slip_ratio, self.min_peer_distance_m, self.kp_row) <= 0:
             raise ValueError("all safety limits must be positive")
 
 
@@ -47,6 +52,22 @@ class LocalController:
                 sites: dict[str, Site], capability: RobotCapability) -> RobotCommand:
         if robot.robot_id != task.robot_id or robot.robot_id != capability.robot_id:
             raise ValueError("actor mismatch")
+
+        # 1. IMU Tip-Over Halt: If pitch or roll exceeds limit (>20 deg), cut drive immediately
+        if abs(robot.pitch_rad) > self.limits.max_pitch_roll_rad or abs(robot.roll_rad) > self.limits.max_pitch_roll_rad:
+            return RobotCommand(robot.robot_id, issued_at_s=robot.time_s, expires_at_s=robot.time_s + 0.2,
+                                task_id=task.task_id, linear_m_s=0.0, angular_rad_s=0.0, release_seed=False)
+
+        # 2. Bogged-Down / Mud Sink Trap: Freeze motion to prevent deep digging and await tow/triage
+        if robot.is_bogged:
+            return RobotCommand(robot.robot_id, issued_at_s=robot.time_s, expires_at_s=robot.time_s + 0.2,
+                                task_id=task.task_id, linear_m_s=0.0, angular_rad_s=0.0, release_seed=False)
+
+        # 3. UWB Swarm Anti-Collision Brake: Emergency stop if peer distance < 1.0 m
+        for _pid, pdist in robot.peer_distances:
+            if pdist < self.limits.min_peer_distance_m:
+                return RobotCommand(robot.robot_id, issued_at_s=robot.time_s, expires_at_s=robot.time_s + 0.2,
+                                    task_id=task.task_id, linear_m_s=0.0, angular_rad_s=0.0, release_seed=False)
         linear = angular = 0.0
         release = False
         target_id = task.target_site_id
@@ -61,10 +82,19 @@ class LocalController:
                 release = task.mode == TaskMode.PLANT and capability.can_plant and robot.seeds_remaining > 0
             elif not _crosses_protected_area(robot.pose, target, sites):
                 heading_error = _wrap(atan2(delta_y, delta_x) - robot.pose.yaw_rad)
-                angular = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, heading_error * 1.5))
+                raw_angular = heading_error * 1.5
+                # Row-Centering Steer (Tactile Whiskers / ToF lateral offset)
+                if abs(robot.row_cross_track_m) > 0.005:
+                    raw_angular += self.limits.kp_row * robot.row_cross_track_m
+                angular = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, raw_angular))
                 # Turn toward goal first; do not drive forward blindly into off-axis targets.
                 if abs(heading_error) < 0.5:
                     linear = min(self.limits.speed_m_s, distance * 0.5)
+                    # Anti-Digging Traction (Doppler radar true speed vs linear command)
+                    if robot.true_speed_m_s is not None and linear > 0.05:
+                        slip = 1.0 - (robot.true_speed_m_s / linear)
+                        if slip > self.limits.max_slip_ratio:
+                            linear = max(0.04, linear * (1.0 - slip))
         # Obstacle/invalid range -> HOLD. Planner can later provide a new safe waypoint.
         return RobotCommand(robot.robot_id, issued_at_s=robot.time_s,
                             expires_at_s=robot.time_s + 0.2, task_id=task.task_id, linear_m_s=linear,
