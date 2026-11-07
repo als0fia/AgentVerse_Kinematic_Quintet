@@ -40,8 +40,12 @@ from dataclasses import dataclass
 from math import atan2, cos, hypot, pi, sin, sqrt
 from typing import Any
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
+from .rescue import DistressSignal, FailureMode, RescueEngine
 from ..contracts import (
     Decision,
     ObservationFrame,
@@ -145,6 +149,7 @@ class MycelialGossipPacket:
     task_bid: TaskBidProposal | None
     byte_size: int
     dialogue_summary: tuple[str, ...]
+    distress_signal: DistressSignal | None = None
 
 
 @dataclass
@@ -346,6 +351,11 @@ class LocalMycelialMap:
         total_count = sum(b.count for b in ch.values())
         return round(1.0 / sqrt(total_count), 4) if total_count else 1.0
 
+    def nearest_site_id(self, pose: Pose2D) -> str | None:
+        if not self.sites:
+            return None
+        return min(self.sites.keys(), key=lambda sid: hypot(self.sites[sid].center.x_m - pose.x_m, self.sites[sid].center.y_m - pose.y_m))
+
     def estimates(self) -> dict[str, SiteEstimate]:
         return {site_id: self.estimate(site_id) for site_id in self.sites}
 
@@ -383,6 +393,9 @@ class DecentralizedRobotNode:
         self.last_time_s: float | None = None
         self.last_commanded_linear_m_s: float = 0.0
         self.pending_plant_task: tuple[str, str, float] | None = None
+        self.active_distress: DistressSignal | None = None
+        self.peer_distress_signals: dict[str, DistressSignal] = {}
+        self.rescue_engine: RescueEngine = RescueEngine()
 
     def process_local_sensors(
         self,
@@ -456,6 +469,17 @@ class DecentralizedRobotNode:
         )
         self.last_pose = obs.pose
         self.last_time_s = obs.time_s
+
+        nearest_sid = self.local_map.nearest_site_id(obs.pose) if hasattr(self.local_map, "nearest_site_id") else None
+        local_est = self.local_map.estimate(nearest_sid) if nearest_sid else None
+        effective_slip = raw_slip if raw_slip > 0.0 else (0.85 if obs.is_bogged else 0.08)
+        self.active_distress = self.rescue_engine.build_distress_signal(
+            obs,
+            slip_ratio=effective_slip,
+            local_moisture=local_est.moisture if local_est else None,
+            local_firmness=local_est.firmness if local_est else None,
+        )
+
         return telemetry, ingested, new_hazards
 
     def compute_task_bids(self, obs: RobotObservation) -> list[TaskBidProposal]:
@@ -891,10 +915,22 @@ class DecentralizedMycelialRuntime:
                 if new_bid_conflict:
                     self._negotiated_conflicts.add(conflict_key)
 
-                if not unseen_samples and not unseen_hazards and not unseen_planted and not new_bid_conflict:
+                has_new_distress = (
+                    sender_node.active_distress is not None
+                    and receiver_node.peer_distress_signals.get(sender_id) != sender_node.active_distress
+                )
+
+                if not unseen_samples and not unseen_hazards and not unseen_planted and not new_bid_conflict and not has_new_distress:
                     continue
 
                 dialogue: list[str] = []
+                if has_new_distress and sender_node.active_distress is not None:
+                    receiver_node.peer_distress_signals[sender_id] = sender_node.active_distress
+                    if sender_node.active_distress.residual_weights:
+                        receiver_node.rescue_engine.learner.import_weights_flat(
+                            sender_node.active_distress.residual_weights
+                        )
+                    dialogue.append(f"{sender_id}->{receiver_id}: {sender_node.active_distress.summary_text}")
                 for s in unseen_samples:
                     if s.kind == SensorKind.MOISTURE:
                         est_s = sender_node.local_map.estimate(s.site_id)
@@ -936,6 +972,7 @@ class DecentralizedMycelialRuntime:
                     task_bid=top_bid,
                     byte_size=byte_size,
                     dialogue_summary=tuple(dialogue),
+                    distress_signal=sender_node.active_distress,
                 )
                 cycle_packets.append(pkt)
                 self.gossip_history.append(pkt)
