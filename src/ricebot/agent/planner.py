@@ -54,13 +54,18 @@ class RescueAssessment:
 
     stranded_robot_id: str
     verdict: RescueVerdict
-    nearest_site_id: str | None
-    rescue_benefit: float
-    opportunity_cost: float
-    hazard_risk: float
-    net_rescue_value: float
+    nearest_site_id: str | None = None
+    rescue_benefit: float = 0.0
+    opportunity_cost: float = 0.0
+    hazard_risk: float = 0.0
+    net_rescue_value: float = 0.0
     helper_robot_id: str | None = None
     reason: str = ""
+    rescuer_robot_id: str | None = None
+    expected_saved_benefit: float = 0.0
+    rescue_opportunity_cost: float = 0.0
+    net_rescue_utility: float = 0.0
+    rationale: str = ""
 
 
 @dataclass(frozen=True)

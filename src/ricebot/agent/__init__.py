@@ -37,6 +37,16 @@ from .planner import (
     TravelCostFn,
     homogeneous_capabilities,
 )
+from .rescue import (
+    DistressSignal,
+    FailureMode,
+    MechanicalActuatorSetpoint,
+    MechanicalRescueTechnique,
+    RecoveryAction,
+    RescueEngine,
+    ResidualRecoveryLearner,
+    compute_mechanical_recovery_setpoint,
+)
 
 __all__ = [
     "AgentBid",

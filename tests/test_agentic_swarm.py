@@ -10,7 +10,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ricebot.agent import (
     AmbiguityEvent,
     CooperativeSwarmPlanner,
+    DecentralizedMycelialRuntime,
+    DistressSignal,
+    FailureMode,
+    MechanicalRescueTechnique,
+    RecoveryAction,
+    RescueEngine,
     RescueVerdict,
+    ResidualRecoveryLearner,
+    compute_mechanical_recovery_setpoint,
     homogeneous_capabilities,
 )
 from ricebot.contracts import (
@@ -450,6 +458,130 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
         self.assertEqual(r2_intent_1.target_site_id, "b")
         self.assertEqual(r1_intent_1.mode, TaskMode.SAMPLE)
         self.assertEqual(r1_intent_1.target_site_id, "c")
+
+    def test_sensor_tip_over_distress_gossip_and_mechanical_actuator_setpoints(self):
+        """Verify IMU tip-over / bogged distress packet transmission over MycelialGossipPacket and mechanical setpoints."""
+        runtime = DecentralizedMycelialRuntime(SITES, HOMOGENEOUS_CAPS, comm_range_m=2.5)
+        f_tip = frame(
+            1.0,
+            RobotObservation("rover-1", Pose2D(0.2, 0.0, 0.0), 1.0, 1.5, 2, roll_rad=0.45),
+            RobotObservation("rover-2", Pose2D(0.9, 0.0, 0.0), 1.0, 1.5, 2, pitch_rad=0.40),
+        )
+        runtime.decide(f_tip)
+        distress_pkts = [p for p in runtime.latest_gossip_packets if p.distress_signal is not None]
+        self.assertEqual(len(distress_pkts), 2)
+        r1_distress = runtime.nodes["rover-2"].peer_distress_signals["rover-1"]
+        r2_distress = runtime.nodes["rover-1"].peer_distress_signals["rover-2"]
+        self.assertEqual(r1_distress.failure_mode, FailureMode.TIP_OVER_OR_TRENCH)
+        self.assertEqual(r1_distress.recommended_technique, MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD)
+        self.assertFalse(r1_distress.needs_peer_assistance)
+        self.assertEqual(r2_distress.failure_mode, FailureMode.PITCH_NOSE_DOWN_STALL)
+        self.assertEqual(r2_distress.recommended_technique, MechanicalRescueTechnique.PITCH_MATCH_NOSE_DOWN_RECOVERY)
+        self.assertTrue(r2_distress.needs_peer_assistance)
+
+        sp_rollover = compute_mechanical_recovery_setpoint(
+            "rover-1", MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD
+        )
+        self.assertEqual(sp_rollover.wheel_vel_rad_s, (0.0, 0.0, 0.0, 0.0))
+        self.assertEqual(sp_rollover.spade_rad, 0.85)
+        self.assertEqual(sp_rollover.dibber_m, -0.050)
+
+        sp_wiggle = compute_mechanical_recovery_setpoint(
+            "rover-2", MechanicalRescueTechnique.DYNAMIC_YAW_SHEAR_AND_PITCH_PUMP, step_index=2, latched=True
+        )
+        self.assertEqual(sp_wiggle.spade_rad, 0.75)
+        self.assertEqual(sp_wiggle.latch_rad, 0.58)
+        self.assertEqual(sp_wiggle.dock_pitch_rad, 0.42)
+
+    def test_online_neural_residual_learning_loop_and_adaptation(self):
+        """Verify the Online Neural Residual Learning Loop adapts weights from stalls and re-ranks techniques."""
+        learner = ResidualRecoveryLearner(learning_rate=0.25, l2_decay=0.01)
+
+        phi = learner.extract_features(moisture=0.85, firmness=0.15, slip_ratio=0.90, stuck_ticks=2)
+        self.assertEqual(phi[0], 1.0)
+        self.assertEqual(phi[1], 0.85)
+        self.assertAlmostEqual(phi[2], 0.85, places=3)
+        self.assertAlmostEqual(phi[3], 0.65, places=3)
+
+        pred_pull_initial = learner.predict_displacement(
+            MechanicalRescueTechnique.DIRECT_PRY_AND_PULL, bekker_pull_margin_n=-12.0, phi=phi
+        )
+        err = learner.update(
+            technique=MechanicalRescueTechnique.DIRECT_PRY_AND_PULL,
+            actual_displacement_m=0.0,
+            moisture=0.85,
+            firmness=0.15,
+            slip_ratio=0.90,
+            stuck_ticks=2,
+            bekker_pull_margin_n=-12.0,
+        )
+        self.assertLess(err, 0.0)
+
+        best_tech, scores = learner.select_technique(
+            failure_mode=FailureMode.ASYMMETRIC_SLIP_OR_SUCTION,
+            moisture=0.85,
+            firmness=0.15,
+            slip_ratio=0.90,
+            stuck_ticks=2,
+            bekker_pull_margin_n=-12.0,
+        )
+        self.assertEqual(best_tech, MechanicalRescueTechnique.DYNAMIC_YAW_SHEAR_AND_PITCH_PUMP)
+        self.assertGreater(
+            scores[MechanicalRescueTechnique.DYNAMIC_YAW_SHEAR_AND_PITCH_PUMP],
+            scores[MechanicalRescueTechnique.DIRECT_PRY_AND_PULL],
+        )
+
+        err_wiggle = learner.update(
+            technique=MechanicalRescueTechnique.DYNAMIC_YAW_SHEAR_AND_PITCH_PUMP,
+            actual_displacement_m=0.035,
+            moisture=0.85,
+            firmness=0.15,
+            slip_ratio=0.90,
+            stuck_ticks=2,
+            bekker_pull_margin_n=-12.0,
+        )
+        self.assertEqual(len(learner.history), 2)
+        self.assertGreater(learner.history[1]["actual"], 0.03)
+
+        flat_weights = learner.export_weights_flat()
+        self.assertEqual(len(flat_weights), 24)
+        peer_learner = ResidualRecoveryLearner()
+        peer_learner.import_weights_flat(flat_weights)
+        self.assertEqual(
+            peer_learner.weights[MechanicalRescueTechnique.DIRECT_PRY_AND_PULL],
+            learner.weights[MechanicalRescueTechnique.DIRECT_PRY_AND_PULL],
+        )
+
+    def test_rescue_engine_residual_learning_and_swarm_gossip_sync(self):
+        """Verify DistressSignal carries neural residual weights across UWB/ESP-NOW gossip and updates peers."""
+        runtime = DecentralizedMycelialRuntime(SITES, HOMOGENEOUS_CAPS, comm_range_m=2.5)
+
+        r1_obs = RobotObservation(
+            "rover-1", Pose2D(0.2, 0.0, 0.0), 1.0, 1.5, 2, is_bogged=True
+        )
+        f_bogged = frame(1.0, r1_obs, RobotObservation("rover-2", Pose2D(0.8, 0.0, 0.0), 1.0, 1.5, 2))
+
+        runtime.nodes["rover-1"].rescue_engine.update_recovery_learning(
+            technique=MechanicalRescueTechnique.DIRECT_PRY_AND_PULL,
+            actual_displacement_m=0.0,
+            moisture=0.88,
+            firmness=0.14,
+            slip_ratio=0.92,
+            stuck_ticks=2,
+        )
+
+        runtime.decide(f_bogged)
+        r1_distress = runtime.nodes["rover-2"].peer_distress_signals.get("rover-1")
+        self.assertIsNotNone(r1_distress)
+        self.assertEqual(len(r1_distress.residual_weights), 24)
+
+        r2_learned_pull_weights = runtime.nodes["rover-2"].rescue_engine.learner.weights[
+            MechanicalRescueTechnique.DIRECT_PRY_AND_PULL
+        ]
+        r1_learned_pull_weights = runtime.nodes["rover-1"].rescue_engine.learner.weights[
+            MechanicalRescueTechnique.DIRECT_PRY_AND_PULL
+        ]
+        self.assertEqual(r2_learned_pull_weights, r1_learned_pull_weights)
 
 
 if __name__ == "__main__":
