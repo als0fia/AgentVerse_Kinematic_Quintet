@@ -346,7 +346,7 @@ def run_demo(
         else DEFAULT_CAPABILITIES
     )
 
-    if is_golden_rescue:
+    if is_golden_rescue or policy == "cooperative":
         field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
         planner: SimpleMissionPlanner = CooperativeSwarmPlanner(caps)
         controller = LocalController(
@@ -564,7 +564,7 @@ def main() -> int:
         choices=("nominal", "obstacle", "bad_soil", "shifted_moisture", "sensor_degraded", "golden_rescue"),
         default="nominal",
     )
-    parser.add_argument("--policy", choices=("mycelial", "centralized", "single_rover"), default="mycelial")
+    parser.add_argument("--policy", choices=("mycelial", "cooperative", "centralized", "single_rover"), default="mycelial")
     parser.add_argument("--comms", choices=("normal", "intermittent", "isolated"), default="normal")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--steps", type=int, default=140)

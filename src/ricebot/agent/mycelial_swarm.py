@@ -57,6 +57,7 @@ from ..contracts import (
 )
 from ..control import ControlLimits
 from ..mission import SiteEstimate
+from .planner import RescueAssessment, RescueVerdict, SupervisoryAdvisor
 
 
 def _wrap_angle(angle: float) -> float:
@@ -371,6 +372,7 @@ class DecentralizedRobotNode:
         sites: tuple[Site, ...],
         envelope: SoilSafetyEnvelope = SoilSafetyEnvelope(),
         limits: ControlLimits = ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22),
+        advisor: SupervisoryAdvisor | None = None,
     ) -> None:
         self.capability = capability
         self.robot_id = capability.robot_id
@@ -598,7 +600,7 @@ class DecentralizedRobotNode:
                 angular_rad_s=0.0,
             )
 
-        if not obs.link_ok or obs.front_range_m is None or intent.mode is TaskMode.HOLD or intent.target_site_id is None:
+        if obs.is_bogged or not obs.link_ok or obs.front_range_m is None or intent.mode is TaskMode.HOLD or intent.target_site_id is None:
             self.last_commanded_linear_m_s = 0.0
             return RobotCommand(
                 robot_id=obs.robot_id,
@@ -610,6 +612,28 @@ class DecentralizedRobotNode:
             )
 
         target_site = self.local_map.sites[intent.target_site_id]
+        if intent.mode is TaskMode.RESCUE and intent.target_robot_id is not None:
+            peer_pose = peer_poses.get(intent.target_robot_id, target_site.center)
+            dx_r = peer_pose.x_m - obs.pose.x_m
+            dy_r = peer_pose.y_m - obs.pose.y_m
+            dist_r = max(1e-4, hypot(dx_r, dy_r))
+            heading_err_r = _wrap_angle(atan2(dy_r, dx_r) - obs.pose.yaw_rad)
+            angular_r = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, heading_err_r * 1.55))
+            linear_r = min(self.limits.speed_m_s, dist_r * 0.65) if abs(heading_err_r) < 0.65 else 0.0
+            self.last_commanded_linear_m_s = round(linear_r, 3)
+            return RobotCommand(
+                robot_id=obs.robot_id,
+                issued_at_s=issued_at_s,
+                expires_at_s=expires_at_s,
+                task_id=intent.task_id,
+                linear_m_s=round(linear_r, 3),
+                angular_rad_s=round(angular_r, 3),
+                target_site_id=target_site.site_id,
+                recovery_target_id=intent.target_robot_id,
+                dock_pitch_rad=0.08,
+                latch_rad=0.58,
+                spade_rad=0.25,
+            )
         dx = target_site.center.x_m - obs.pose.x_m
         dy = target_site.center.y_m - obs.pose.y_m
         dist_to_target = hypot(dx, dy)
@@ -734,6 +758,7 @@ class DecentralizedMycelialRuntime:
         comm_mode: str = "normal",  # "normal" | "intermittent" | "isolated"
         envelope: SoilSafetyEnvelope = SoilSafetyEnvelope(),
         limits: ControlLimits = ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22),
+        advisor: SupervisoryAdvisor | None = None,
     ) -> None:
         self.sites = {s.site_id: s for s in sites}
         self.capabilities = {c.robot_id: c for c in capabilities}
@@ -753,6 +778,11 @@ class DecentralizedMycelialRuntime:
         self.latest_sensor_telemetry: dict[str, OnboardSensorTelemetry] = {}
         self.total_gossip_bytes: int = 0
         self.total_gossip_packets: int = 0
+        self.advisor = advisor
+        self._bogged_since_s: dict[str, float] = {}
+        self.last_rescue_assessments: dict[str, RescueAssessment] = {}
+        self.last_advisor_recommendation: str | None = None
+        self._sos_broadcast_sent: set[str] = set()
 
     def _is_link_open(self, time_s: float, dist_m: float) -> bool:
         """Evaluate whether peer-to-peer Wi-Fi HaLow / UWB link can carry packets at `time_s`."""
@@ -951,11 +981,127 @@ class DecentralizedMycelialRuntime:
             assigned_bid_for_robot[bid.robot_id] = bid
             claimed_by_peer[bid.site_id] = bid.robot_id
 
+        # 6. Autonomous Peer Rescue Triage (RESCUE_NOW vs DEFER_RESCUE vs ABANDON_ESCALATE) & System-2 Advisor
+        self.last_rescue_assessments = {}
+        rescue_intent_by_robot: dict[str, TaskIntent] = {}
+        for rid, obs in obs_by_robot.items():
+            if obs.is_bogged:
+                self._bogged_since_s.setdefault(rid, frame.time_s)
+            else:
+                self._bogged_since_s.pop(rid, None)
+                self._sos_broadcast_sent.discard(rid)
+
+        for stranded_id, stranded_obs in obs_by_robot.items():
+            if not stranded_obs.is_bogged:
+                continue
+            nearest_site_id = min(
+                (s.site_id for s in self.sites.values() if s.permitted),
+                key=lambda sid: hypot(
+                    self.sites[sid].center.x_m - stranded_obs.pose.x_m,
+                    self.sites[sid].center.y_m - stranded_obs.pose.y_m,
+                ),
+            )
+            rescue_intent_by_robot[stranded_id] = TaskIntent(
+                task_id=f"{frame.episode_id}:{frame.time_s:.3f}:{stranded_id}:hold",
+                robot_id=stranded_id,
+                mode=TaskMode.HOLD,
+                issued_at_s=frame.time_s,
+                expires_at_s=frame.time_s + 1.0,
+                target_site_id=None,
+                reason=f"bogged at {nearest_site_id}; holding for peer rigid-dock extraction",
+            )
+            candidates = [
+                r
+                for r in frame.robots
+                if r.robot_id != stranded_id
+                and not r.is_bogged
+                and r.link_ok
+                and r.robot_id in reachable_peers.get(stranded_id, set())
+            ]
+            if not candidates:
+                continue
+            rescuer = min(
+                candidates,
+                key=lambda r: hypot(
+                    r.pose.x_m - stranded_obs.pose.x_m,
+                    r.pose.y_m - stranded_obs.pose.y_m,
+                ),
+            )
+            dist_m = max(0.05, hypot(rescuer.pose.x_m - stranded_obs.pose.x_m, rescuer.pose.y_m - stranded_obs.pose.y_m))
+            eta_s = dist_m / 0.35
+            saved_benefit = round((1.80 if self.capabilities[stranded_id].can_plant else 0.70) + 1.35 * stranded_obs.seeds_remaining, 4)
+            opp_cost = round(0.18 * eta_s, 4)
+            net_utility = round(saved_benefit - opp_cost, 4)
+            verdict = RescueVerdict.RESCUE_NOW if net_utility >= 0.0 else RescueVerdict.DEFER_RESCUE
+            assessment = RescueAssessment(
+                stranded_robot_id=stranded_id,
+                rescuer_robot_id=rescuer.robot_id,
+                nearest_site_id=nearest_site_id,
+                expected_saved_benefit=saved_benefit,
+                rescue_opportunity_cost=opp_cost,
+                net_rescue_utility=net_utility,
+                verdict=verdict,
+                rationale=(
+                    f"Peer rescue saves {saved_benefit:.2f} expected utility at cost {opp_cost:.2f} "
+                    f"(net={net_utility:+.2f}, ETA={eta_s:.1f}s) -> {verdict.value}"
+                ),
+            )
+            self.last_rescue_assessments[stranded_id] = assessment
+            if verdict == RescueVerdict.RESCUE_NOW:
+                rescue_intent_by_robot[rescuer.robot_id] = TaskIntent(
+                    task_id=f"{frame.episode_id}:{frame.time_s:.3f}:{rescuer.robot_id}:rescue",
+                    robot_id=rescuer.robot_id,
+                    mode=TaskMode.RESCUE,
+                    issued_at_s=frame.time_s,
+                    expires_at_s=frame.time_s + 1.0,
+                    target_site_id=nearest_site_id,
+                    target_robot_id=stranded_id,
+                    reason=f"rescue triage={verdict.value} for {stranded_id} at {nearest_site_id} ({assessment.rationale})",
+                )
+                if stranded_id not in self._sos_broadcast_sent:
+                    self._sos_broadcast_sent.add(stranded_id)
+                    sos_pkt = MycelialGossipPacket(
+                        packet_id=f"pkt:{frame.time_s:.2f}:{stranded_id}->{rescuer.robot_id}:sos",
+                        sender_id=stranded_id,
+                        receiver_id=rescuer.robot_id,
+                        sent_at_s=frame.time_s,
+                        uwb_distance_m=round(dist_m, 4),
+                        uwb_aoa_rad=0.0,
+                        samples=(),
+                        slam_hazards=(),
+                        task_bid=None,
+                        byte_size=64,
+                        dialogue_summary=(
+                            f"{stranded_id}->{rescuer.robot_id}: SOS BOGGED at {nearest_site_id}; "
+                            f"{verdict.value} net={net_utility:+.2f} -> rigid-dock rescue dispatched",
+                        ),
+                    )
+                    self.gossip_history.append(sos_pkt)
+                    self.latest_gossip_packets = (*self.latest_gossip_packets, sos_pkt)
+                    self.total_gossip_bytes += 64
+                    self.total_gossip_packets += 1
+
+        if self.advisor is not None and not rescue_intent_by_robot:
+            try:
+                rec_map = self.advisor.recommend(
+                    frame,
+                    self.sites,
+                    self.nodes[robot_ids[0]].local_map.estimates() if robot_ids else {},
+                    self.nodes[robot_ids[0]].local_map.planted_sites if robot_ids else set(),
+                    [],
+                )
+                if rec_map:
+                    self.last_advisor_recommendation = ", ".join(f"{k}->{v}" for k, v in rec_map.items())
+            except Exception:
+                pass
+
         for rid in robot_ids:
             node = self.nodes[rid]
             obs = obs_by_robot[rid]
             winning_bid = assigned_bid_for_robot.get(rid)
-            if winning_bid is None:
+            if rid in rescue_intent_by_robot:
+                intent = rescue_intent_by_robot[rid]
+            elif winning_bid is None:
                 intent = TaskIntent(
                     task_id=f"{frame.episode_id}:{frame.time_s:.3f}:{rid}:hold",
                     robot_id=rid,
