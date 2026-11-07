@@ -115,6 +115,8 @@ class RobotModuleTest(unittest.TestCase):
         bodies_xml, actuators_xml, sensors_xml = build_rovers_and_seeds_xml()
         for rid in ("planter", "scout"):
             self.assertIn(f'body name="{rid}_body"', bodies_xml)
+            self.assertIn(f'camera name="{rid}_front_camera"', bodies_xml)
+            self.assertIn(f'geom name="{rid}_cam_lens"', bodies_xml)
             self.assertIn(f'geom name="{rid}_hopper_outer"', bodies_xml)
             self.assertIn(f'geom name="{rid}_probe_boom"', bodies_xml)
             self.assertIn(f'body name="{rid}_dock_boom"', bodies_xml)
