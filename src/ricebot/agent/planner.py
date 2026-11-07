@@ -1,9 +1,9 @@
-"""Swarm Agentic Coordination (Task Allocation + Rescue Triage / "Worth Saving" Evaluation).
+"""Swarm Agentic Coordination (Task Allocation + Algorithmic Failure Recovery / "Worth Saving" Evaluation).
 
 Completely decoupled from both Mapping (field_map) and Traversal (controller):
 - Input: ObservationFrame + teammate's field_map (MeasuredFieldMap)
 - Output: tuple[TaskIntent, ...] (one SAMPLE, PLANT, or HOLD intent per robot,
-  with rescue/triage reasoning embedded when a peer is stranded)
+  with failure mode classification and rescue/triage recovery actions embedded when a peer is stranded)
 """
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import os
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
 from math import hypot
 from typing import Protocol
 
@@ -26,6 +25,13 @@ from ..contracts import (
     TaskMode,
 )
 from ..mission import MeasuredFieldMap, SimpleMissionPlanner, SiteEstimate
+from .rescue import (
+    FailureMode,
+    RecoveryAction,
+    RescueAssessment,
+    RescueEngine,
+    RescueVerdict,
+)
 
 TravelCostFn = Callable[[Pose2D, Site], float | None]
 
@@ -36,30 +42,6 @@ def homogeneous_capabilities(robot_ids: tuple[str, ...] | list[str]) -> tuple[Ro
         RobotCapability(robot_id=rid, can_sample=True, can_plant=True)
         for rid in robot_ids
     )
-
-
-class RescueVerdict(str, Enum):
-    """Agentic triage decision for whether a stranded/faulted robot is worth saving."""
-
-    HEALTHY = "healthy"
-    RESCUE_NOW = "rescue_now"  # Peer diverts immediately to save stranded robot
-    DEFER_RESCUE = "defer_rescue"  # Peer finishes high-value planting first, then rescues
-    ABANDON_ESCALATE = "abandon_escalate"  # Not worth risking/diverting peer; safe HOLD for human
-
-
-@dataclass(frozen=True)
-class RescueAssessment:
-    """Cost-benefit evaluation of whether a stranded robot is worth saving."""
-
-    stranded_robot_id: str
-    verdict: RescueVerdict
-    nearest_site_id: str | None
-    rescue_benefit: float
-    opportunity_cost: float
-    hazard_risk: float
-    net_rescue_value: float
-    helper_robot_id: str | None = None
-    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -83,6 +65,7 @@ class AmbiguityEvent:
     kind: str  # "quality_overturned", "route_obstructed", "robot_stranded"
     affected_site_ids: tuple[str, ...]
     candidate_site_ids: tuple[str, ...]
+    rescue_assessments: tuple[RescueAssessment, ...] = ()
 
 
 class SupervisoryAdvisor(Protocol):
@@ -127,6 +110,7 @@ class GeminiSwarmAdvisor:
                 "kind": event.kind,
                 "affected_sites": list(event.affected_site_ids),
                 "candidate_sites": list(event.candidate_site_ids),
+                "rescue_assessments": [a.to_dict() for a in event.rescue_assessments],
             },
             "robots": [
                 {
@@ -136,6 +120,7 @@ class GeminiSwarmAdvisor:
                     "seeds_remaining": r.seeds_remaining,
                     "front_range_m": r.front_range_m,
                     "link_ok": r.link_ok,
+                    "is_bogged": r.is_bogged,
                 }
                 for r in frame.robots
             ],
@@ -156,9 +141,8 @@ class GeminiSwarmAdvisor:
             "All robots can both SAMPLE (measure soil/stand) and PLANT (drop a seed if seeds_remaining > 0 "
             "and the site has complete=true with stand_gap >= 0.6, moisture in [0.25, 0.8], "
             "firmness in [0.2, 0.9]).\n"
-            "If a robot is stranded (front_range_m is None or very small), evaluate whether it is worth saving "
-            "(e.g. if it carries needed seeds and is near a safe site) or should HOLD for human pickup while "
-            "healthy peers finish planting.\n"
+            "If a robot is stranded, consult `rescue_assessments` (including `failure_mode`, `recovery_action`, "
+            "`trap_probability`, `expected_trap_loss`, and `net_rescue_value`).\n"
             "Assign each robot a non-overlapping target_site_id and mode ('sample', 'plant', or 'hold').\n"
             "Return ONLY valid JSON of the form:\n"
             '{"assignments": {"<robot_id>": {"mode": "sample|plant|hold", "target_site_id": "<site_id>|null", "reason": "<short reason>"}}}\n'
@@ -299,7 +283,7 @@ class SwarmRobotAgent:
 
 
 class CooperativeSwarmPlanner(SimpleMissionPlanner):
-    """Decentralized auction-based Swarm Coordinator + Rescue Worth-Saving Evaluator.
+    """Decentralized auction-based Swarm Coordinator + Algorithmic Failure Recovery Evaluator.
 
     Drop-in replacement for SimpleMissionPlanner inside MissionCore:
         core = MissionCore(field_map, CooperativeSwarmPlanner(caps), controller)
@@ -347,11 +331,14 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
             )
             for cap in capabilities
         }
+        self.rescue_engine = RescueEngine(
+            obstacle_trigger_range_m=obstacle_trigger_range_m,
+            stuck_ticks_threshold=stuck_ticks_threshold,
+            travel_cost_weight=travel_cost_weight,
+        )
         self._previous_targets: dict[str, tuple[TaskMode, str | None]] = {}
         self._previous_eligible: set[str] = set()
         self._blocked_approaches: dict[tuple[str, str], float] = {}
-        self._last_pose: dict[str, Pose2D] = {}
-        self._stuck_counts: dict[str, int] = {}
         self.last_rescue_assessments: dict[str, RescueAssessment] = {}
         self.advisor_calls: int = 0
         self.advisor_fallbacks: int = 0
@@ -362,32 +349,8 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         return hypot(pose.x_m - site.center.x_m, pose.y_m - site.center.y_m)
 
     def _update_stranded_tracking(self, frame: ObservationFrame) -> set[str]:
-        """Detect robots that are stranded (sensor fault range_m=None, or immobilized for N ticks)."""
-        stranded: set[str] = set()
-        for robot in frame.robots:
-            prev_pose = self._last_pose.get(robot.robot_id)
-            prev_mode, _ = self._previous_targets.get(robot.robot_id, (TaskMode.HOLD, None))
-            moved = (
-                hypot(robot.pose.x_m - prev_pose.x_m, robot.pose.y_m - prev_pose.y_m)
-                if prev_pose is not None
-                else 1.0
-            )
-            sensor_fault = robot.front_range_m is None
-            blocked_immobile = (
-                prev_mode != TaskMode.HOLD
-                and moved < 0.02
-                and robot.front_range_m is not None
-                and robot.front_range_m <= self.obstacle_trigger_range_m
-            )
-            if sensor_fault or blocked_immobile:
-                self._stuck_counts[robot.robot_id] = self._stuck_counts.get(robot.robot_id, 0) + 1
-            else:
-                self._stuck_counts[robot.robot_id] = 0
-            self._last_pose[robot.robot_id] = robot.pose
-
-            if sensor_fault or self._stuck_counts[robot.robot_id] >= self.stuck_ticks_threshold:
-                stranded.add(robot.robot_id)
-        return stranded
+        """Delegate multi-tick stranded/fault detection to RescueEngine."""
+        return self.rescue_engine.detect_stranded_robots(frame, self._previous_targets)
 
     def evaluate_rescue_worth(
         self,
@@ -397,129 +360,14 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         estimates: dict[str, SiteEstimate],
         allowed_site_ids: list[str],
     ) -> RescueAssessment:
-        """Agentic triage: calculate whether a stranded robot is WORTH SAVING right now.
-
-        Weighs:
-        1. Rescue Benefit:
-           - Stranded Seed Value: Does the stranded robot carry seeds that healthy
-             peers lack to finish the remaining field gaps?
-           - Unshared Data Value: Did it lose comms (link_ok=False) so a physical
-             rendezvous recovers local samples?
-           - Base Hardware Recovery Value: Base value of assisting a recoverable peer.
-        2. Hazard Risk:
-           - Is the stranded robot inside/near a protected no-go zone (permitted=False)
-             where sending a helper risks losing a second robot?
-        3. Opportunity Cost:
-           - Can a healthy peer plant a confirmed stand gap right now, plus travel distance
-             to the stranded robot?
-        """
-        # Find nearest permitted site to the stranded robot's location (rendezvous point)
-        permitted_sites = [sites[sid] for sid in allowed_site_ids if sid in sites]
-        nearest_site = (
-            min(
-                permitted_sites,
-                key=lambda s: hypot(
-                    s.center.x_m - stranded_robot.pose.x_m,
-                    s.center.y_m - stranded_robot.pose.y_m,
-                ),
-            )
-            if permitted_sites
-            else None
-        )
-
-        # Check hazard risk (is stranded robot inside or right next to a no-go area?)
-        hazard_risk = 0.0
-        for s in sites.values():
-            if not s.permitted:
-                dist_to_hazard = hypot(
-                    stranded_robot.pose.x_m - s.center.x_m,
-                    stranded_robot.pose.y_m - s.center.y_m,
-                )
-                if dist_to_hazard <= s.no_go_radius_m + 0.25:
-                    hazard_risk = 2.0  # High risk of losing helper robot too
-
-        if not healthy_peers or nearest_site is None or hazard_risk >= 1.5:
-            return RescueAssessment(
-                stranded_robot_id=stranded_robot.robot_id,
-                verdict=RescueVerdict.ABANDON_ESCALATE,
-                nearest_site_id=nearest_site.site_id if nearest_site else None,
-                rescue_benefit=0.0,
-                opportunity_cost=0.0,
-                hazard_risk=hazard_risk,
-                net_rescue_value=-hazard_risk,
-                helper_robot_id=None,
-                reason="not worth saving: high hazard risk or no available helper; safe HOLD for human",
-            )
-
-        # Pick closest healthy peer as candidate rescuer
-        helper = min(
-            healthy_peers,
-            key=lambda p: hypot(
-                p.pose.x_m - stranded_robot.pose.x_m,
-                p.pose.y_m - stranded_robot.pose.y_m,
-            ),
-        )
-        rescue_dist = hypot(
-            helper.pose.x_m - stranded_robot.pose.x_m,
-            helper.pose.y_m - stranded_robot.pose.y_m,
-        )
-
-        # Count how many remaining candidate gaps exist vs healthy peer seeds
-        healthy_seeds = sum(p.seeds_remaining for p in healthy_peers)
-        remaining_work_sites = len(allowed_site_ids)
-        confirmed_gaps = sum(1 for sid in allowed_site_ids if self._eligible(estimates[sid]))
-
-        # 1. Rescue Benefit calculation
-        seeds_needed_from_stranded = max(
-            0, min(stranded_robot.seeds_remaining, remaining_work_sites - healthy_seeds)
-        )
-        seed_recovery_value = 0.95 * seeds_needed_from_stranded
-        offline_data_value = 0.55 if not stranded_robot.link_ok else 0.0
-        base_asset_value = 0.35 if stranded_robot.seeds_remaining > 0 else 0.10
-        rescue_benefit = round(seed_recovery_value + offline_data_value + base_asset_value, 4)
-
-        # 2. Opportunity Cost calculation (what does the helper give up by diverting now?)
-        helper_can_plant_now = helper.seeds_remaining > 0 and confirmed_gaps > 0
-        active_planting_cost = 1.45 if helper_can_plant_now else 0.25
-        travel_cost = self.travel_cost_weight * rescue_dist
-        opportunity_cost = round(active_planting_cost + travel_cost, 4)
-
-        net_value = round(rescue_benefit - opportunity_cost - hazard_risk, 4)
-
-        if net_value > 0.0:
-            return RescueAssessment(
-                stranded_robot_id=stranded_robot.robot_id,
-                verdict=RescueVerdict.RESCUE_NOW,
-                nearest_site_id=nearest_site.site_id,
-                rescue_benefit=rescue_benefit,
-                opportunity_cost=opportunity_cost,
-                hazard_risk=hazard_risk,
-                net_rescue_value=net_value,
-                helper_robot_id=helper.robot_id,
-                reason=f"worth saving now (net={net_value:+.2f}): carries needed seeds/data",
-            )
-        if rescue_benefit >= 0.60 and helper_can_plant_now:
-            return RescueAssessment(
-                stranded_robot_id=stranded_robot.robot_id,
-                verdict=RescueVerdict.DEFER_RESCUE,
-                nearest_site_id=nearest_site.site_id,
-                rescue_benefit=rescue_benefit,
-                opportunity_cost=opportunity_cost,
-                hazard_risk=hazard_risk,
-                net_rescue_value=net_value,
-                helper_robot_id=helper.robot_id,
-                reason=f"defer rescue (net={net_value:+.2f}): finish high-value planting first",
-            )
-        return RescueAssessment(
-            stranded_robot_id=stranded_robot.robot_id,
-            verdict=RescueVerdict.ABANDON_ESCALATE,
-            nearest_site_id=nearest_site.site_id,
-            rescue_benefit=rescue_benefit,
-            opportunity_cost=opportunity_cost,
-            hazard_risk=hazard_risk,
-            net_rescue_value=net_value,
-            helper_robot_id=None,
-            reason=f"not worth saving (net={net_value:+.2f}): healthy peers can complete mission; escalate to human",
+        """Delegate failure diagnosis, trap-odds calculation, and recovery triage to RescueEngine."""
+        return self.rescue_engine.evaluate(
+            stranded_robot=stranded_robot,
+            healthy_peers=healthy_peers,
+            sites=sites,
+            estimates=estimates,
+            allowed_site_ids=allowed_site_ids,
+            eligible_fn=self._eligible,
         )
 
     def _detect_surprise(
@@ -531,6 +379,7 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         candidates: list[str],
     ) -> AmbiguityEvent | None:
         overturned = sorted(self._previous_eligible - currently_eligible)
+        assessments = tuple(self.last_rescue_assessments.values())
         if overturned:
             return AmbiguityEvent(
                 episode_id=frame.episode_id,
@@ -538,6 +387,7 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 kind="quality_overturned",
                 affected_site_ids=tuple(overturned),
                 candidate_site_ids=tuple(candidates),
+                rescue_assessments=assessments,
             )
         if stranded_robots:
             return AmbiguityEvent(
@@ -546,6 +396,7 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 kind="robot_stranded",
                 affected_site_ids=(),
                 candidate_site_ids=tuple(candidates),
+                rescue_assessments=assessments,
             )
         if newly_blocked_robots:
             affected = [
@@ -559,6 +410,7 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 kind="route_obstructed",
                 affected_site_ids=tuple(s for s in affected if s is not None),
                 candidate_site_ids=tuple(candidates),
+                rescue_assessments=assessments,
             )
         return None
 
@@ -654,7 +506,7 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
             site_id for site_id in allowed_site_ids if self._eligible(estimates[site_id])
         }
 
-        # 3. Evaluate whether any stranded robot is WORTH SAVING
+        # 3. Evaluate whether any stranded robot is WORTH SAVING & select recovery action
         robots_sorted: list[RobotObservation] = sorted(frame.robots, key=lambda r: r.robot_id)
         healthy_robots = [r for r in robots_sorted if r.robot_id not in stranded_ids]
         self.last_rescue_assessments = {}
@@ -680,21 +532,27 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                     distance_m=0.0,
                     reason=f"stranded({assessment.verdict.value}): {assessment.reason}",
                 )
-                # If verdict is RESCUE_NOW, dispatch the designated helper robot to the rendezvous site
+                # If verdict is RESCUE_NOW or INVESTIGATE_PERIMETER, dispatch helper robot
                 if (
-                    assessment.verdict == RescueVerdict.RESCUE_NOW
+                    assessment.verdict
+                    in (RescueVerdict.RESCUE_NOW, RescueVerdict.INVESTIGATE_PERIMETER)
                     and assessment.helper_robot_id is not None
                     and assessment.nearest_site_id is not None
                     and assessment.helper_robot_id not in rescue_assignments
                     and assessment.nearest_site_id not in assigned_sites
                 ):
+                    prefix = (
+                        f"rescue_probe({robot.robot_id})"
+                        if assessment.verdict == RescueVerdict.INVESTIGATE_PERIMETER
+                        else f"rescue_assist({robot.robot_id})"
+                    )
                     rescue_assignments[assessment.helper_robot_id] = AgentBid(
                         robot_id=assessment.helper_robot_id,
                         mode=TaskMode.SAMPLE,
                         site_id=assessment.nearest_site_id,
                         utility=950.0,
                         distance_m=0.0,
-                        reason=f"rescue_assist({robot.robot_id}): {assessment.reason}",
+                        reason=f"{prefix}: {assessment.reason}",
                     )
                     assigned_sites.add(assessment.nearest_site_id)
 

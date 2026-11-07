@@ -1,4 +1,4 @@
-"""Unit tests for pure Swarm Agentic Coordination (Task Allocation + Rescue Triage)."""
+"""Unit tests for pure Swarm Agentic Coordination (Task Allocation + Algorithmic Failure Recovery)."""
 from __future__ import annotations
 
 import sys
@@ -10,7 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ricebot.agent import (
     AmbiguityEvent,
     CooperativeSwarmPlanner,
+    DecentralizedMycelialRuntime,
+    FailureMode,
+    MechanicalRescueTechnique,
+    RecoveryAction,
     RescueVerdict,
+    compute_mechanical_recovery_setpoint,
     homogeneous_capabilities,
 )
 from ricebot.contracts import (
@@ -145,6 +150,7 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
         by_id_now = {i.robot_id: i for i in intents_now}
         assessment_now = planner.last_rescue_assessments["rover-1"]
         self.assertEqual(assessment_now.verdict, RescueVerdict.RESCUE_NOW)
+        self.assertEqual(assessment_now.recovery_action, RecoveryAction.DISPATCH_RESCUE_DIRECT)
         self.assertGreater(assessment_now.net_rescue_value, 0.0)
         self.assertEqual(by_id_now["rover-1"].mode, TaskMode.HOLD)
         # Healthy rover-2 is dispatched to site 'a' (nearest to stranded rover-1) to assist
@@ -163,6 +169,7 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
         by_id_defer = {i.robot_id: i for i in intents_defer}
         assessment_defer = planner.last_rescue_assessments["rover-1"]
         self.assertEqual(assessment_defer.verdict, RescueVerdict.DEFER_RESCUE)
+        self.assertEqual(assessment_defer.recovery_action, RecoveryAction.REALLOCATE_AND_BEACON)
         self.assertEqual(by_id_defer["rover-2"].mode, TaskMode.PLANT)
         self.assertEqual(by_id_defer["rover-2"].target_site_id, "b")
 
@@ -176,7 +183,111 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
         planner.decide(f_hazard, fmap)
         assessment_hazard = planner.last_rescue_assessments["rover-1"]
         self.assertEqual(assessment_hazard.verdict, RescueVerdict.ABANDON_ESCALATE)
+        self.assertEqual(assessment_hazard.recovery_action, RecoveryAction.SAFE_ABSTAIN_DEFER_HUMAN)
         self.assertGreaterEqual(assessment_hazard.hazard_risk, 1.5)
+
+    def test_failure_modes_and_multi_step_algorithmic_recovery(self):
+        """Verify S1 mud trap, S4 trench tip-over, S7 cascading tow overload, and Look-Before-You-Leap perimeter probe."""
+        fmap = MeasuredFieldMap(SITES)
+        planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS)
+
+        # 1. rover-1 is physically immobilized (is_bogged=True) at unmeasured site 'a'
+        # -> FailureMode.UNKNOWN_TERRAIN_TRAP -> RecoveryAction.INVESTIGATE_PERIMETER
+        f_unknown = frame(
+            1.0,
+            RobotObservation("rover-1", Pose2D(0.05, 0.0, 0.0), 1.0, 0.20, 2, is_bogged=True),
+            robot("rover-2", 1.2, 0.0, 1.0, seeds=0),
+        )
+        intents_probe = planner.decide(f_unknown, fmap)
+        by_id_probe = {i.robot_id: i for i in intents_probe}
+        assess_unknown = planner.last_rescue_assessments["rover-1"]
+        self.assertEqual(assess_unknown.failure_mode, FailureMode.UNKNOWN_TERRAIN_TRAP)
+        self.assertEqual(assess_unknown.verdict, RescueVerdict.INVESTIGATE_PERIMETER)
+        self.assertEqual(assess_unknown.recovery_action, RecoveryAction.INVESTIGATE_PERIMETER)
+        self.assertEqual(by_id_probe["rover-2"].mode, TaskMode.SAMPLE)
+        self.assertEqual(by_id_probe["rover-2"].target_site_id, "a")
+        self.assertIn("rescue_probe(rover-1)", by_id_probe["rover-2"].reason)
+
+        # 2. Next tick: rover-2 samples site 'a' and discovers S1 CONTAGIOUS_MUD_TRAP (moisture=0.92, firmness=0.12)
+        # -> RecoveryAction.SAFE_ABSTAIN_DEFER_HUMAN (aborts rescue to protect rover-2!)
+        f_mud = frame(
+            2.0,
+            RobotObservation("rover-1", Pose2D(0.05, 0.0, 0.0), 2.0, 0.20, 2, is_bogged=True),
+            robot(
+                "rover-2",
+                0.2,
+                0.0,
+                2.0,
+                trio("rover-2", "a", 2.0, gap=0.8, moisture=0.92, firmness=0.12),
+                seeds=0,
+            ),
+        )
+        fmap.update(f_mud)
+        planner.decide(f_mud, fmap)
+        assess_mud = planner.last_rescue_assessments["rover-1"]
+        self.assertEqual(assess_mud.failure_mode, FailureMode.CONTAGIOUS_MUD_TRAP)
+        self.assertEqual(assess_mud.verdict, RescueVerdict.ABANDON_ESCALATE)
+        self.assertEqual(assess_mud.recovery_action, RecoveryAction.SAFE_ABSTAIN_DEFER_HUMAN)
+
+        # 3. S4 Tip-Over / Trench Drop-In (pitch_rad = 0.42 > 0.35 rad) -> immediate SAFE_ABSTAIN_DEFER_HUMAN
+        f_trench = frame(
+            3.0,
+            RobotObservation("rover-1", Pose2D(1.5, 0.0, 0.0), 3.0, 2.0, 2, pitch_rad=0.42),
+            robot("rover-2", 1.2, 0.0, 3.0, seeds=0),
+        )
+        planner.decide(f_trench, fmap)
+        assess_trench = planner.last_rescue_assessments["rover-1"]
+        self.assertEqual(assess_trench.failure_mode, FailureMode.TIP_OVER_OR_TRENCH)
+        self.assertEqual(assess_trench.recovery_action, RecoveryAction.SAFE_ABSTAIN_DEFER_HUMAN)
+
+        # 4. S7 Cascading Tow Overload: candidate rescuer rover-2 has secondary wheel slip (true_speed_m_s=0.01)
+        f_s7 = frame(
+            4.0,
+            RobotObservation("rover-1", Pose2D(1.5, 0.0, 0.0), 4.0, None, 2),
+            RobotObservation("rover-2", Pose2D(1.2, 0.0, 0.0), 4.0, 2.0, 0, true_speed_m_s=0.01),
+        )
+        planner.decide(f_s7, fmap)
+        assess_s7 = planner.last_rescue_assessments["rover-1"]
+        self.assertEqual(assess_s7.failure_mode, FailureMode.CASCADING_TOW_OVERLOAD)
+        self.assertEqual(assess_s7.recovery_action, RecoveryAction.SAFE_ABSTAIN_DEFER_HUMAN)
+
+    def test_sensor_tip_over_distress_gossip_and_mechanical_actuator_setpoints(self):
+        """Verify IMU tip-over / bogged distress packet transmission over MycelialGossipPacket and mechanical setpoints."""
+        runtime = DecentralizedMycelialRuntime(SITES, HOMOGENEOUS_CAPS, comm_range_m=2.5)
+        f_tip = frame(
+            1.0,
+            RobotObservation("rover-1", Pose2D(0.2, 0.0, 0.0), 1.0, 1.5, 2, roll_rad=0.45),
+            RobotObservation("rover-2", Pose2D(0.9, 0.0, 0.0), 1.0, 1.5, 2, pitch_rad=0.40),
+        )
+        runtime.decide(f_tip)
+        # Verify both robots emitted wireless distress packets to each other over the gossip link
+        distress_pkts = [p for p in runtime.latest_gossip_packets if p.distress_signal is not None]
+        self.assertEqual(len(distress_pkts), 2)
+        r1_distress = runtime.nodes["rover-2"].peer_distress_signals["rover-1"]
+        r2_distress = runtime.nodes["rover-1"].peer_distress_signals["rover-2"]
+        # rover-1 has roll_rad=0.45 (>0.35) -> S4 Rollover -> SPADE_ANCHOR_ROLLOVER_HOLD (needs_peer_assistance=False)
+        self.assertEqual(r1_distress.failure_mode, FailureMode.TIP_OVER_OR_TRENCH)
+        self.assertEqual(r1_distress.recommended_technique, MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD)
+        self.assertFalse(r1_distress.needs_peer_assistance)
+        # rover-2 has pitch_rad=0.40, roll_rad=0.0 -> Nose-down pitch stall -> PITCH_MATCH_NOSE_DOWN_RECOVERY
+        self.assertEqual(r2_distress.failure_mode, FailureMode.PITCH_NOSE_DOWN_STALL)
+        self.assertEqual(r2_distress.recommended_technique, MechanicalRescueTechnique.PITCH_MATCH_NOSE_DOWN_RECOVERY)
+        self.assertTrue(r2_distress.needs_peer_assistance)
+
+        # Verify mechanical actuator setpoints match the homogeneous Paddy Ant MJCF limits
+        sp_rollover = compute_mechanical_recovery_setpoint(
+            "rover-1", MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD
+        )
+        self.assertEqual(sp_rollover.wheel_vel_rad_s, (0.0, 0.0, 0.0, 0.0))
+        self.assertEqual(sp_rollover.spade_rad, 0.85)
+        self.assertEqual(sp_rollover.dibber_m, -0.050)
+
+        sp_wiggle = compute_mechanical_recovery_setpoint(
+            "rover-2", MechanicalRescueTechnique.DYNAMIC_YAW_SHEAR_AND_PITCH_PUMP, step_index=2, latched=True
+        )
+        self.assertEqual(sp_wiggle.spade_rad, 0.75)
+        self.assertEqual(sp_wiggle.latch_rad, 0.58)
+        self.assertEqual(sp_wiggle.dock_pitch_rad, 0.42)
 
     def test_pluggable_traversal_cost_hook(self):
         fmap = MeasuredFieldMap(SITES)

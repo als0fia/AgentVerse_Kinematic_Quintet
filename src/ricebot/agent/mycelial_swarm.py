@@ -37,7 +37,7 @@ Key Architectural Properties (Zero Central Map / Zero Cloud Dependency):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, cos, hypot, pi, sin, sqrt
+from math import atan2, cos, degrees, hypot, pi, sin, sqrt
 
 from ..contracts import (
     Decision,
@@ -54,6 +54,7 @@ from ..contracts import (
 )
 from ..control import ControlLimits
 from ..mission import SiteEstimate
+from .rescue import DistressSignal, FailureMode, RescueEngine
 
 
 def _wrap_angle(angle: float) -> float:
@@ -141,6 +142,7 @@ class MycelialGossipPacket:
     task_bid: TaskBidProposal | None
     byte_size: int
     dialogue_summary: tuple[str, ...]
+    distress_signal: DistressSignal | None = None
 
 
 @dataclass
@@ -359,6 +361,9 @@ class DecentralizedRobotNode:
         self.envelope = envelope
         self.limits = limits
         self.local_map = LocalMycelialMap(owner_robot_id=capability.robot_id, sites=sites)
+        self.rescue_engine = RescueEngine(max_pitch_roll_rad=limits.max_pitch_roll_rad)
+        self.active_distress: DistressSignal | None = None
+        self.peer_distress_signals: dict[str, DistressSignal] = {}
         self.last_pose: Pose2D | None = None
         self.last_time_s: float | None = None
         self.last_commanded_linear_m_s: float = 0.0
@@ -369,23 +374,29 @@ class DecentralizedRobotNode:
         obs: RobotObservation,
         peer_poses: dict[str, Pose2D],
     ) -> tuple[OnboardSensorTelemetry, int, list[SlamHazardCell]]:
-        """Process raw onboard sensor readings into local SLAM & soil belief updates."""
-        v_true = 0.0
-        if self.last_pose is not None and self.last_time_s is not None and obs.time_s > self.last_time_s:
+        """Process raw onboard sensor readings into local SLAM, soil belief, and failure/tip-over detection."""
+        v_true = obs.true_speed_m_s if obs.true_speed_m_s is not None else 0.0
+        if obs.true_speed_m_s is None and self.last_pose is not None and self.last_time_s is not None and obs.time_s > self.last_time_s:
             dt = obs.time_s - self.last_time_s
             v_true = hypot(obs.pose.x_m - self.last_pose.x_m, obs.pose.y_m - self.last_pose.y_m) / dt
 
         v_wheel = abs(self.last_commanded_linear_m_s)
-        raw_slip = 0.0
+        raw_slip = 0.92 if obs.is_bogged else 0.0
         if v_wheel > 0.05:
-            raw_slip = max(0.0, min(1.0, 1.0 - (v_true / max(v_wheel, 1e-3))))
+            raw_slip = max(raw_slip, min(1.0, 1.0 - (v_true / max(v_wheel, 1e-3))))
 
         ingested = 0
+        local_moisture: float | None = None
+        local_firmness: float | None = None
         for sample in obs.samples:
             if self.local_map.ingest_sample(sample, obs_precision=4.0):
                 ingested += 1
-            if sample.kind == SensorKind.MOISTURE and sample.value > 0.80:
-                raw_slip = max(raw_slip, 0.72)
+            if sample.kind == SensorKind.MOISTURE:
+                local_moisture = sample.value
+                if sample.value > 0.80:
+                    raw_slip = max(raw_slip, 0.72)
+            elif sample.kind == SensorKind.FIRMNESS:
+                local_firmness = sample.value
 
         new_hazards: list[SlamHazardCell] = []
         lidar_cell = self.local_map.slam.integrate_lidar_hit(
@@ -419,16 +430,25 @@ class DecentralizedRobotNode:
                 d_crop = hypot(obs.pose.x_m - site.center.x_m, obs.pose.y_m - site.center.y_m) - site.no_go_radius_m
                 min_crop_clear = min(min_crop_clear, max(0.0, d_crop))
 
+        pitch_deg = round(degrees(obs.pitch_rad), 2) if obs.pitch_rad != 0.0 else (0.4 if raw_slip < 0.6 else -3.8)
+        roll_deg = round(degrees(obs.roll_rad), 2) if obs.roll_rad != 0.0 else (0.2 if raw_slip < 0.6 else 2.6)
+        self.active_distress = self.rescue_engine.build_distress_signal(
+            obs=obs,
+            slip_ratio=raw_slip,
+            local_moisture=local_moisture,
+            local_firmness=local_firmness,
+        )
+
         telemetry = OnboardSensorTelemetry(
             robot_id=self.robot_id,
             time_s=obs.time_s,
-            pitch_deg=0.4 if raw_slip < 0.6 else -3.8,
-            roll_deg=0.2 if raw_slip < 0.6 else 2.6,
+            pitch_deg=pitch_deg,
+            roll_deg=roll_deg,
             yaw_rad=obs.pose.yaw_rad,
             true_ground_speed_m_s=round(v_true, 4),
             wheel_surface_speed_m_s=round(v_wheel, 4),
             slip_ratio=round(raw_slip, 4),
-            slip_critical=raw_slip > 0.60,
+            slip_critical=raw_slip > 0.60 or obs.is_bogged,
             front_tof_range_m=obs.front_range_m,
             lateral_crop_clearance_m=round(min_crop_clear, 4),
             uwb_peer_ranges_m=uwb_ranges,
@@ -843,10 +863,17 @@ class DecentralizedMycelialRuntime:
                 if new_bid_conflict:
                     self._negotiated_conflicts.add(conflict_key)
 
-                if not unseen_samples and not unseen_hazards and not unseen_planted and not new_bid_conflict:
+                has_new_distress = (
+                    sender_node.active_distress is not None
+                    and receiver_node.peer_distress_signals.get(sender_id) != sender_node.active_distress
+                )
+                if not unseen_samples and not unseen_hazards and not unseen_planted and not new_bid_conflict and not has_new_distress:
                     continue
 
                 dialogue: list[str] = []
+                if has_new_distress and sender_node.active_distress is not None:
+                    receiver_node.peer_distress_signals[sender_id] = sender_node.active_distress
+                    dialogue.append(f"{sender_id}->{receiver_id}: {sender_node.active_distress.summary_text}")
                 for s in unseen_samples:
                     if s.kind == SensorKind.MOISTURE:
                         est_s = sender_node.local_map.estimate(s.site_id)
@@ -875,7 +902,7 @@ class DecentralizedMycelialRuntime:
                 if top_bid is not None and (new_bid_conflict or unseen_samples):
                     dialogue.append(f"{sender_id}->{receiver_id}: {top_bid.proposal_text} (bid={top_bid.bid_score:.2f})")
 
-                byte_size = 42 + 28 * len(unseen_samples) + 20 * len(unseen_hazards) + (32 if top_bid else 0)
+                byte_size = 42 + 28 * len(unseen_samples) + 20 * len(unseen_hazards) + (32 if top_bid else 0) + (36 if has_new_distress else 0)
                 pkt = MycelialGossipPacket(
                     packet_id=f"pkt:{frame.time_s:.2f}:{sender_id}->{receiver_id}",
                     sender_id=sender_id,
@@ -888,6 +915,7 @@ class DecentralizedMycelialRuntime:
                     task_bid=top_bid,
                     byte_size=byte_size,
                     dialogue_summary=tuple(dialogue),
+                    distress_signal=sender_node.active_distress if has_new_distress else None,
                 )
                 cycle_packets.append(pkt)
                 self.gossip_history.append(pkt)

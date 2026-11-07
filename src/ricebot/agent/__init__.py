@@ -1,11 +1,14 @@
 """Swarm Agentic Coordination & Decentralised Mycelial SLAM Package (`src/ricebot/agent/`).
 
 Exports:
-1. Teammate Tier-1/Tier-2 Swarm Auction & Rescue Triage (`planner.py`):
+1. Teammate Tier-1/Tier-2 Swarm Auction, Failure Detection & Mechanical Recovery (`planner.py` & `rescue.py`):
    - `CooperativeSwarmPlanner`, `SwarmRobotAgent`, `AgentBid`, `RescueVerdict`,
-     `RescueAssessment`, `GeminiSwarmAdvisor`, `SupervisoryAdvisor`, `AmbiguityEvent`,
+     `RescueAssessment`, `RescueEngine`, `FailureMode`, `RecoveryAction`,
+     `MechanicalRescueTechnique`, `MechanicalActuatorSetpoint`, `DistressSignal`,
+     `compute_mechanical_recovery_setpoint`,
+     `GeminiSwarmAdvisor`, `SupervisoryAdvisor`, `AmbiguityEvent`,
      `TravelCostFn`, `homogeneous_capabilities`
-2. Policy B — Zero-Central-Map Mycelial SLAM, UWB/HaLow Gossip & Local Auction (`mycelial_swarm.py`):
+2. Policy B — Zero-Central-Map Mycelial SLAM, UWB/ESP-NOW Gossip & Local Auction (`mycelial_swarm.py`):
    - `DecentralizedMycelialRuntime`, `DecentralizedRobotNode`, `LocalMycelialMap`,
      `LocalSlamGrid`, `MycelialGossipPacket`, `OnboardSensorTelemetry`, `SlamHazardCell`,
      `SoilSafetyEnvelope`, `TaskBidProposal`, `GaussianChannelBelief`,
@@ -30,12 +33,21 @@ from .planner import (
     AmbiguityEvent,
     CooperativeSwarmPlanner,
     GeminiSwarmAdvisor,
-    RescueAssessment,
-    RescueVerdict,
     SupervisoryAdvisor,
     SwarmRobotAgent,
     TravelCostFn,
     homogeneous_capabilities,
+)
+from .rescue import (
+    DistressSignal,
+    FailureMode,
+    MechanicalActuatorSetpoint,
+    MechanicalRescueTechnique,
+    RecoveryAction,
+    RescueAssessment,
+    RescueEngine,
+    RescueVerdict,
+    compute_mechanical_recovery_setpoint,
 )
 
 __all__ = [
@@ -44,13 +56,19 @@ __all__ = [
     "CooperativeSwarmPlanner",
     "DecentralizedMycelialRuntime",
     "DecentralizedRobotNode",
+    "DistressSignal",
+    "FailureMode",
     "GaussianChannelBelief",
     "GeminiSwarmAdvisor",
     "LocalMycelialMap",
     "LocalSlamGrid",
+    "MechanicalActuatorSetpoint",
+    "MechanicalRescueTechnique",
     "MycelialGossipPacket",
     "OnboardSensorTelemetry",
+    "RecoveryAction",
     "RescueAssessment",
+    "RescueEngine",
     "RescueVerdict",
     "SlamHazardCell",
     "SoilSafetyEnvelope",
@@ -58,6 +76,7 @@ __all__ = [
     "SwarmRobotAgent",
     "TaskBidProposal",
     "TravelCostFn",
+    "compute_mechanical_recovery_setpoint",
     "evaluate_continuous_belief_field",
     "homogeneous_capabilities",
     "sample_continuous_belief_grid",
