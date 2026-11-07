@@ -42,6 +42,18 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Testability:** the PR template and regression checks protect rubric consistency/skill mirrors; **none of this is a running robot or a measured multi-agent benchmark**.
 - **Revisit:** when two separately runnable module tasks exist or repeated communication failures justify automation.
 
+## D-0005 — Select rice-field flood investigation; build one rover seam before parallel work
+
+- **Date:** 7 November 2026
+- **Status:** **user-selected working direction**; exact robot mechanics, mitigation actor and five human role assignments still need team/human agreement. No simulated robot implementation or performance is claimed.
+- **Alternatives considered:** (i) Swarm Recovery & Assistance; (ii) Monitoring, Investigation & Targeted Mitigation; applications included Firewatch, precision rice planting, irrigation drainage response, reforestation and space. The chosen **rice application** uses **system (ii)** for flood-risk monitoring/scouting/mitigation and leaves (i) as an optional reusable robot-failure recovery extension. Precision spot-by-spot rice planting lacks an evidenced advantage over good established mechanised practice; do not pitch it as current product.
+- **Decision:** focus on abnormal paddy drainage/water-management failures. Build a local physically actuated service-bank rover that senses and investigates an uncertain station alert, adapts to a mid-episode disruption, and only later, if feasible, controls/dispatches a separate physically actuated outlet/gate to mitigate an identified problem. Avoid real-life flood/yield claims from a simplified water proxy.
+- **Generalisation strategy:** architect sensor observation, capability/actor dispatch, bounded controller, scenario injector and independent evaluator as separable interfaces. Reforestation, Firewatch and space are **proposed transfer domains, not additional hackathon implementations**. Swarm assistance may be layered later if genuinely physically verified.
+- **Human/agent split:** propose five owners: (1) integrator/shared contracts and runner, (2) **human-led robot physical design + low-level control**, (3) field world/flood proxy/mitigation actor, (4) mission supervisor and investigation planning, (5) independent baseline/evaluation/UI/demo. Names unassigned; run one integration agent first. Use focused code-and-test agent tasks, not repeated unconstrained passes across entire subsystems. See [TEAM](TEAM.md#selected-rice-project-five-human-work-split-proposed-not-yet-assigned-by-name).
+- **Interfaces/gates:** `ObservationV0`, `SensorSampleV0`, `TaskIntentV0`, `DriveCommandV0`, `StepResultV0` are **proposals**, documented in [CONTRACTS](CONTRACTS.md) to be frozen only with a real running fixture. Follow [ARCHITECTURE](ARCHITECTURE.md) and [RUN](RUN.md#next-agent-first-integration-task--not-yet-implemented). First physical rover/sensor/obstacle-replanning demo **before** split work and gate/rescue extensions; preserve functioning integration throughout.
+- **Critical risks:** physical gate interaction too costly, realistic flooding impossible in weekend, station measurement mistaken for hidden truth, fragile monolithic multi-agent code, human robot geometry not reviewed, inadequate baseline, no video evidence. Cut mitigation/rescue rather than fake implementation if unavailable.
+- **Revisit trigger:** initial local MuJoCo/PyBullet test, robot-design sign-off, first same-episode surprise demo or strong evidence that rice response is not a defensible beneficiary/application.
+
 ## Decision template
 
 ```text
