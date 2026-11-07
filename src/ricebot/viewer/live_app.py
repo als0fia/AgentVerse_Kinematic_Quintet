@@ -21,7 +21,9 @@ import mujoco
 import numpy as np
 
 from ..agent import (
+    CooperativeSwarmPlanner,
     DecentralizedMycelialRuntime,
+    GeminiSwarmAdvisor,
     SoilSafetyEnvelope,
     sample_continuous_belief_grid,
 )
@@ -186,6 +188,7 @@ class LiveSwarmDashboardApp:
         scen = self.scenario_var.get()
         pol = self.policy_var.get()
         comms = self.comms_var.get()
+        is_golden_rescue = scen == "golden_rescue"
         inject_at = 1.6 if scen == "obstacle" else None
         self.hidden_truth = generate_hidden_soil_truth(scen, self.seed)
 
@@ -196,6 +199,9 @@ class LiveSwarmDashboardApp:
             inject_obstacle_at_s=inject_at,
             obstacle_xy=(0.75, -0.25),
             hidden_truth=self.hidden_truth,
+            trap_robot_id="planter" if is_golden_rescue else None,
+            trap_site_id="patch_d",
+            trap_radius_m=0.28,
         )
         caps = (
             (
@@ -211,10 +217,15 @@ class LiveSwarmDashboardApp:
             capabilities=caps,
             comm_range_m=2.15 if pol == "mycelial" else (0.0 if pol == "single_rover" else 99.0),
             comm_mode=comms if pol == "mycelial" else ("isolated" if pol == "single_rover" else "normal"),
+            advisor=GeminiSwarmAdvisor(),
         )
-        if pol in ("centralized", "single_rover"):
+        if pol in ("cooperative", "centralized", "single_rover") or is_golden_rescue:
             field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
-            planner = SimpleMissionPlanner(caps)
+            planner: SimpleMissionPlanner = (
+                CooperativeSwarmPlanner(caps, advisor=GeminiSwarmAdvisor())
+                if (pol == "cooperative" or is_golden_rescue)
+                else SimpleMissionPlanner(caps)
+            )
             controller = LocalController(
                 ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
             )
@@ -357,6 +368,7 @@ class LiveSwarmDashboardApp:
             side=tk.LEFT, padx=(6, 2)
         )
         for scen_id, scen_lbl in (
+            ("golden_rescue", "🆘 Golden Rescue"),
             ("nominal", "Nominal"),
             ("bad_soil", "Bad Soil"),
             ("shifted_moisture", "Seed-Shifted Moisture"),
@@ -382,6 +394,7 @@ class LiveSwarmDashboardApp:
         )
         for pol_id, pol_lbl in (
             ("mycelial", "Mycelial SLAM (B)"),
+            ("cooperative", "Cooperative + AI (A+)"),
             ("centralized", "Centralised (A)"),
             ("single_rover", "Single Rover"),
         ):
@@ -480,6 +493,8 @@ class LiveSwarmDashboardApp:
         for cam_id, cam_lbl in (
             ("isometric", "Isometric Terrace"),
             ("wheel_closeup", "Low Mud/Wheel Close-Up"),
+            ("planter_front_camera", "📷 Planter Ego-Cam"),
+            ("scout_front_camera", "📷 Scout Ego-Cam"),
             ("planter_follow_cam", "Follow Planter"),
             ("scout_follow_cam", "Follow Scout"),
             ("top_overview", "Top 3D"),
@@ -893,7 +908,8 @@ class LiveSwarmDashboardApp:
         if not self.playing:
             return
         self.step_once()
-        if self.step_count >= 160:
+        max_steps = 200 if self.scenario_var.get() == "golden_rescue" else 160
+        if self.step_count >= max_steps:
             self.toggle_play()
             return
         self.after_id = self.root.after(45, self._tick_loop)
@@ -1032,6 +1048,7 @@ class LiveSwarmDashboardApp:
                 f"Site RMSE: {bm['discrete_rmse']:.3f}  |  "
                 f"2D Field RMSE: {bm['cont_rmse']:.3f}  |  "
                 f"D-0010 Comm: {bm['actual_wire_bytes']} B vs {bm['stream_10hz_bytes']} B 10Hz ({bm['saved_pct']:+.1f}% Saved)  |  "
+                f"Rescues: {len(self.sim.completed_recoveries)}  |  "
                 f"Planted: {planted_sites or 'none'}"
             )
         )
@@ -1413,7 +1430,7 @@ class LiveSwarmDashboardApp:
             rx, ry = self._world_to_canvas(r_obs.pose.x_m, r_obs.pose.y_m)
             is_selected = rid == self.selected_robot_var.get()
             sink_st = self.sim.latest_terramechanics.get(rid)
-            bellied = bool(sink_st.bellied_out) if sink_st else False
+            bellied = bool(r_obs.is_bogged or (sink_st and sink_st.bellied_out))
 
             if is_selected:
                 c.create_oval(
@@ -1503,6 +1520,33 @@ class LiveSwarmDashboardApp:
 
         if tel is not None:
             lines.append(f"UWB Peers: {dict(tel.uwb_peer_ranges_m)}")
+
+        lines.append("\n--- AGENTIC RESCUE TRIAGE & SYSTEM-2 AI ---")
+        active_assessments = (
+            self._central_core.planner.last_rescue_assessments
+            if (self._central_core is not None and hasattr(self._central_core.planner, "last_rescue_assessments"))
+            else self.runtime.last_rescue_assessments
+        )
+        if active_assessments:
+            for s_id, ass in active_assessments.items():
+                lines.append(
+                    f"• {s_id.upper()} -> {ass.verdict.value.upper()} by {ass.rescuer_robot_id}: "
+                    f"net={ass.net_rescue_utility:+.2f} (save={ass.expected_saved_benefit:.2f}, cost={ass.rescue_opportunity_cost:.2f})"
+                )
+        elif self.sim.completed_recoveries:
+            last_rec = self.sim.completed_recoveries[-1]
+            lines.append(
+                f"• COMPLETED RESCUE: {last_rec.helper_robot_id} extracted {last_rec.target_robot_id} "
+                f"({last_rec.victim_displacement_m:.2f}m, {last_rec.phase})"
+            )
+        else:
+            lines.append("• Triage : Nominal (0 rovers bogged)")
+        adv_rec = (
+            getattr(self._central_core.planner, "last_advisor_recommendation", None)
+            if self._central_core is not None
+            else self.runtime.last_advisor_recommendation
+        )
+        lines.append(f"• Sys-2 AI: {adv_rec or 'Deterministic triage active (safety veto armed)'}")
 
         lines.append(f"\n--- {sel_rid.upper()}'S PRIVATE GAUSSIAN SITE BELIEFS ---")
         envelope = SoilSafetyEnvelope()
