@@ -83,6 +83,12 @@ class RobotObservation:
     seeds_remaining: int
     samples: tuple[SoilSample, ...] = ()
     link_ok: bool = True
+    pitch_rad: float = 0.0
+    roll_rad: float = 0.0
+    true_speed_m_s: float | None = None
+    row_cross_track_m: float = 0.0
+    peer_distances: tuple[tuple[str, float], ...] = ()
+    is_bogged: bool = False
 
     def __post_init__(self) -> None:
         if not self.robot_id:
@@ -94,6 +100,9 @@ class RobotObservation:
             _finite(self.front_range_m)
             if self.front_range_m < 0:
                 raise ValueError("negative range")
+        _finite(self.pitch_rad, self.roll_rad, self.row_cross_track_m)
+        if self.true_speed_m_s is not None:
+            _finite(self.true_speed_m_s)
         for sample in self.samples:
             if sample.robot_id != self.robot_id or sample.sampled_at_s != self.time_s:
                 raise ValueError("samples must be current, local and from the same robot")
