@@ -81,6 +81,33 @@ UNEXPECTED_BAD_SOIL_TRUTH: dict[str, dict[SensorKind, float]] = {
 }
 
 
+def compute_rice_planting_fitness(
+    moisture: float,
+    firmness: float,
+    stand_gap: float,
+    elevation_m: float = 0.0,
+) -> float:
+    """Agronomic Wet Direct-Seeded Rice (WDSR) fitness index Φ(x, y) in [0.0, 1.0].
+
+    Grounded in puddled paddy soil mechanics & WDSR establishment research:
+    - Moisture suitability S_M: bell curve centered at glistening saturation M* = 0.56 (σ = 0.14).
+      Penalizes dry surface crusting (M < 0.35, radicle dehydration) and deep waterlogged pooling
+      (M > 0.80, anaerobic hypoxia / seed rotting).
+    - Firmness suitability S_F: bell curve centered at consolidated 'mud-cake' bearing firmness
+      F* = 0.65 (σ = 0.16, CI ~ 150-260 kPa). Penalizes soupy fluid mud (F < 0.32, seed burial)
+      and over-settled hard crust (F > 0.88, poor root anchoring).
+    - Micro-topographic penalty S_z: penalizes deep micro-depressions (z < -15 mm) where water pools.
+    - Canopy stand-gap opportunity S_G: requires open canopy gap (G >= 0.55) so rovers never
+      over-seed or trample dense established rice stands.
+    """
+    s_moisture = exp(-((moisture - 0.56) ** 2) / (2.0 * 0.14 * 0.14))
+    s_firmness = exp(-((firmness - 0.65) ** 2) / (2.0 * 0.16 * 0.16))
+    s_micro_topo = exp(-((min(0.0, elevation_m + 0.008)) ** 2) / (2.0 * 0.018 * 0.018))
+    s_gap = max(0.0, min(1.0, (stand_gap - 0.22) / 0.66)) ** 1.25
+    fitness = s_gap * (0.46 * s_moisture + 0.42 * s_firmness + 0.12 * s_micro_topo)
+    return round(max(0.0, min(1.0, fitness)), 4)
+
+
 @dataclass(frozen=True)
 class ContinuousTerrainPoint:
     """Continuous spatial field evaluation at any `(x_m, y_m)` coordinate in the paddy terrace."""
@@ -101,6 +128,7 @@ class ContinuousTerrainPoint:
     bekker_n: float
     cohesion_c_kpa: float
     friction_phi_deg: float
+    planting_fitness: float = 0.0
 
 
 class ContinuousPaddyTerrain:
@@ -225,6 +253,7 @@ class ContinuousPaddyTerrain:
         bekker_n = 0.52 + 0.58 * firmness
         cohesion_c = 1.2 + 14.5 * firmness * (1.0 - 0.45 * moisture)
         friction_phi = 6.0 + 24.0 * firmness * (1.0 - 0.50 * moisture)
+        planting_fitness = compute_rice_planting_fitness(moisture, firmness, stand_gap, z)
 
         return ContinuousTerrainPoint(
             x_m=round(x_m, 4),
@@ -243,6 +272,7 @@ class ContinuousPaddyTerrain:
             bekker_n=round(bekker_n, 3),
             cohesion_c_kpa=round(cohesion_c, 2),
             friction_phi_deg=round(friction_phi, 2),
+            planting_fitness=planting_fitness,
         )
 
     def sample_grid(
@@ -267,9 +297,10 @@ class ContinuousPaddyTerrain:
         mud_depth: list[list[float]] = []
         plant_density: list[list[float]] = []
         stand_gap: list[list[float]] = []
+        planting_fitness: list[list[float]] = []
 
         for y in ys:
-            row_z, row_m, row_f, row_d, row_p, row_g = [], [], [], [], [], []
+            row_z, row_m, row_f, row_d, row_p, row_g, row_fit = [], [], [], [], [], [], []
             for x in xs:
                 pt = self.evaluate(x, y)
                 row_z.append(pt.elevation_m)
@@ -278,12 +309,14 @@ class ContinuousPaddyTerrain:
                 row_d.append(pt.mud_depth_m)
                 row_p.append(pt.plant_density)
                 row_g.append(pt.stand_gap)
+                row_fit.append(pt.planting_fitness)
             elevation.append(row_z)
             moisture.append(row_m)
             firmness.append(row_f)
             mud_depth.append(row_d)
             plant_density.append(row_p)
             stand_gap.append(row_g)
+            planting_fitness.append(row_fit)
 
         return {
             "nx": nx,
@@ -299,6 +332,7 @@ class ContinuousPaddyTerrain:
                 "mud_depth_m": mud_depth,
                 "plant_density": plant_density,
                 "stand_gap": stand_gap,
+                "planting_fitness": planting_fitness,
             },
         }
 
