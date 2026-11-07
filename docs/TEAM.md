@@ -54,6 +54,8 @@ Merge and integration steps:
 
 At each natural sync, show a runnable demo or explicit blocker, not a slide. Confirm: (a) latest integrated commit, (b) whether the main journey passes, (c) most important failing contract, (d) decision needed. Issues/PRs remain the task record; do not create a growing `STATUS-v7.md`.
 
+**Canonical branch hygiene:** `main` is the integrated source of truth, not a separate product branch. Create short-lived isolated task branches only for actual concurrent work, avoid stacked PRs unless an explicit dependency requires them, and merge prerequisites first. Never substitute a worker branch for published main instructions. After integration, read `main` back, check workflows and record the known-good SHA; retaining old branch names is not evidence work is missing from main.
+
 ## Conflict and rollback
 
 If branches conflict: integration lead preserves both contributors' intended behaviour and reruns affected interface and end-to-end tests. If new work breaks the demo, revert the **specific** bad change on a new safe commit or switch back to known-good commit; never force/reset others' history without human approval. Keep demo-safe branch/tag only when the team actively uses it.
