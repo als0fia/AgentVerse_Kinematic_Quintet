@@ -14,6 +14,10 @@ A **scripted physical rigid dock/extraction test** exists and asserts a >0.08 m 
 
 ## Component/module audit and swap verification
 
+**Current focused handoff (7 Nov 2026):** The [version-aware simulation, perception and visualiser boundary audit](audits/2026-11-07-simulation-perception-viewer.md) pins findings against post-PR #50 source, including an urgent RescueAssessment/UI/advisor compatibility regression, simulator-oracle sensing, terminal docking control, terrain collision, and read-only viewer parity. **Recheck each finding against the actual checked-out SHA** before changing code; its source inspection is not a local MuJoCo or GUI test.
+
+
+
 For an explicit independent audit, use [module-audit](../.agents/skills/module-audit/SKILL.md) and [COMPONENTS](COMPONENTS.md#repeatable-independent-audit-any-feature-on-demand). Check ownership, matching code/docs/interfaces and **actual tests executed versus unavailable** before declaring a component merge-ready. World/robot mock-to-real swap must revalidate real physics motion, sensor/obstacle response, safety limits, seed release/contact and no hidden truth leakage on the **selected Isaac host**; pure Python `rice.v1` tests, the [toy MuJoCo smoke](WORKSTATION-SETUP.md#c-optional-lightweight-local-physics-smoke-not-final-engine), and even the full MuJoCo prototype tests **cannot validate the unbuilt Isaac adapter on their own**.
 
 ## Judge-aligned verification map — confirmed Robotics rubric
