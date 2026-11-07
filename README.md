@@ -6,7 +6,7 @@
 
 ## Start here
 
-1. **Humans and coding agents:** follow [AGENTS.md](AGENTS.md), with [team coordination](docs/TEAM.md) when collaborating. Claude Code imports it through [CLAUDE.md](CLAUDE.md), Gemini CLI through [GEMINI.md](GEMINI.md), and Codex reads it natively.
+1. **Humans and coding agents:** follow [AGENTS.md](AGENTS.md) and [team coordination/model routing](docs/TEAM.md). **Gemini CLI is the primary development route** through [GEMINI.md](GEMINI.md), with isolated optional project subagents. Codex remains optional; legacy Claude files are preserved without being the default.
 2. **Challenge and resources:** Read the photographed onsite [Robotics theme and model announcements](docs/EVENT.md), obtain any exact written challenge/eligibility requirements, then choose the [product/mission](docs/PRODUCT.md) with the team. Neither examples nor advertised models imply a selected project or granted access.
 3. **Before parallel coding:** agree the smallest shared interface needed for a runnable end-to-end path in [architecture](docs/ARCHITECTURE.md) and [contracts](docs/CONTRACTS.md). Divide **independent** modules by branch/owner (an issue, PR or short message suffices).
 4. **Build:** implement a smallest complete user-visible journey, then expand with tests and real [evaluation](docs/TESTING.md).
@@ -43,11 +43,13 @@ The fixture comparison is **synthetic tooling data, not product performance**. O
 
 Use GitHub Issues for substantial tasks, PRs for reviewed integration and source/tests as the proof. **No ticket is needed for a five-minute fix.** When multiple agents work at once, follow [the short GitHub and human-prompting guide](docs/TEAM.md#practical-parallel-work-without-ceremony), not shadow task lists or dated session logs. The private hackathon management workflow is separate from this public team code repository.
 
-## Multi-model coding agents
+## Gemini-first agent development
 
-The six full workflow skills have one canonical source in `.agents/skills/` for Codex and Gemini CLI; `.claude/skills/` contains **byte-identical complete** Claude Code mirrors (not fragile shortcut wrappers). A deterministic parity check in CI prevents drift. Edit the canonical skill then run `python scripts/sync_skills.py --write`. Claude-native `.claude/agents/` subagents remain untouched. Human role/branch/handoff rules are shared in [TEAM](docs/TEAM.md).
+**Avoid one massive context or one shared agent transcript.** Use Gemini 4 Argon, if accessible, for deep cross-component planning and synthesis; reserve 3.8 Flash for bounded research/review with only relevant files and limited tools. A read-only [independent reviewer](.gemini/agents/independent-reviewer.md) is configured for Gemini CLI but **has not been locally run or validated**. The [team protocol](docs/TEAM.md) defines escalation, context packets, branch ownership, issue/PR-based conversations and human integration. These are **development agent preferences**, not a mandate for the selected robotics product.
 
-Codex: inspect the root `AGENTS.md` and use skills from `.agents/skills/`. Claude Code: use `CLAUDE.md`, its native `.claude/skills/` and optional `.claude/agents/`. Gemini CLI: use `GEMINI.md`, confirm `/memory show`, `/skills list`, and trust the repository if prompted. For web-only ChatGPT/Gemini/Claude, native discovery is not guaranteed: explicitly read the relevant repo files. None of these conventions automatically launches concurrent agents.
+The six neutral workflow skills live in `.agents/skills/`. Gemini CLI consumes them on demand; `/memory show`, `/skills list` and `/agents list` should be checked on the actual machine. Existing Claude-native files and complete skill mirrors are **legacy compatibility retained for the moment**; the existing CI parity check still expects them. Do not delete them or rely on their maintenance for a new workflow. Hosted chats must read repo content explicitly; no instruction file automatically launches worker agents, remote A2A services or live coordination.
+
+**Team communication:** GitHub issue comments for genuine cross-worker tasks and blockers, PRs for reviews, and one integrator coordinating merges. No additional message-server deployment or giant Markdown conversation folders. The repo is public; do not put private chats or credentials in its issue/PR threads. Actual model entitlement, API keys, limits, SDK invocation and grant credits remain to be verified.
 
 ## Working agreement
 
