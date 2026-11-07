@@ -1,17 +1,16 @@
 /**
  * @file src/App.tsx
- * @description Root Application Shell for the Antenna Swarm Control Console (`AgentVerse_Kinematic_Quintet`).
+ * @description Clean, User-Focused Dashboard Shell for the Antenna Multi-Robot System.
  *
- * This component orchestrates the state and user workflows of the multi-robot rice farming UI,
- * refined against the canonical repository specifications (`src/ricebot/viewer/README.md`,
- * `src/ricebot/robot/README.md`, `docs/IMMOBILIZATION_SCENARIOS.md`, `docs/DECISIONS.md` `D-0011` & `D-0012`):
- * 1. Maintains the live state of the 5 Homogeneous "Medic-Ant" Rovers (`ANT-01` through `ANT-05`),
- *    missing rice crop gap sites (`C-01`–`C-08` across Section A & Section B), paddy hazard zones,
- *    and dynamically injected mid-run obstacles (`D-0012`).
- * 2. Runs a deterministic, pausable simulation loop that updates robot positions along multi-waypoint
- *    A* routes, seed hopper counts (with automatic 0-seed Scout role transition), and collinear rigid
- *    docking / cam-latch / pitch-lift peer extraction.
- * 3. Integrates the 4 primary operational views plus the `BekkerTerramechanicsLab` (`antenna.dashboard.v1`).
+ * Organizes the interface into 4 focused, uncluttered views so information is never crowded in one place:
+ * 1. `FIELD_OPS` ("Live Dashboard"):
+ *    - Left (3 cols): Compact Robot Roster showing where each robot is, its color-coded status, and its plain-English plan.
+ *    - Center (6 cols): Clean Interactive Map with color-coded robot dots, dashed plan paths, and a single streamlined toolbar.
+ *    - Right (3 cols): Unified Selected-Robot Card with a prominent "Take Human Control" button and a clean toggle between
+ *      "Plan & Status" and "Manual Drive".
+ * 2. `ROBOT_PLANS` ("Robot Plans"): Dedicated mission schedule and step-by-step queue for all 5 robots.
+ * 3. `FAULT_TRIAGE` ("Faults & Rescue"): Dedicated fault simulator and rescue option comparison.
+ * 4. `HUMAN_TELEOP` ("Terrain & Comms"): Dedicated wheel-mud sinkage calculator, P2P comms log, and JSON export.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -51,19 +50,17 @@ import {
 import { logFunctionCall } from './utils/logger';
 
 /**
- * Root application component for the Antenna Swarm Control Console.
+ * Root application component for the Antenna Swarm Control Dashboard.
  */
 export default function App() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('FIELD_OPS');
+  const [inspectorMode, setInspectorMode] = useState<'PLAN' | 'MANUAL'>('PLAN');
   const [robots, setRobots] = useState<RobotState[]>(INITIAL_ROBOTS);
   const [cropGapSites, setCropGapSites] = useState<CropGapSite[]>(INITIAL_CROP_GAP_SITES);
   const [obstacles, setObstacles] = useState<DynamicObstacle[]>([]);
   const [selectedRobotId, setSelectedRobotId] = useState<string>('ANT-01');
   const [simulationRunning, setSimulationRunning] = useState<boolean>(false);
   const [fleetEmergencyStopActive, setFleetEmergencyStopActive] = useState<boolean>(false);
-  const [statusBannerText, setStatusBannerText] = useState<string>(
-    'Swarm Telemetry Nominal · Robot 1 is going to retrieve Robot 3 via collinear rigid docking, cam-latch & pitch-lift at (14.4m, 8.4m)'
-  );
 
   // Run periodic simulation steps when simulationRunning is true
   useEffect(() => {
@@ -93,11 +90,10 @@ export default function App() {
     const next = stepSwarmSimulation({ robots, cropGapSites });
     setRobots(next.robots);
     setCropGapSites(next.cropGapSites);
-    setStatusBannerText('Executed +1 deterministic simulation tick (stepSwarmSimulation).');
   }
 
   /**
-   * Resets all robots, obstacles, and crop gap sites back to the initial deterministic baseline.
+   * Resets all robots, obstacles, and crop gap sites back to the initial baseline.
    */
   function handleResetSwarm(): void {
     logFunctionCall('App.handleResetSwarm', {});
@@ -107,11 +103,11 @@ export default function App() {
     setCropGapSites(INITIAL_CROP_GAP_SITES);
     setObstacles([]);
     setSelectedRobotId('ANT-01');
-    setStatusBannerText('Swarm state reset to deterministic Terrace Sector B-04 baseline.');
+    setInspectorMode('PLAN');
   }
 
   /**
-   * Injects a sudden dynamic obstacle along an active robot's route and triggers A* multi-waypoint replanning (`D-0012`).
+   * Injects a dynamic obstacle along an active robot's route and replans around it.
    */
   function handleInjectDynamicObstacle(): void {
     logFunctionCall('App.handleInjectDynamicObstacle', {
@@ -120,7 +116,6 @@ export default function App() {
     const result = injectDynamicObstacleAndReplan(robots, obstacles, selectedRobotId);
     setRobots(result.robots);
     setObstacles(result.obstacles);
-    setStatusBannerText(result.message);
   }
 
   /**
@@ -149,11 +144,10 @@ export default function App() {
     a.download = `antenna.dashboard.v1.snapshot.json`;
     a.click();
     URL.revokeObjectURL(url);
-    setStatusBannerText('Exported antenna.dashboard.v1 JSON snapshot.');
   }
 
   /**
-   * Assigns a new mission plan (`TaskIntentV1`) to a robot and updates the status banner.
+   * Assigns a new mission plan to a robot.
    */
   function handleAssignTaskPlan(
     robotId: string,
@@ -172,7 +166,6 @@ export default function App() {
       obstacles,
     });
     setRobots(result.robots);
-    setStatusBannerText(result.message);
   }
 
   /**
@@ -182,9 +175,8 @@ export default function App() {
     logFunctionCall('App.handleToggleRobotHumanControl', { robotId, enable });
     const nextRobots = setRobotHumanControlMode(robots, robotId, enable);
     setRobots(nextRobots);
-    const target = nextRobots.find((r) => r.id === robotId);
-    if (target) {
-      setStatusBannerText(target.planSummary);
+    if (enable) {
+      setInspectorMode('MANUAL');
     }
   }
 
@@ -200,11 +192,6 @@ export default function App() {
     }
     const nextRobots = setFleetEmergencyStop(robots, nextStopState);
     setRobots(nextRobots);
-    setStatusBannerText(
-      nextStopState
-        ? 'EMERGENCY FLEET STOP ACTIVE: All 5 robots transitioned to Human Control Safety Lock (v = 0 m/s).'
-        : 'Global Emergency Stop released: Autonomous robot plans resumed.'
-    );
   }
 
   /**
@@ -224,10 +211,6 @@ export default function App() {
       speedScale,
     });
     setRobots(nextRobots);
-    const updated = nextRobots.find((r) => r.id === robotId);
-    if (updated) {
-      setStatusBannerText(updated.planSummary);
-    }
   }
 
   /**
@@ -239,10 +222,6 @@ export default function App() {
       type: 'MICRO_ROCK_CLAY_BREAKER',
     });
     setRobots(nextRobots);
-    const updated = nextRobots.find((r) => r.id === robotId);
-    if (updated) {
-      setStatusBannerText(updated.planSummary);
-    }
   }
 
   /**
@@ -254,14 +233,10 @@ export default function App() {
       type: 'CLEAR_STRAW_AXLE',
     });
     setRobots(nextRobots);
-    const updated = nextRobots.find((r) => r.id === robotId);
-    if (updated) {
-      setStatusBannerText(updated.planSummary);
-    }
   }
 
   /**
-   * Toggles the internal rotary cam-locking jaw (`paddy_ant_rigid_rescue.xml`).
+   * Toggles the internal rotary cam-locking jaw.
    */
   function handleToggleCamLatch(robotId: string): void {
     logFunctionCall('App.handleToggleCamLatch', { robotId });
@@ -269,14 +244,10 @@ export default function App() {
       type: 'TOGGLE_CAM_LATCH',
     });
     setRobots(nextRobots);
-    const updated = nextRobots.find((r) => r.id === robotId);
-    if (updated) {
-      setStatusBannerText(updated.planSummary);
-    }
   }
 
   /**
-   * Adjusts the front active pitch-lift docking boom angle in radians (`-0.20` to `+0.45 rad`).
+   * Adjusts the front active pitch-lift docking boom angle in radians.
    */
   function handleAdjustDockPitch(robotId: string, deltaRad: number): void {
     logFunctionCall('App.handleAdjustDockPitch', { robotId, deltaRad });
@@ -285,14 +256,10 @@ export default function App() {
       deltaRad,
     });
     setRobots(nextRobots);
-    const updated = nextRobots.find((r) => r.id === robotId);
-    if (updated) {
-      setStatusBannerText(updated.planSummary);
-    }
   }
 
   /**
-   * Toggles the rear deployable hardpan anchor spades (`0.85 rad` deployed / `0.00 rad` stowed).
+   * Toggles the rear deployable hardpan anchor spades.
    */
   function handleToggleAnchorSpades(robotId: string): void {
     logFunctionCall('App.handleToggleAnchorSpades', { robotId });
@@ -300,10 +267,6 @@ export default function App() {
       type: 'TOGGLE_ANCHOR_SPADES',
     });
     setRobots(nextRobots);
-    const updated = nextRobots.find((r) => r.id === robotId);
-    if (updated) {
-      setStatusBannerText(updated.planSummary);
-    }
   }
 
   /**
@@ -316,10 +279,6 @@ export default function App() {
     logFunctionCall('App.handleInjectFaultScenario', { robotId, scenarioId });
     const nextRobots = injectFaultScenario(robots, robotId, scenarioId);
     setRobots(nextRobots);
-    const updated = nextRobots.find((r) => r.id === robotId);
-    if (updated) {
-      setStatusBannerText(updated.planSummary);
-    }
   }
 
   /**
@@ -348,7 +307,7 @@ export default function App() {
       );
       setRobots(result.robots);
       setSelectedRobotId(candidate.assignedHelperId);
-      setStatusBannerText(`Rescue Dispatched: ${candidate.actionPlanText}`);
+      setActiveTab('FIELD_OPS');
       return;
     }
 
@@ -366,14 +325,6 @@ export default function App() {
         { obstacles }
       );
       setRobots(result.robots);
-      setStatusBannerText(candidate.actionPlanText);
-      return;
-    }
-
-    if (candidate.policyCode === 'NEGATIVE_CONTROL_NO_RESCUE') {
-      setStatusBannerText(
-        `Negative Control Verified: No rescue dispatched for ${stuckRobot.id} (${candidate.actionPlanText})`
-      );
       return;
     }
 
@@ -381,20 +332,17 @@ export default function App() {
       const nextRobots = setRobotHumanControlMode(robots, stuckRobot.id, true);
       setRobots(nextRobots);
       setSelectedRobotId(stuckRobot.id);
-      setStatusBannerText(
-        `Safe Abstention: Refused risky extraction for ${stuckRobot.id}; switched to Human Teleop Override.`
-      );
+      setInspectorMode('MANUAL');
+      setActiveTab('FIELD_OPS');
     }
   }
 
   const selectedRobot = robots.find((r) => r.id === selectedRobotId) ?? robots[0];
-  const plantedCount = cropGapSites.filter((s) => s.status === 'PLANTED_VERIFIED').length;
-  const totalSeedsRemaining = robots.reduce((acc, r) => acc + r.seedHopperCount, 0);
-  const humanControlledCount = robots.filter((r) => r.humanControlActive).length;
+  const selectedTheme = APP_CONFIG.statusTheme[selectedRobot.status];
 
   return (
     <div id="top" className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
-      {/* Top Bar Contract Header */}
+      {/* Clean 3-Zone Top Bar */}
       <TopNavigation
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -402,178 +350,22 @@ export default function App() {
         onToggleFleetEmergencyStop={handleToggleFleetEmergencyStop}
       />
 
-      {/* Contextual Telemetry & D-0012 Edge Compute Budget Ribbon */}
-      <div className="bg-slate-900/90 border-b border-slate-800 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs">
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-semibold text-cyan-400">
-            SWARM DISPATCH:
-          </span>
-          <span className="text-slate-100 font-medium" data-testid="swarm-status-banner">
-            {statusBannerText}
-          </span>
-        </div>
-
-        {/* Unboxed Tabular Summary Metrics + D-0012 Edge Compute Budget (Zero-Pill Rule) */}
-        <div className="flex flex-wrap items-center gap-2 font-mono text-slate-400 tabular-nums">
-          <span className="text-emerald-300">
-            {APP_CONFIG.edgeComputeBudget.summaryBadge}
-          </span>
-          <span aria-hidden="true">·</span>
-          <span>
-            Replanted:{' '}
-            <strong className="text-emerald-400">
-              {plantedCount}/{cropGapSites.length}
-            </strong>
-          </span>
-          <span aria-hidden="true">·</span>
-          <span>
-            Seeds: <strong className="text-slate-200">{totalSeedsRemaining}</strong>
-          </span>
-          <span aria-hidden="true">·</span>
-          <span>
-            Manual:{' '}
-            <strong className={humanControlledCount > 0 ? 'text-purple-400' : 'text-slate-200'}>
-              {humanControlledCount}/5
-            </strong>
-          </span>
-        </div>
-      </div>
-
-      {/* Main Content Viewport */}
-      <main className="flex-1 max-w-[1600px] w-full mx-auto px-6 py-5 space-y-5">
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-[1600px] w-full mx-auto px-5 py-4">
         {activeTab === 'FIELD_OPS' && (
-          <>
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-              {/* Left Column (3 cols): Multi-Robot Status Roster & Plan Summaries */}
-              <div className="lg:col-span-3 space-y-5">
-                <RobotRosterPanel
-                  robots={robots}
-                  selectedRobotId={selectedRobot.id}
-                  onSelectRobot={setSelectedRobotId}
-                  onToggleRobotHumanControl={handleToggleRobotHumanControl}
-                />
-              </div>
-
-              {/* Center Stage (5 cols): Interactive Paddy Field Map with Continuous RBF Heatmap, Dots & Routes */}
-              <div className="lg:col-span-5 space-y-5">
-                <FieldMapCanvas
-                  robots={robots}
-                  cropGapSites={cropGapSites}
-                  hazardZones={INITIAL_HAZARD_ZONES}
-                  obstacles={obstacles}
-                  selectedRobotId={selectedRobot.id}
-                  onSelectRobot={setSelectedRobotId}
-                  onDispatchRobotToPoint={handleAssignTaskPlan}
-                  onInjectDynamicObstacle={handleInjectDynamicObstacle}
-                  simulationRunning={simulationRunning}
-                  onToggleSimulation={() => setSimulationRunning((v) => !v)}
-                  onStepSimulationOnce={handleStepSimulationOnce}
-                  onResetSwarm={handleResetSwarm}
-                />
-
-                {/* Compact Multi-Robot Plan Overview Strip directly under Map */}
-                <section
-                  aria-label="Active Fleet Plans Summary"
-                  className="p-4 bg-slate-900 border border-slate-800 rounded-lg"
-                >
-                  <div className="flex items-center justify-between mb-2.5">
-                    <h2 className="text-xs font-semibold text-slate-200">
-                      Active Swarm Execution Plans (All 5 Homogeneous Medic-Ant Units)
-                    </h2>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('ROBOT_PLANS')}
-                      className="text-xs text-cyan-400 hover:underline font-medium cursor-pointer"
-                    >
-                      Open Full Plan Matrix →
-                    </button>
-                  </div>
-                  <div className="space-y-1.5 text-xs">
-                    {robots.map((r) => {
-                      const theme = APP_CONFIG.statusTheme[r.status];
-                      return (
-                        <div
-                          key={`mini-plan-${r.id}`}
-                          onClick={() => setSelectedRobotId(r.id)}
-                          className={`flex items-center justify-between gap-3 px-2.5 py-1.5 rounded cursor-pointer transition-colors ${
-                            r.id === selectedRobot.id
-                              ? 'bg-slate-800 text-slate-100'
-                              : 'bg-slate-950/70 hover:bg-slate-800/50 text-slate-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`font-mono font-semibold shrink-0 ${theme.textClass}`}>
-                              {theme.glyph} {r.id}
-                            </span>
-                            <span className="truncate">{r.planSummary}</span>
-                          </div>
-                          <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
-                            {r.taskMode}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              </div>
-
-              {/* Right Column (4 cols): Emergency Human Control Deck + 200Hz Sensor Fusion Telemetry */}
-              <div className="lg:col-span-4 space-y-5">
-                <EmergencyControlPanel
-                  selectedRobot={selectedRobot}
-                  fleetEmergencyStopActive={fleetEmergencyStopActive}
-                  onToggleRobotHumanControl={handleToggleRobotHumanControl}
-                  onToggleFleetEmergencyStop={handleToggleFleetEmergencyStop}
-                  onManualDrive={handleManualDrive}
-                  onTriggerClayBreaker={handleTriggerClayBreaker}
-                  onTriggerStrawClearing={handleTriggerStrawClearing}
-                  onToggleCamLatch={handleToggleCamLatch}
-                  onAdjustDockPitch={handleAdjustDockPitch}
-                  onToggleAnchorSpades={handleToggleAnchorSpades}
-                />
-
-                <TelemetryInspector
-                  selectedRobot={selectedRobot}
-                  allRobots={robots}
-                  cropGapSites={cropGapSites}
-                  onAssignTaskPlan={handleAssignTaskPlan}
-                />
-              </div>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            {/* Left Sidebar (3 cols): Clean Robot Status & Plan Roster */}
+            <div className="lg:col-span-3">
+              <RobotRosterPanel
+                robots={robots}
+                selectedRobotId={selectedRobot.id}
+                onSelectRobot={setSelectedRobotId}
+                onToggleRobotHumanControl={handleToggleRobotHumanControl}
+              />
             </div>
 
-            {/* Bottom Interactive Bekker-Wong Terramechanics Lab & P2P Mycelial Gossip Inspector (`antenna.dashboard.v1`) */}
-            <BekkerTerramechanicsLab
-              gossipLogs={INITIAL_GOSSIP_LOGS}
-              onExportDashboardJson={handleExportDashboardJson}
-            />
-          </>
-        )}
-
-        {activeTab === 'ROBOT_PLANS' && (
-          <PlanTimelinePanel
-            robots={robots}
-            cropGapSites={cropGapSites}
-            selectedRobotId={selectedRobot.id}
-            onSelectRobot={(id) => {
-              setSelectedRobotId(id);
-            }}
-            onAssignTaskPlan={handleAssignTaskPlan}
-          />
-        )}
-
-        {activeTab === 'FAULT_TRIAGE' && (
-          <ScenarioTriagePanel
-            robots={robots}
-            selectedRobotId={selectedRobot.id}
-            onSelectRobot={setSelectedRobotId}
-            onInjectFaultScenario={handleInjectFaultScenario}
-            onApplyRescueCandidate={handleApplyRescueCandidate}
-          />
-        )}
-
-        {activeTab === 'HUMAN_TELEOP' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <div className="lg:col-span-7">
+            {/* Center Stage (6 cols): Uncluttered Multi-Robot Map */}
+            <div className="lg:col-span-6">
               <FieldMapCanvas
                 robots={robots}
                 cropGapSites={cropGapSites}
@@ -589,53 +381,123 @@ export default function App() {
                 onResetSwarm={handleResetSwarm}
               />
             </div>
-            <div className="lg:col-span-5 space-y-5">
-              <EmergencyControlPanel
-                selectedRobot={selectedRobot}
-                fleetEmergencyStopActive={fleetEmergencyStopActive}
-                onToggleRobotHumanControl={handleToggleRobotHumanControl}
-                onToggleFleetEmergencyStop={handleToggleFleetEmergencyStop}
-                onManualDrive={handleManualDrive}
-                onTriggerClayBreaker={handleTriggerClayBreaker}
-                onTriggerStrawClearing={handleTriggerStrawClearing}
-                onToggleCamLatch={handleToggleCamLatch}
-                onAdjustDockPitch={handleAdjustDockPitch}
-                onToggleAnchorSpades={handleToggleAnchorSpades}
-              />
-              <TelemetryInspector
-                selectedRobot={selectedRobot}
-                allRobots={robots}
-                cropGapSites={cropGapSites}
-                onAssignTaskPlan={handleAssignTaskPlan}
-              />
+
+            {/* Right Inspector (3 cols): Single Focused Selected-Robot Card */}
+            <div className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+              {/* Selected Robot Header & Prominent Emergency Human Control Toggle */}
+              <div className="p-3.5 bg-slate-950 border-b border-slate-800 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-100">
+                      {selectedRobot.callsign.split('(')[0].trim()}
+                    </h2>
+                    <span className="text-xs text-slate-400">
+                      Position ({selectedRobot.position.x.toFixed(1)}m, {selectedRobot.position.y.toFixed(1)}m)
+                    </span>
+                  </div>
+                  <span className={`text-xs font-mono font-semibold ${selectedTheme.textClass}`}>
+                    {selectedTheme.glyph} {selectedTheme.shortLabel}
+                  </span>
+                </div>
+
+                {/* Primary Emergency Human Control Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextState = !selectedRobot.humanControlActive;
+                    handleToggleRobotHumanControl(selectedRobot.id, nextState);
+                  }}
+                  className={`w-full py-2 px-3 text-xs font-semibold rounded-md border transition-colors cursor-pointer ${
+                    selectedRobot.humanControlActive
+                      ? 'bg-purple-600 border-purple-400 text-white hover:bg-purple-500'
+                      : 'bg-purple-950/60 border-purple-500/50 text-purple-200 hover:bg-purple-900/70'
+                  }`}
+                >
+                  {selectedRobot.humanControlActive
+                    ? `Exit Human Control (${selectedRobot.id})`
+                    : `Take Human Control of ${selectedRobot.id}`}
+                </button>
+
+                {/* Sub-Tab Switcher: Plan & Status vs Manual Drive */}
+                <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-md">
+                  <button
+                    type="button"
+                    onClick={() => setInspectorMode('PLAN')}
+                    className={`flex-1 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                      inspectorMode === 'PLAN'
+                        ? 'bg-slate-800 text-slate-100'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Plan &amp; Status
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInspectorMode('MANUAL')}
+                    className={`flex-1 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                      inspectorMode === 'MANUAL'
+                        ? 'bg-slate-800 text-purple-300'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Manual Drive
+                  </button>
+                </div>
+              </div>
+
+              {/* Render only one focused inspector view at a time */}
+              {inspectorMode === 'PLAN' ? (
+                <TelemetryInspector
+                  selectedRobot={selectedRobot}
+                  allRobots={robots}
+                  cropGapSites={cropGapSites}
+                  onAssignTaskPlan={handleAssignTaskPlan}
+                />
+              ) : (
+                <EmergencyControlPanel
+                  selectedRobot={selectedRobot}
+                  fleetEmergencyStopActive={fleetEmergencyStopActive}
+                  onToggleRobotHumanControl={handleToggleRobotHumanControl}
+                  onToggleFleetEmergencyStop={handleToggleFleetEmergencyStop}
+                  onManualDrive={handleManualDrive}
+                  onTriggerClayBreaker={handleTriggerClayBreaker}
+                  onTriggerStrawClearing={handleTriggerStrawClearing}
+                  onToggleCamLatch={handleToggleCamLatch}
+                  onAdjustDockPitch={handleAdjustDockPitch}
+                  onToggleAnchorSpades={handleToggleAnchorSpades}
+                />
+              )}
             </div>
           </div>
         )}
-      </main>
 
-      {/* Quiet Functional Footer */}
-      <footer className="mt-auto border-t border-slate-800/80 bg-slate-950 px-6 py-3 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-400">
-        <div>
-          Antenna Multi-Robot Rice Farming System · Homogeneous Medic-Ant Swarm Console (`rice.v1` / `antenna.dashboard.v1`)
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={handleResetSwarm}
-            className="hover:text-slate-200 transition-colors cursor-pointer"
-          >
-            Reset Terrace Baseline
-          </button>
-          <span aria-hidden="true">·</span>
-          <button
-            type="button"
-            onClick={() => setActiveTab('FAULT_TRIAGE')}
-            className="hover:text-slate-200 transition-colors cursor-pointer"
-          >
-            S1–S8 &amp; Negative Controls
-          </button>
-        </div>
-      </footer>
+        {activeTab === 'ROBOT_PLANS' && (
+          <PlanTimelinePanel
+            robots={robots}
+            cropGapSites={cropGapSites}
+            selectedRobotId={selectedRobot.id}
+            onSelectRobot={setSelectedRobotId}
+            onAssignTaskPlan={handleAssignTaskPlan}
+          />
+        )}
+
+        {activeTab === 'FAULT_TRIAGE' && (
+          <ScenarioTriagePanel
+            robots={robots}
+            selectedRobotId={selectedRobot.id}
+            onSelectRobot={setSelectedRobotId}
+            onInjectFaultScenario={handleInjectFaultScenario}
+            onApplyRescueCandidate={handleApplyRescueCandidate}
+          />
+        )}
+
+        {activeTab === 'HUMAN_TELEOP' && (
+          <BekkerTerramechanicsLab
+            gossipLogs={INITIAL_GOSSIP_LOGS}
+            onExportDashboardJson={handleExportDashboardJson}
+          />
+        )}
+      </main>
     </div>
   );
 }

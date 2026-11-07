@@ -1,15 +1,10 @@
 /**
  * @file src/components/TelemetryInspector.tsx
- * @description 200Hz STM32H7 Sensor-Fusion Telemetry Inspector & Plan Reassignment Panel.
+ * @description Clean Selected-Robot Plan Dispatcher & Health Summary Card.
  *
- * This component displays the real-time low-level sensor telemetry for the currently selected
- * Homogeneous Medic-Ant rover (`make_homogeneous_rover_spec`) and provides an interactive
- * `TaskIntentV1` Plan Reassignment form:
- * - 60GHz Doppler mmWave Radar true ground speed ($v_{\text{true}}$) vs Wheel Encoder speed ($\omega \cdot r$).
- * - Real-time Kinematic Slip Ratio $s = 1 - (v_{\text{true}} / (\omega \cdot r))$ with anti-digging threshold indicator.
- * - Bekker-Wong Wheel Sinkage $z$ (mm) and Belly Clearance (mm) relative to the 64 mm sealed hull.
- * - Forward 3-Ray LiDAR (`frontLidarRangeM`, supporting `null` for missing-data negative control vs true obstacle).
- * - Rigid Docking & Cam-Latch Actuator telemetry (`dockPitchRad`, `camLatchClosed`, `couplingForceN`).
+ * Shows the selected robot's current plan, a simple task assignment form, and
+ * 3 essential health numbers (Speed, Wheel Slip, Seeds), with an optional
+ * expandable drawer for detailed onboard sensor readings.
  */
 
 import React, { useState } from 'react';
@@ -35,7 +30,7 @@ interface TelemetryInspectorProps {
 }
 
 /**
- * Renders the 200Hz sensor fusion telemetry grid and interactive plan assignment form for the selected robot.
+ * Renders the clean robot task assignment and health summary panel.
  */
 export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
   selectedRobot,
@@ -46,12 +41,13 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
   const [selectedTaskMode, setSelectedTaskMode] = useState<TaskMode>('RETRIEVE_PEER');
   const [selectedPeerId, setSelectedPeerId] = useState<string>('ANT-03');
   const [selectedSiteId, setSelectedSiteId] = useState<string>('C-04');
+  const [showDetailedSensors, setShowDetailedSensors] = useState<boolean>(false);
 
-  const theme = APP_CONFIG.statusTheme[selectedRobot.status];
   const { telemetry } = selectedRobot;
+  const shortName = selectedRobot.callsign.split('·')[0].trim();
 
   /**
-   * Handles submitting the new robot plan assignment form.
+   * Handles submitting the robot task assignment form.
    */
   function handlePlanFormSubmit(event: React.FormEvent): void {
     event.preventDefault();
@@ -83,7 +79,6 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
       return;
     }
 
-    // Default NAVIGATE to depot
     onAssignTaskPlan(
       selectedRobot.id,
       'NAVIGATE',
@@ -93,232 +88,205 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
 
   return (
     <section
-      aria-label="200Hz Sensor Fusion Telemetry and Plan Dispatcher"
-      className="flex flex-col bg-slate-900 border border-slate-800 rounded-lg overflow-hidden"
+      aria-label="Selected Robot Plan and Health"
+      className="p-4 space-y-4"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between gap-2 px-4 py-3 bg-slate-950 border-b border-slate-800">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-100">
-            {selectedRobot.callsign} · Telemetry &amp; Plan
-          </h2>
-          <p className="text-xs text-slate-400">
-            Homogeneous Medic-Ant (276mm width) · Battery {selectedRobot.batteryPct}% · Hopper{' '}
-            {selectedRobot.seedHopperCount}/{selectedRobot.capabilities.maxHopperCapacity} seeds
-          </p>
+      {/* Active Plan Box */}
+      <div className="p-3 rounded-md bg-slate-950 border border-slate-800">
+        <div className="text-[11px] font-mono uppercase text-slate-400 mb-1">
+          Current Plan ({selectedRobot.taskMode})
         </div>
-        <span className={`text-xs font-mono font-semibold whitespace-nowrap shrink-0 ${theme.textClass}`}>
-          {theme.glyph} {theme.shortLabel}
-        </span>
+        <p className="text-xs text-slate-100 font-medium leading-relaxed">
+          {selectedRobot.planSummary}
+        </p>
       </div>
 
-      <div className="p-4 space-y-4">
-        {/* Active Fault Diagnostic Banner (if immobilized, slipping, or negative control) */}
-        {selectedRobot.faultReason && (
-          <div
-            className={`p-3 rounded border text-xs ${
-              selectedRobot.faultScenario.startsWith('NEG_')
-                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
-                : 'bg-rose-950/50 border-rose-500/40 text-rose-200'
-            }`}
-          >
-            <div className="font-mono font-semibold mb-0.5">
-              {selectedRobot.faultScenario.startsWith('NEG_')
-                ? `NEGATIVE CONTROL GUARD (${selectedRobot.faultScenario})`
-                : `DIAGNOSTIC ALERT (${selectedRobot.faultScenario})`}
-            </div>
-            <p>{selectedRobot.faultReason}</p>
+      {/* Fault Alert (only shown when there is an active issue) */}
+      {selectedRobot.faultReason && (
+        <div
+          className={`p-3 rounded-md border text-xs ${
+            selectedRobot.faultScenario.startsWith('NEG_')
+              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+              : 'bg-rose-950/50 border-rose-500/40 text-rose-200'
+          }`}
+        >
+          <div className="font-semibold mb-0.5">
+            {selectedRobot.faultScenario.startsWith('NEG_')
+              ? 'Sensor Notice'
+              : 'Alert: Robot Stuck'}
           </div>
-        )}
+          <p>{selectedRobot.faultReason}</p>
+        </div>
+      )}
 
-        {/* 200Hz STM32H7 Sensor-Fusion Metric Grid (Tabular Numerals + Unit Hierarchy) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-          <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-[11px] font-mono text-slate-400">RADAR v_true</div>
-            <div className="mt-1 font-mono tabular-nums">
-              <span className="text-lg font-bold text-slate-100">
-                {telemetry.trueVelocityMs.toFixed(2)}
-              </span>
-              <span className="text-xs text-slate-400 ml-1">m/s</span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Wheel: {telemetry.wheelSpeedMs.toFixed(2)} m/s
-            </div>
-          </div>
-
-          <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-[11px] font-mono text-slate-400">SLIP RATIO (s)</div>
-            <div className="mt-1 font-mono tabular-nums">
-              <span
-                className={`text-lg font-bold ${
-                  telemetry.slipRatio >= 0.6
-                    ? 'text-rose-400'
-                    : telemetry.slipRatio >= 0.42
-                      ? 'text-amber-400'
-                      : 'text-emerald-400'
-                }`}
-              >
-                {(telemetry.slipRatio * 100).toFixed(0)}
-              </span>
-              <span className="text-xs text-slate-400 ml-1">%</span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Gate: ≤ 60%
-            </div>
-          </div>
-
-          <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-[11px] font-mono text-slate-400">SINKAGE / BELLY</div>
-            <div className="mt-1 font-mono tabular-nums">
-              <span className="text-lg font-bold text-slate-100">
-                {telemetry.wheelSinkageMm.toFixed(0)}
-              </span>
-              <span className="text-xs text-slate-400 ml-1">mm</span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Clearance: {telemetry.bellyClearanceMm.toFixed(0)} mm
-            </div>
-          </div>
-
-          <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-[11px] font-mono text-slate-400">IMU ATTITUDE</div>
-            <div className="mt-1 font-mono tabular-nums">
-              <span className="text-base font-bold text-slate-100">
-                {telemetry.pitchDeg.toFixed(1)}° / {telemetry.rollDeg.toFixed(1)}°
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Current: {telemetry.motorCurrentAmps.toFixed(1)} A
-            </div>
-          </div>
-
-          <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-[11px] font-mono text-slate-400">3-RAY LIDAR</div>
-            <div className="mt-1 font-mono tabular-nums">
-              {telemetry.frontLidarRangeM === null ? (
-                <span className="text-sm font-bold text-amber-400">NULL (DROPOUT)</span>
-              ) : (
-                <>
-                  <span className="text-lg font-bold text-slate-100">
-                    {telemetry.frontLidarRangeM.toFixed(2)}
-                  </span>
-                  <span className="text-xs text-slate-400 ml-1">m</span>
-                </>
-              )}
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Row Error: {telemetry.furrowErrorCm.toFixed(1)} cm
-            </div>
-          </div>
-
-          <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
-            <div className="text-[11px] font-mono text-slate-400">RIGID DOCK BOOM</div>
-            <div className="mt-1 font-mono tabular-nums">
-              <span className="text-base font-bold text-cyan-300">
-                {telemetry.rigidDock.dockPitchRad >= 0 ? '+' : ''}
-                {telemetry.rigidDock.dockPitchRad.toFixed(2)} rad
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              {telemetry.rigidDock.isRigidLatched ? 'Cam LOCKED' : 'Cam OPEN'} ·{' '}
-              {telemetry.rigidDock.camLatchRad.toFixed(2)} rad
-            </div>
+      {/* 3 Essential Health Metrics */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
+          <div className="text-[11px] text-slate-400">Speed</div>
+          <div className="mt-0.5 font-mono tabular-nums">
+            <span className="text-base font-bold text-slate-100">
+              {telemetry.trueVelocityMs.toFixed(2)}
+            </span>
+            <span className="text-xs text-slate-400 ml-1">m/s</span>
           </div>
         </div>
 
-        {/* Interactive Plan Reassignment Form (TaskIntentV1) */}
-        <form
-          onSubmit={handlePlanFormSubmit}
-          className="p-3.5 bg-slate-950 border border-slate-800 rounded-md space-y-3"
-        >
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-slate-200">
-              Assign New Robot Plan (TaskIntentV1)
-            </h3>
-            <span className="text-[11px] font-mono text-slate-400">
-              Target: {selectedRobot.id}
+        <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
+          <div className="text-[11px] text-slate-400">Wheel Slip</div>
+          <div className="mt-0.5 font-mono tabular-nums">
+            <span
+              className={`text-base font-bold ${
+                telemetry.slipRatio >= 0.6
+                  ? 'text-rose-400'
+                  : telemetry.slipRatio >= 0.42
+                    ? 'text-amber-400'
+                    : 'text-emerald-400'
+              }`}
+            >
+              {(telemetry.slipRatio * 100).toFixed(0)}%
             </span>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <div>
-              <label
-                htmlFor="plan-mode-select"
-                className="block text-xs text-slate-400 mb-1"
-              >
-                Task Mode
-              </label>
-              <select
-                id="plan-mode-select"
-                value={selectedTaskMode}
-                onChange={(e) => setSelectedTaskMode(e.target.value as TaskMode)}
-                className="w-full px-2.5 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded text-slate-100 focus:outline-cyan-400"
-              >
-                <option value="RETRIEVE_PEER">Retrieve Stuck Peer (Rigid Dock &amp; Pry-Lift)</option>
-                <option value="PLANT">Plant Missing Crop Site</option>
-                <option value="SAMPLE">Sample Soil Moisture &amp; Firmness</option>
-                <option value="NAVIGATE">Return to Seed Depot (2.0m, 2.0m)</option>
-                <option value="BEACON_RELAY">Stationary P2P Gossip Relay Beacon</option>
-                <option value="HOLD">Deterministic Safety HOLD</option>
-              </select>
-            </div>
+        <div className="p-2.5 bg-slate-950 border border-slate-800 rounded">
+          <div className="text-[11px] text-slate-400">Seeds Left</div>
+          <div className="mt-0.5 font-mono tabular-nums">
+            <span className="text-base font-bold text-slate-100">
+              {selectedRobot.seedHopperCount}
+            </span>
+            <span className="text-xs text-slate-400 ml-0.5">
+              /{selectedRobot.capabilities.maxHopperCapacity}
+            </span>
+          </div>
+        </div>
+      </div>
 
-            {selectedTaskMode === 'RETRIEVE_PEER' && (
-              <div>
-                <label
-                  htmlFor="peer-target-select"
-                  className="block text-xs text-slate-400 mb-1"
-                >
-                  Peer Robot to Retrieve
-                </label>
-                <select
-                  id="peer-target-select"
-                  value={selectedPeerId}
-                  onChange={(e) => setSelectedPeerId(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded text-slate-100 focus:outline-cyan-400"
-                >
-                  {allRobots
-                    .filter((r) => r.id !== selectedRobot.id)
-                    .map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.callsign} ({r.status})
-                      </option>
-                    ))}
-                </select>
-              </div>
-            )}
+      {/* Simple Plan Reassignment Form */}
+      <form
+        onSubmit={handlePlanFormSubmit}
+        className="p-3.5 bg-slate-950 border border-slate-800 rounded-md space-y-3"
+      >
+        <h3 className="text-xs font-semibold text-slate-200">
+          Assign New Plan to {shortName}
+        </h3>
 
-            {(selectedTaskMode === 'PLANT' || selectedTaskMode === 'SAMPLE') && (
-              <div>
-                <label
-                  htmlFor="site-target-select"
-                  className="block text-xs text-slate-400 mb-1"
-                >
-                  Target Crop Gap Site
-                </label>
-                <select
-                  id="site-target-select"
-                  value={selectedSiteId}
-                  onChange={(e) => setSelectedSiteId(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded text-slate-100 focus:outline-cyan-400"
-                >
-                  {cropGapSites.map((site) => (
-                    <option key={site.id} value={site.id}>
-                      {site.id} ({site.position.x}m, {site.position.y}m) · {site.status}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+        <div className="space-y-2.5">
+          <div>
+            <label
+              htmlFor="plan-mode-select"
+              className="block text-xs text-slate-400 mb-1"
+            >
+              Task
+            </label>
+            <select
+              id="plan-mode-select"
+              value={selectedTaskMode}
+              onChange={(e) => setSelectedTaskMode(e.target.value as TaskMode)}
+              className="w-full px-2.5 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded text-slate-100 focus:outline-cyan-400 cursor-pointer"
+            >
+              <option value="RETRIEVE_PEER">Retrieve Stuck Peer Robot</option>
+              <option value="PLANT">Plant Missing Crop Site</option>
+              <option value="SAMPLE">Scout Soil Moisture &amp; Firmness</option>
+              <option value="NAVIGATE">Return to Seed Depot</option>
+              <option value="BEACON_RELAY">Act as Comms Relay Beacon</option>
+              <option value="HOLD">Hold Position</option>
+            </select>
           </div>
 
-          <button
-            type="submit"
-            className="w-full py-2 px-4 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded transition-colors cursor-pointer"
-          >
-            Update {selectedRobot.callsign.split('·')[0].trim()} Plan
-          </button>
-        </form>
+          {selectedTaskMode === 'RETRIEVE_PEER' && (
+            <div>
+              <label
+                htmlFor="peer-target-select"
+                className="block text-xs text-slate-400 mb-1"
+              >
+                Robot to Retrieve
+              </label>
+              <select
+                id="peer-target-select"
+                value={selectedPeerId}
+                onChange={(e) => setSelectedPeerId(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded text-slate-100 focus:outline-cyan-400 cursor-pointer"
+              >
+                {allRobots
+                  .filter((r) => r.id !== selectedRobot.id)
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.callsign.split('(')[0].trim()} ({r.status})
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+
+          {(selectedTaskMode === 'PLANT' || selectedTaskMode === 'SAMPLE') && (
+            <div>
+              <label
+                htmlFor="site-target-select"
+                className="block text-xs text-slate-400 mb-1"
+              >
+                Target Crop Site
+              </label>
+              <select
+                id="site-target-select"
+                value={selectedSiteId}
+                onChange={(e) => setSelectedSiteId(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded text-slate-100 focus:outline-cyan-400 cursor-pointer"
+              >
+                {cropGapSites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.id} ({site.position.x}m, {site.position.y}m)
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <button
+          type="submit"
+          className="w-full py-2 px-4 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded transition-colors cursor-pointer"
+        >
+          Update {shortName} Plan
+        </button>
+      </form>
+
+      {/* Progressive Disclosure: Optional Detailed Sensor Drawer */}
+      <div className="pt-1 border-t border-slate-800/80">
+        <button
+          type="button"
+          onClick={() => setShowDetailedSensors((v) => !v)}
+          className="text-xs text-slate-400 hover:text-slate-200 font-medium cursor-pointer"
+        >
+          {showDetailedSensors ? 'Hide Advanced Sensors ▲' : 'Show Advanced Sensors ▼'}
+        </button>
+
+        {showDetailedSensors && (
+          <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs font-mono bg-slate-950 p-2.5 rounded border border-slate-800 tabular-nums">
+            <div>
+              <span className="text-slate-400 block text-[10px]">Mud Sinkage</span>
+              <span className="text-slate-200">{telemetry.wheelSinkageMm.toFixed(0)} mm</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px]">Belly Clearance</span>
+              <span className="text-slate-200">{telemetry.bellyClearanceMm.toFixed(0)} mm</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px]">Front LiDAR</span>
+              <span className="text-slate-200">
+                {telemetry.frontLidarRangeM === null
+                  ? 'Dropout'
+                  : `${telemetry.frontLidarRangeM.toFixed(2)} m`}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px]">Docking Boom</span>
+              <span className="text-cyan-300">
+                {telemetry.rigidDock.isRigidLatched ? 'Latched' : 'Open'} (
+                {telemetry.rigidDock.dockPitchRad.toFixed(2)} rad)
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
