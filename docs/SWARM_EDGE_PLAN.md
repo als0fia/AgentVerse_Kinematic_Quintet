@@ -143,7 +143,7 @@ If risk inputs are uncertain, use conservative intervals or robust worst-case ev
 - [Prism / Qazi et al., May 2026](https://arxiv.org/abs/2605.25682): **Jetson Orin Nano over Wi-Fi**, noting CPU↔GPU staging/network bottlenecks and adaptive partitioning; not proof all larger LLMs are practical.
 - [RAYA, Sep 2026](https://raya-control.github.io/) investigates learned recoverability and bounded intervention; [IAOM, 2026](https://ieeexplore.ieee.org/abstract/document/11560910/) covers dynamic multi-robot task allocation. Both challenge novelty claims.
 
-**No actual team-owned Jetson SKU/count, split LLM inference run, on-robot power budget, trained autonomous rescue policy or production cost is verified in the repository.** Ask human operators for models/JetPack/RAM/radio and permission before installations or purchases. A desktop simulated node is not an Orin experiment.
+**No actual team-owned Jetson SKU/count, split LLM inference run, on-robot power budget, trained autonomous rescue policy or production cost is verified in the repository.** Ask human operators for models/JetPack/RAM/radio and permission before installations or purchases. A desktop simulated node is not an Orin experiment. For detailed server-side GPU sizing, vLLM throughput, cooperative farm edge hub CAPEX/OPEX, and multi-tier failure recovery architecture, see [SERVER_ECONOMICS_AND_RELIABILITY](SERVER_ECONOMICS_AND_RELIABILITY.md).
 
 ## Rescue-first implementation and evidence gates
 

@@ -82,6 +82,7 @@ The fixture comparison is **synthetic tooling data, not product performance**. C
 | [ANTENNA_RF_SUBSYSTEM](docs/ANTENNA_RF_SUBSYSTEM.md) | Corrected RF/sensor feasibility and real-versus-simulated boundaries |
 | [COMMERCIALIZATION_CHINA](docs/COMMERCIALIZATION_CHINA.md) | Sourced Chinese rice mechanisation and commercial evidence gates |
 | [RESEARCH](docs/RESEARCH.md) | Source-checked simulator requirements, workflow/agent-skill evaluation and relevant prior art |
+| [SERVER_ECONOMICS_AND_RELIABILITY](docs/SERVER_ECONOMICS_AND_RELIABILITY.md) | GPU sizing, throughput, fleet scaling, CAPEX/OPEX, and multi-tier failure recovery |
 
 Use GitHub Issues for substantial tasks, PRs for reviewed integration and source/tests as the proof. **No ticket is needed for a five-minute fix.** When multiple agents work at once, follow [the short GitHub and human-prompting guide](docs/TEAM.md#practical-parallel-work-without-ceremony), not shadow task lists or dated session logs. The private hackathon management workflow is separate from this public team code repository.
 

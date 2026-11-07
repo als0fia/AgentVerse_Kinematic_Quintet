@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Antenna - Extreme Climate & Rescue 3D Animation</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background: #0c1017; color: #e6edf3; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+    header { background: rgba(13, 17, 23, 0.95); border-bottom: 1px solid #30363d; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; z-index: 10; }
+    h1 { font-size: 1.15rem; color: #58a6ff; display: flex; align-items: center; gap: 8px; }
+    .badge { font-size: 0.72rem; padding: 3px 8px; border-radius: 12px; font-weight: 600; text-transform: uppercase; background: #238636; color: #fff; }
+    .badge.typhoon { background: #d29922; color: #000; }
+    #viewport { flex: 1; position: relative; width: 100%; height: 100%; cursor: grab; }
+    #viewport:active { cursor: grabbing; }
+    .hud-panel { position: absolute; top: 20px; left: 20px; background: rgba(22, 27, 34, 0.92); border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 340px; pointer-events: auto; backdrop-filter: blur(8px); box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 5; }
+    .hud-title { font-size: 0.85rem; font-weight: 700; color: #8b949e; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #30363d; padding-bottom: 6px; }
+    .metric-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.82rem; }
+    .metric-val { font-weight: 700; font-family: monospace; color: #58a6ff; }
+    .status-alert { background: #da3633; color: white; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 0.8rem; text-align: center; margin: 10px 0; display: none; animation: pulse 1s infinite alternate; }
+    @keyframes pulse { from { opacity: 0.75; } to { opacity: 1.0; } }
+    .controls-bar { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(22, 27, 34, 0.92); border: 1px solid #30363d; border-radius: 30px; padding: 10px 24px; display: flex; align-items: center; gap: 16px; z-index: 5; backdrop-filter: blur(8px); box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
+    button.btn { background: #21262d; border: 1px solid #363b42; color: #e6edf3; padding: 8px 16px; border-radius: 20px; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+    button.btn:hover { background: #30363d; border-color: #8b949e; }
+    button.btn.active { background: #1f6feb; border-color: #58a6ff; color: #fff; }
+    .slider-container { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #8b949e; }
+    input[type=range] { width: 180px; accent-color: #58a6ff; }
+    .legend { position: absolute; bottom: 24px; right: 24px; background: rgba(22, 27, 34, 0.90); border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; font-size: 0.78rem; z-index: 5; }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+  <header>
+    <h1>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+      MuJoCo Extreme Climate Physics: South China Scenarios
+    </h1>
+    <div style="display: flex; gap: 10px;">
+      <button id="tab-typhoon" class="btn active" onclick="switchScenario('typhoon')">🌀 Typhoon Topple (40 m/s)</button>
+      <button id="tab-mud" class="btn" onclick="switchScenario('mud')">🌾 Monsoon Mud Extraction</button>
+    </div>
+  </header>
+
+  <div id="viewport">
+    <div class="hud-panel">
+      <div class="hud-title" id="hud-scenario-title">Scenario 1: Super Typhoon Crosswind (40 m/s)</div>
+      <div class="metric-row">
+        <span>Wind Velocity:</span>
+        <span class="metric-val" id="val-wind">40.0 m/s (144 km/h)</span>
+      </div>
+      <div class="metric-row">
+        <span>Chassis Roll:</span>
+        <span class="metric-val" id="val-roll">0.0°</span>
+      </div>
+      <div class="metric-row">
+        <span>Chassis Height (z):</span>
+        <span class="metric-val" id="val-height">0.058 m</span>
+      </div>
+      <div class="metric-row">
+        <span>Lateral Force:</span>
+        <span class="metric-val" id="val-force">0.0 N</span>
+      </div>
+      <div class="metric-row">
+        <span>Current Phase:</span>
+        <span class="metric-val" id="val-phase" style="color: #3fb950;">NORMAL FIELD WORK</span>
+      </div>
+
+      <div id="alert-box" class="status-alert">⚠️ EXTREME ROLLOVER FAULT DETECTED</div>
+      <div style="font-size: 0.76rem; color: #8b949e; line-height: 1.4; margin-top: 10px;">
+        <span id="hud-desc">Simulating 85-120N aerodynamic drag from typhoon crosswinds in Guangdong/Guangxi terraced paddies.</span>
+      </div>
+    </div>
+
+    <div class="controls-bar">
+      <button id="play-btn" class="btn active" onclick="togglePlay()">⏸️ Pause</button>
+      <button class="btn" onclick="resetAnimation()">🔄 Replay</button>
+      <div class="slider-container">
+        <span>Timeline:</span>
+        <input type="range" id="time-slider" min="0" max="100" value="0" oninput="scrubTime(this.value)">
+      </div>
+      <div class="slider-container">
+        <span>Speed:</span>
+        <select id="speed-select" onchange="setSpeed(this.value)" style="background:#21262d; color:#e6edf3; border:1px solid #363b42; border-radius:4px; padding:2px 6px;">
+          <option value="0.5">0.5x Slow</option>
+          <option value="1.0" selected>1.0x Real</option>
+          <option value="2.0">2.0x Fast</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background: #2ea043;"></div> Scout Rover (Green)</div>
+      <div class="legend-item"><div class="legend-dot" style="background: #1f6feb;"></div> Planter Rover (Blue Rescuer)</div>
+      <div class="legend-item"><div class="legend-dot" style="background: #d29922;"></div> Aerodynamic Wind Vector</div>
+      <div class="legend-item"><div class="legend-dot" style="background: #5c3a21;"></div> Deep Mud Silt Trap</div>
+    </div>
+  </div>
+
+  <script>
+    let scene, camera, renderer, controls;
+    let scoutRover, planterRover, windArrows = [], mudBasin;
+    let currentScenario = 'typhoon';
+    let isPlaying = true;
+    let progress = 0.0;
+    let speedMultiplier = 1.0;
+
+    init();
+    animate();
+
+    function init() {
+      const container = document.getElementById('viewport');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a0e14);
+      scene.fog = new THREE.FogExp2(0x0a0e14, 0.12);
+
+      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+      camera.position.set(2.4, -2.8, 1.8);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      container.appendChild(renderer.domElement);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.target.set(0.6, 0.0, 0.1);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+
+      // Lights
+      const ambient = new THREE.AmbientLight(0xffffff, 0.45);
+      scene.add(ambient);
+      const sun = new THREE.DirectionalLight(0xffffff, 0.85);
+      sun.position.set(3, -2, 4);
+      sun.castShadow = true;
+      scene.add(sun);
+
+      buildPaddyField();
+      scoutRover = createPaddyAntRover(0x2ea043, 'scout');
+      planterRover = createPaddyAntRover(0x1f6feb, 'planter');
+      scene.add(scoutRover);
+      scene.add(planterRover);
+
+      buildWindParticles();
+      setupScenario('typhoon');
+
+      window.addEventListener('resize', onWindowResize);
+    }
+
+    function buildPaddyField() {
+      // Ground plane (Flooded Paddy Soil)
+      const groundGeo = new THREE.PlaneGeometry(8, 8);
+      const groundMat = new THREE.MeshStandardMaterial({ color: 0x221a12, roughness: 0.9, metalness: 0.1 });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // Compacted earthen bund ridge
+      const bundGeo = new THREE.BoxGeometry(6, 0.5, 0.04);
+      const bundMat = new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.85 });
+      const bund = new THREE.Mesh(bundGeo, bundMat);
+      bund.position.set(0.6, 0, 0.02);
+      bund.receiveShadow = true;
+      scene.add(bund);
+
+      // Deep Mud Silt Trap
+      const mudGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.02, 32);
+      const mudMat = new THREE.MeshStandardMaterial({ color: 0x1b140d, roughness: 0.95, opacity: 0.9, transparent: true });
+      mudBasin = new THREE.Mesh(mudGeo, mudMat);
+      mudBasin.rotation.x = Math.PI / 2;
+      mudBasin.position.set(0.82, 0.0, 0.025);
+      scene.add(mudBasin);
+
+      // Water surface shine
+      const waterGeo = new THREE.PlaneGeometry(8, 8);
+      const waterMat = new THREE.MeshStandardMaterial({ color: 0x1a3344, roughness: 0.1, metalness: 0.8, transparent: true, opacity: 0.4 });
+      const water = new THREE.Mesh(waterGeo, waterMat);
+      water.position.z = 0.035;
+      scene.add(water);
+    }
+
+    function createPaddyAntRover(colorHex, name) {
+      const rover = new THREE.Group();
+
+      // Chassis body
+      const chassisGeo = new THREE.BoxGeometry(0.32, 0.22, 0.08);
+      const chassisMat = new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.3, roughness: 0.5 });
+      const chassis = new THREE.Mesh(chassisGeo, chassisMat);
+      chassis.position.z = 0.06;
+      chassis.castShadow = true;
+      rover.add(chassis);
+
+      // RTK BeiDou dome
+      const domeGeo = new THREE.CylinderGeometry(0.035, 0.04, 0.03, 16);
+      const domeMat = new THREE.MeshStandardMaterial({ color: 0xf0f6fc });
+      const dome = new THREE.Mesh(domeGeo, domeMat);
+      dome.rotation.x = Math.PI / 2;
+      dome.position.set(-0.06, 0, 0.115);
+      rover.add(dome);
+
+      // 4 Paddy Chevron Lug Wheels
+      const wheelGeo = new THREE.CylinderGeometry(0.058, 0.058, 0.045, 18);
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.9 });
+
+      const wheelPositions = [
+        [0.12, 0.13, 0.058],
+        [0.12, -0.13, 0.058],
+        [-0.12, 0.13, 0.058],
+        [-0.12, -0.13, 0.058]
+      ];
+      rover.wheels = [];
+      wheelPositions.forEach(pos => {
+        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(...pos);
+        wheel.castShadow = true;
+        rover.add(wheel);
+        rover.wheels.push(wheel);
+      });
+
+      // Front Articulated Pitch-Lift Boom
+      const boomGeo = new THREE.BoxGeometry(0.08, 0.06, 0.025);
+      const boomMat = new THREE.MeshStandardMaterial({ color: 0xd29922, metalness: 0.6 });
+      const boom = new THREE.Mesh(boomGeo, boomMat);
+      boom.position.set(0.19, 0, 0.06);
+      rover.boom = boom;
+      rover.add(boom);
+
+      // Front docking cone & cam-latch jaw
+      const latchGeo = new THREE.ConeGeometry(0.025, 0.05, 12);
+      const latchMat = new THREE.MeshStandardMaterial({ color: 0xf85149 });
+      const latch = new THREE.Mesh(latchGeo, latchMat);
+      latch.rotation.z = -Math.PI / 2;
+      latch.position.set(0.24, 0, 0.06);
+      rover.latch = latch;
+      rover.add(latch);
+
+      // Rear docking funnel & strike bar
+      const strikeGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.08, 12);
+      const strikeMat = new THREE.MeshStandardMaterial({ color: 0x8b949e });
+      const strike = new THREE.Mesh(strikeGeo, strikeMat);
+      strike.position.set(-0.17, 0, 0.06);
+      rover.add(strike);
+
+      return rover;
+    }
+
+    function buildWindParticles() {
+      const arrowHelper = new THREE.ArrowHelper(
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(0.82, -0.6, 0.15),
+        0.5,
+        0xd29922,
+        0.1,
+        0.06
+      );
+      arrowHelper.visible = false;
+      scene.add(arrowHelper);
+      windArrows.push(arrowHelper);
+    }
+
+    function switchScenario(type) {
+      currentScenario = type;
+      document.getElementById('tab-typhoon').className = (type === 'typhoon' ? 'btn active' : 'btn');
+      document.getElementById('tab-mud').className = (type === 'mud' ? 'btn active' : 'btn');
+      resetAnimation();
+      setupScenario(type);
+    }
+
+    function setupScenario(type) {
+      if (type === 'typhoon') {
+        document.getElementById('hud-scenario-title').innerText = "Scenario 1: Super Typhoon Crosswind (40 m/s)";
+        document.getElementById('hud-desc').innerText = "Simulating 85-120N aerodynamic drag from typhoon crosswinds in Guangdong/Guangxi terraced paddies.";
+        document.getElementById('val-wind').innerText = "40.0 m/s (144 km/h)";
+        mudBasin.visible = false;
+        scoutRover.position.set(0.82, 0, 0);
+        planterRover.position.set(0.35, 0, 0);
+        windArrows[0].visible = true;
+      } else {
+        document.getElementById('hud-scenario-title').innerText = "Scenario 2: Monsoon Mud Silt Trap & Tandem Rescue";
+        document.getElementById('hud-desc').innerText = "Victim rover bellies out in saturated paddy mud. Swarm helper executes rigid cam-latch pitch-lift extraction.";
+        document.getElementById('val-wind').innerText = "Calm (0.5 m/s)";
+        mudBasin.visible = true;
+        scoutRover.position.set(0.82, 0, 0);
+        planterRover.position.set(0.40, 0, 0);
+        windArrows[0].visible = false;
+      }
+    }
+
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      document.getElementById('play-btn').innerText = isPlaying ? "⏸️ Pause" : "▶️ Play";
+    }
+
+    function resetAnimation() {
+      progress = 0;
+      document.getElementById('time-slider').value = 0;
+    }
+
+    function scrubTime(val) {
+      progress = parseFloat(val) / 100.0;
+    }
+
+    function setSpeed(val) {
+      speedMultiplier = parseFloat(val);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      if (isPlaying) {
+        progress += 0.003 * speedMultiplier;
+        if (progress > 1.0) progress = 0.0;
+        document.getElementById('time-slider').value = Math.round(progress * 100);
+      }
+
+      updateSimulationState(progress);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function updateSimulationState(t) {
+      const alertBox = document.getElementById('alert-box');
+      const valRoll = document.getElementById('val-roll');
+      const valHeight = document.getElementById('val-height');
+      const valForce = document.getElementById('val-force');
+      const valPhase = document.getElementById('val-phase');
+
+      if (currentScenario === 'typhoon') {
+        // Timeline:
+        // 0.00 - 0.20: Normal operation
+        // 0.20 - 0.45: Typhoon gust strikes -> Rover topples to 141 deg
+        // 0.45 - 0.70: Alarm triggers -> Protective stance -> Planter arrives
+        // 0.70 - 0.95: Planter boom levers scout back to 0 deg
+        // 0.95 - 1.00: Rover upright & operational
+
+        if (t < 0.20) {
+          scoutRover.rotation.x = 0;
+          scoutRover.position.set(0.82, 0, 0);
+          planterRover.position.set(0.35, 0, 0);
+          windArrows[0].position.set(0.82, -0.6, 0.15);
+          windArrows[0].children[0].material.color.setHex(0x58a6ff);
+          valRoll.innerText = "0.0°";
+          valHeight.innerText = "0.058 m";
+          valForce.innerText = "12.5 N";
+          valPhase.innerText = "NORMAL OPERATION";
+          valPhase.style.color = "#3fb950";
+          alertBox.style.display = "none";
+        } else if (t < 0.45) {
+          const gustP = (t - 0.20) / 0.25;
+          const roll = gustP * (141.1 * Math.PI / 180);
+          scoutRover.rotation.x = roll;
+          scoutRover.position.y = gustP * 0.12;
+          scoutRover.position.z = gustP * 0.14;
+          windArrows[0].children[0].material.color.setHex(0xd29922);
+          valRoll.innerText = "+" + (roll * 180 / Math.PI).toFixed(1) + "°";
+          valHeight.innerText = (0.058 + gustP * 0.14).toFixed(3) + " m";
+          valForce.innerText = (85.0 + gustP * 35.0).toFixed(1) + " N";
+          valPhase.innerText = "GUST STRIKE / TOPPLING";
+          valPhase.style.color = "#d29922";
+          alertBox.style.display = "block";
+        } else if (t < 0.70) {
+          const arriveP = (t - 0.45) / 0.25;
+          scoutRover.rotation.x = 141.1 * Math.PI / 180;
+          scoutRover.position.set(0.82, 0.12, 0.14);
+          planterRover.position.x = 0.35 + arriveP * 0.28;
+          planterRover.boom.rotation.y = arriveP * 0.35;
+          valRoll.innerText = "+141.1° (TOPPLED)";
+          valHeight.innerText = "0.201 m";
+          valForce.innerText = "0.0 N (Gust passed)";
+          valPhase.innerText = "HELPER ADVANCING TO LEVER";
+          valPhase.style.color = "#58a6ff";
+          alertBox.style.display = "block";
+        } else if (t < 0.95) {
+          const rightP = (t - 0.70) / 0.25;
+          const roll = (1.0 - rightP) * (141.1 * Math.PI / 180);
+          scoutRover.rotation.x = roll;
+          scoutRover.position.y = 0.12 * (1.0 - rightP);
+          scoutRover.position.z = 0.14 * (1.0 - rightP);
+          planterRover.position.x = 0.63 - rightP * 0.08;
+          valRoll.innerText = "+" + (roll * 180 / Math.PI).toFixed(1) + "°";
+          valHeight.innerText = (0.058 + 0.14 * (1.0 - rightP)).toFixed(3) + " m";
+          valForce.innerText = "40.0 N (Restorative torque)";
+          valPhase.innerText = "COOPERATIVE SWARM RIGHTING";
+          valPhase.style.color = "#3fb950";
+          alertBox.style.display = "none";
+        } else {
+          scoutRover.rotation.x = 0;
+          scoutRover.position.set(0.82, 0, 0);
+          planterRover.position.set(0.55, 0, 0);
+          valRoll.innerText = "+0.0° (UPRIGHT)";
+          valHeight.innerText = "0.058 m";
+          valForce.innerText = "0.0 N";
+          valPhase.innerText = "RECOVERED / OPERATIONAL";
+          valPhase.style.color = "#3fb950";
+          alertBox.style.display = "none";
+        }
+      } else {
+        // Monsoon Mud Extraction Timeline
+        if (t < 0.25) {
+          const appP = t / 0.25;
+          scoutRover.position.set(0.82, 0, -0.015);
+          planterRover.position.set(0.40 + appP * 0.24, 0, 0);
+          valRoll.innerText = "0.0°";
+          valHeight.innerText = "0.043 m (SUNK IN MUD)";
+          valForce.innerText = "0.0 N";
+          valPhase.innerText = "RESCUER APPROACHING TRAP";
+          valPhase.style.color = "#d29922";
+          alertBox.style.display = "block";
+          alertBox.innerText = "⚠️ MUD IMMOBILIZATION DETECTED";
+        } else if (t < 0.50) {
+          planterRover.position.set(0.64, 0, 0);
+          planterRover.latch.material.color.setHex(0x3fb950);
+          planterRover.boom.position.z = 0.075;
+          scoutRover.position.z = -0.005;
+          valRoll.innerText = "0.0°";
+          valHeight.innerText = "0.052 m (PITCH-LIFTING)";
+          valForce.innerText = "63.0 N (RIGID LATCH ACTIVE)";
+          valPhase.innerText = "CAM-LATCH ENGAGED / PITCH-LIFT";
+          valPhase.style.color = "#3fb950";
+          alertBox.style.display = "none";
+        } else {
+          const towP = (t - 0.50) / 0.50;
+          const disp = towP * 0.208;
+          scoutRover.position.set(0.82 - disp, 0, 0);
+          planterRover.position.set(0.64 - disp, 0, 0);
+          valRoll.innerText = "0.0°";
+          valHeight.innerText = "0.058 m (GROUNDED)";
+          valForce.innerText = "42.5 N (TOW TENSION)";
+          valPhase.innerText = "TANDEM REVERSE EXTRACTION (-" + (disp * 1000).toFixed(0) + " mm)";
+          valPhase.style.color = "#58a6ff";
+          alertBox.style.display = "none";
+        }
+      }
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById('viewport');
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+  </script>
+</body>
+</html>

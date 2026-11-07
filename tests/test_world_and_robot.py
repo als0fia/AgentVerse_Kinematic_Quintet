@@ -18,6 +18,7 @@ from ricebot.robot import (
     build_rigid_docking_rescue_mjcf,
     build_rovers_and_seeds_xml,
     compute_4wheel_skid_steer,
+    detect_ramp_and_compute_visual_servo,
     export_robot_mjcf_assets,
     update_rigid_dock_latch,
 )
@@ -119,6 +120,11 @@ class RobotModuleTest(unittest.TestCase):
             self.assertIn(f'geom name="{rid}_cam_lens"', bodies_xml)
             self.assertIn(f'geom name="{rid}_hopper_outer"', bodies_xml)
             self.assertIn(f'geom name="{rid}_probe_boom"', bodies_xml)
+            self.assertIn(f'geom name="{rid}_battery_pack"', bodies_xml)
+            self.assertIn(f'geom name="{rid}_solar_deck"', bodies_xml)
+            self.assertIn(f'geom name="{rid}_compute_pack"', bodies_xml)
+            self.assertIn(f'geom name="{rid}_uwb_transceiver"', bodies_xml)
+            self.assertIn(f'geom name="{rid}_imu_board"', bodies_xml)
             self.assertIn(f'body name="{rid}_dock_boom"', bodies_xml)
             self.assertIn(f'body name="{rid}_latch_jaw"', bodies_xml)
             self.assertIn(f'site name="{rid}_front_dock_site"', bodies_xml)
@@ -184,6 +190,27 @@ class RobotModuleTest(unittest.TestCase):
         self.assertLess(final_victim_x, initial_victim_x - 0.08)
         self.assertLess(max_chassis_z, 0.075)
         self.assertLess(max_efc_force, 500.0)
+
+    def test_ego_camera_ramp_vision_detection_and_visual_servoing(self) -> None:
+        """Verify RGB-D ramp detection, bearing error extraction, and closed-loop visual servoing commands."""
+        import numpy as np
+
+        # Synthetic 120x160 RGB-D frame with an earthen ramp shifted to the left of image center (u in [20, 60])
+        rgb = np.full((120, 160, 3), 30, dtype=np.uint8)
+        rgb[40:105, 20:60, 0] = 210  # Warm terracotta/amber R
+        rgb[40:105, 20:60, 1] = 135  # G
+        rgb[40:105, 20:60, 2] = 45   # B
+        depth = np.full((120, 160), 1.2, dtype=np.float32)
+        for row in range(40, 105):
+            depth[row, 20:60] = 0.95 - 0.006 * (row - 40)
+
+        det = detect_ramp_and_compute_visual_servo(rgb, depth, current_pitch_rad=0.0, current_z_m=0.058)
+        self.assertTrue(det.detected)
+        self.assertGreater(det.pixel_count, 500)
+        self.assertLess(det.centroid_u_px, 80.0)
+        self.assertGreater(det.bearing_error_rad, 0.14)
+        self.assertGreater(det.steering_cmd_rad_s, 0.20)
+        self.assertEqual(det.phase, "ORIENTING_TO_RAMP")
 
     def test_export_standalone_mjcf_assets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
