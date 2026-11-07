@@ -43,6 +43,17 @@ class AgentProtocolDocsTests(unittest.TestCase):
         self.assertIn("human integrator", template)
         self.assertIn("critical failure", template)
 
+    def test_gemini_worker_is_scoped_and_separate_from_review(self):
+        worker = (ROOT / ".gemini/agents/scoped-implementer.md").read_text(encoding="utf-8")
+        reviewer = (ROOT / ".gemini/agents/independent-reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("name: scoped-implementer", worker)
+        self.assertIn("write_file", worker)
+        self.assertIn("run_shell_command", worker)
+        self.assertIn("Human-approved ASSIGN", worker)
+        self.assertNotIn("write_file", reviewer)
+        self.assertNotIn("run_shell_command", reviewer)
+        self.assertIn("Base commit", (ROOT / ".github/ISSUE_TEMPLATE/agent-task.md").read_text(encoding="utf-8"))
+
     def test_agent_handoff_skill_matches_claude_compatibility_mirror(self):
         source = ROOT / ".agents/skills/parallel-handoff/SKILL.md"
         mirror = ROOT / ".claude/skills/parallel-handoff/SKILL.md"

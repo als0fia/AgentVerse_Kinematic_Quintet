@@ -81,6 +81,19 @@ If branches conflict: integration lead preserves both contributors' intended beh
 
 **Coordination authority:** the human integrator chooses scope, owns approvals and merges. ChatGPT can act as an *active architect/programmer/reviewer* in its connected GitHub session, not as an always-running boss. A Gemini CLI worker must be explicitly started by a teammate or a separately authorised automation. **No current connector here can directly invoke a teammate's Gemini CLI session.** GitHub issue/PR comments are asynchronous evidence exchanges, not synchronous remote procedure calls.
 
+**CLI entrypoint when team member starts Gemini:** use the optional [scoped implementer](../.gemini/agents/scoped-implementer.md) only in that worker's own branch/worktree, e.g. `@scoped-implementer Implement the assigned sensor adapter using contract observation.v1; limit changes to src/sensors/ and tests/sensors/; run the specified fixture and return a handoff.` Confirm local availability with `/agents list`, `/skills list`, and `/tools`; if a pinned model is unavailable, the **human** must choose a supported option. The [independent reviewer](../.gemini/agents/independent-reviewer.md) stays read-only and should be invoked on a separate review pass. These definitions are not spawned automatically.
+
+**Example per-worker Git worktree (local machine, from a clean repo; replace placeholders):**
+```bash
+git fetch origin
+git worktree add -b feature/my-assigned-module ../kv-my-assigned-module origin/main
+cd ../kv-my-assigned-module
+gemini
+# In the CLI: /memory show, /skills list, /agents list, /tools
+# Paste the human-approved ASSIGN; optionally invoke @scoped-implementer
+```
+Do **not** run two writable agents inside the same checkout; if main lacks a needed contract, the human integrator merges the prerequisite first or supplies an explicit compatible base commit. A GitHub issue may be created with the optional [agent task template](../.github/ISSUE_TEMPLATE/agent-task.md) when several workers need a durable assignment.
+
 **Default no-orchestrator path:** if a single developer can deliver the vertical slice, do that. Parallelise only after a runnable seam has been established and two tasks can change non-overlapping files. Do not split a tightly coupled perception/control integration into multiple concurrent writers before the interface is tested.
 
 | Stage | Sender → receiver | Minimum message and action | Stop / escalation |
