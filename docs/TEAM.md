@@ -22,7 +22,7 @@ For substantial new feature components require the small module README, actual t
 
 **Every substantial PR states what ran locally versus what did not:** exact commands and observed pass/fail output, host/OS and Isaac Sim version/GPU where applicable, tested commit/seed, a trace and a screenshot/short clip when physical behaviour is claimed, plus known failures, limitations and dependency changes. Link the evidence rather than committing bulky video/assets or secrets. Documentation-only and small pure-logic PRs do **not** need an Isaac video; mark the real robot test **not run/not applicable**. A green CI job is additional evidence, **not** a substitute for physical movement, sampled sensors or observed seed contact.
 
-**Priority for the weekend:** physically moving rover → real sampled sensor → **real simulated seed drop/landing** first. Other humans may develop the measured soil map, scout, route planner and evaluator in parallel **against the already owned contract/fixtures**, but do not let map polish, LLM orchestration, recovery, flood mitigation or slides delay the first working seed placement. Then integrate the full **sense → share → choose → route → plant → verify** micro-scene and mid-episode change.
+**Priority for the weekend:** implement **one complete MuJoCo rescue-first episode**, not another planting subsystem: observed fault and sensor-health check → validated risk/abstain decision → typed bounded rigid dock/latch skill → independently checked victim displacement, rescuer safety and resumed local fieldwork. Retain tested seed/soil/planting and Policy B gossip as existing foundation. No new simulator, winch or distributed model shards are required for P0.
 
 **ChatGPT's current role:** advice, research, read-only code/PR audits, identifying contract/test gaps and scoped documentation maintenance. **Do not have this connected ChatGPT session push application code or make integration edits by default**; local human-directed coding agents implement/test/push features. Application-code writes need a fresh explicit user request. Documentation updates are permitted when asked, should be narrow and coordinated with active branches, and must not claim local tests or authorise final submission. The human team—not any model—owns merge, deployment, spending and submission decisions.
 
@@ -86,13 +86,13 @@ If branches conflict: integration lead preserves both contributors' intended beh
 
 ## First implementation / agent allocation (after core contract branch)
 
-The first pure-Python `rice.v1` core is now present in `src/ricebot/`. **One human integrator** reviews/owns the shared types and composition. We recommend **Gemini 4 Argon on the actual Isaac Sim workstation** as the *next implementation agent* for rover articulation, range sensing and physical seed release: its ability to inspect installed Isaac SDK and GPU errors is more important than its model label. This ChatGPT (GPT-6) can handle GitHub-wide contract review/integration and focused changes, but does not operate a teammate's local Gemini session.
+The first pure-Python `rice.v1` core and MuJoCo rover/seed simulation are already merged. **One human integrator** owns the shared types/runner; the existing rigid docking mechanics owner retains robot geometry. The next agent assignment is a MuJoCo *rescue skill integration*, not a new Isaac/planting-first skeleton. Keep other workstreams on narrow fixtures.
 
 **Five human-owned workstreams** remain: (1) integrator/shared code + merge; (2) robot mechanics and hopper/seed contact in Isaac; (3) field/soil sensor proxies and physically moving scout; (4) measured map, site scoring and route/task decisions; (5) independent evaluator, baseline, read-only UI and continuous video. Use **one narrowly scoped agent task per owner at a time**, never five agents independently rewriting the architecture. Human robot owner must approve physical mechanism.
 
 **One additional ChatGPT Plus account** can be useful for an **independent reviewing/testing session**, checking leakage of hidden soil, bogus seed-contact claims, and edge cases, rather than creating a sixth owner of shared code. Other Plus sessions and Gemini runs are not automatically connected or launched by GitHub; each human supplies current `main` SHA, exclusive paths, test and observable outcome.
 
-**Time/complexity budget:** 3–6 sites, two simple chassis, one real seed contact, a shared map altered by distinct local samples and one surprise. If Isaac hardware cannot run, report blocker to human before choosing alternative; do not build an enormous simulated farm.
+**Time/complexity budget:** two rovers, one tiny existing MuJoCo rice plot, one physically detected fault, a conservative rescue-or-abstain decision, one already modelled rigid extraction and one resumed sensing/planting event. Test and report limitations before extra worlds, comprehensive rice physics, new hardware, LLM sharding or further UI work.
 
 ## Selected rice project: five-human work split (proposed, not yet assigned by name)
 
@@ -122,7 +122,7 @@ The first pure-Python `rice.v1` core is now present in `src/ricebot/`. **One hum
 
 **A good human request:** “Implement an Isaac Sim hopper releasing one rigid-body seed from `planter-1` at `site-3`; touch only robot/dropper and its tests; prove actual release/contact in a logged physics run, refuse unreachable target, and document installed Isaac version.” Another: “Fuse 2 local soil-probe samples into a 4×4 grid with explicit confidence and source IDs; test missing data and two conflicting sensors; do not query simulator ground truth.”
 
-**First coding agent prompt is recorded in [RUN](RUN.md#next-agent-first-integration-task--isaac-sim-planting-first-skeleton-not-yet-implemented).** It may return a **partial** PR with real diagnostics if the GPU cannot run Isaac. A teammate must not claim mission completion until the real seed placement works in physics and results are graded.
+**Historical Isaac planting-first coding prompt** remains in [RUN](RUN.md#next-agent-first-integration-task--isaac-sim-planting-first-skeleton-not-yet-implemented) for provenance only; **do not dispatch it as current work**. The current MuJoCo rescue task is in [RUN's recovery gate](RUN.md#recovery-integration-gate-separate-from-existing-mujoco-mechanical-test). A teammate's partial PR must report actual diagnostics and never imply a passed physical rescue when only the scripted latch test ran.
 
 ## Model and context routing for human-led coding (not robot app architecture)
 
