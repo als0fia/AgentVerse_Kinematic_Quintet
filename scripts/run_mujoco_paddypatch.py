@@ -511,7 +511,25 @@ def main() -> int:
     parser.add_argument("--viewer-seconds", type=float, default=0.0, help="Launch interactive 3D MuJoCo viewer for N seconds")
     parser.add_argument("--compare-policies", action="store_true", help="Run the Policy A vs Policy B evaluation matrix")
     parser.add_argument("--export-dashboard", type=str, default=None, help="Export interactive top-down HTML belief & terramechanics dashboard to path")
+    parser.add_argument(
+        "--dashboard",
+        "--gui",
+        action="store_true",
+        dest="dashboard",
+        help="Launch native side-by-side 3D MuJoCo + 2D Top-Down Belief Heatmap desktop window",
+    )
     args = parser.parse_args()
+
+    if args.dashboard:
+        from ricebot.viewer import launch_live_dashboard
+
+        launch_live_dashboard(
+            scenario=args.scenario,
+            comms=args.comms,
+            seed=args.seed,
+            auto_play=True,
+        )
+        return 0
 
     if args.export_dashboard:
         out = export_multi_scenario_dashboard(args.export_dashboard, seed=args.seed)
