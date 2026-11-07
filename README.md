@@ -1,16 +1,22 @@
 # The Kinematic Quintet — AgentVerse 2026
 
-**State:** Repository engineering foundation only. The Robotics challenge, team solution, runtime stack, hardware, and working demo are **not yet selected or implemented**. Do not describe this as a functioning submission.
+**State:** **Robotics challenge and deliverables now captured** in [event constraints](docs/EVENT.md): build an agent that perceives via simulated sensor(s), decides from observations, and acts in a changing simulated world. The team solution, simulator/runtime, hardware/credits and working demo are **not yet selected, validated or implemented**. Do not describe this as a functioning submission.
 
 **Event:** UCL AI Society AgentVerse, 7–8 November 2026, Europe/London. The [official timetable](https://agentverse.uclai.co.uk/) lists the track reveal at **Saturday 12:30**, final submissions **Sunday 14:00**, and judging **Sunday 15:00–16:00**. Verify changes in the actual participant portal; official challenge details supersede these notes.
 
 ## Start here
 
-1. **Humans and coding agents:** follow [AGENTS.md](AGENTS.md), with [team coordination](docs/TEAM.md) when collaborating. Claude Code imports it through [CLAUDE.md](CLAUDE.md), Gemini CLI through [GEMINI.md](GEMINI.md), and Codex reads it natively.
-2. **Challenge revealed?** Update [event constraints](docs/EVENT.md) and choose the [product/mission](docs/PRODUCT.md) with the team. No proposal becomes the chosen project by implication.
+1. **Humans and coding agents:** follow [AGENTS.md](AGENTS.md) and [team coordination/model routing](docs/TEAM.md). **Gemini CLI is the primary development route** through [GEMINI.md](GEMINI.md), with isolated optional project subagents. Codex remains optional; legacy Claude files are preserved without being the default.
+2. **Challenge and resources:** Read [Robotics organiser slides 35–38 captured in EVENT](docs/EVENT.md). Before choosing the [product mission](docs/PRODUCT.md), verify access to a simulator and stream ([RUN](docs/RUN.md)); then build the smallest real **simulated sensor → decision → action → changed-scene recovery** episode ([TESTING](docs/TESTING.md)). The full five-category scoring is now recorded from a clearer organiser-slide photo; credits remain unverified.
 3. **Before parallel coding:** agree the smallest shared interface needed for a runnable end-to-end path in [architecture](docs/ARCHITECTURE.md) and [contracts](docs/CONTRACTS.md). Divide **independent** modules by branch/owner (an issue, PR or short message suffices).
 4. **Build:** implement a smallest complete user-visible journey, then expand with tests and real [evaluation](docs/TESTING.md).
-5. **Demonstrate:** follow [demo and submission](docs/DEMO.md), verify all claims and keep adequate buffer before the real portal deadline.
+5. **Deliver:** follow [the actual Robotics submission brief](docs/DEMO.md): one-page technical PDF, **≤1-minute continuous** simulation video showing perception beside actions and one unexpected scene change, plus a **five-minute pitch if shortlisted**. Keep a buffer before the real portal deadline.
+
+## Hard constraint from the revealed challenge
+
+**The coding-agent workflow and the robot's autonomy are separate systems.** Gemini can help develop/test the entry, but judges want core simulated decisions to respond to real simulated sensors, re-plan when the scene changes, and avoid being dependent on cloud LLM calls at every step. NVIDIA Isaac Sim/Modal streaming is **optional** and separate from policy placement. The presenter explicitly allowed MuJoCo/PyBullet/Gazebo/Webots as alternatives. Simulator/stream readiness comes before fancy agent orchestration.
+
+**Judging (clearer onsite slide):** perception-driven action **25%**, adaptation to change **25%**, relevance/impact **20%**, operational autonomy **15%**, ambition/technical quality **15%**. The previous partial-obscuration caveat was resolved by an additional first-party organiser-slide photograph.
 
 ## Foundation commands
 
@@ -39,15 +45,17 @@ The fixture comparison is **synthetic tooling data, not product performance**. O
 | [DEMO](docs/DEMO.md) | Live run, fallback, judge evidence and submission gate |
 | [PROVENANCE](docs/PROVENANCE.md) | Attribution, pre-existing work, AI assistance, licensing and claims |
 | [DECISIONS](docs/DECISIONS.md) | Architecture/engineering decisions and trade-offs |
-| [RESEARCH](docs/RESEARCH.md) | Source-checked engineering/workflow and relevant prior-art references |
+| [RESEARCH](docs/RESEARCH.md) | Source-checked simulator requirements, workflow/agent-skill evaluation and relevant prior art |
 
 Use GitHub Issues for substantial tasks, PRs for reviewed integration and source/tests as the proof. **No ticket is needed for a five-minute fix.** When multiple agents work at once, follow [the short GitHub and human-prompting guide](docs/TEAM.md#practical-parallel-work-without-ceremony), not shadow task lists or dated session logs. The private hackathon management workflow is separate from this public team code repository.
 
-## Multi-model coding agents
+## Gemini-first agent development
 
-The six full workflow skills have one canonical source in `.agents/skills/` for Codex and Gemini CLI; `.claude/skills/` contains **byte-identical complete** Claude Code mirrors (not fragile shortcut wrappers). A deterministic parity check in CI prevents drift. Edit the canonical skill then run `python scripts/sync_skills.py --write`. Claude-native `.claude/agents/` subagents remain untouched. Human role/branch/handoff rules are shared in [TEAM](docs/TEAM.md).
+**Avoid one massive context or one shared agent transcript.** Use Gemini 4 Argon, if accessible, for deep cross-component planning and synthesis; reserve 3.8 Flash for bounded research/review with only relevant files and limited tools. A read-only [independent reviewer](.gemini/agents/independent-reviewer.md) is configured for Gemini CLI but **has not been locally run or validated**. The [team protocol](docs/TEAM.md) defines escalation, context packets, branch ownership, issue/PR-based conversations and human integration. These are **development agent preferences**, not a mandate for the selected robotics product.
 
-Codex: inspect the root `AGENTS.md` and use skills from `.agents/skills/`. Claude Code: use `CLAUDE.md`, its native `.claude/skills/` and optional `.claude/agents/`. Gemini CLI: use `GEMINI.md`, confirm `/memory show`, `/skills list`, and trust the repository if prompted. For web-only ChatGPT/Gemini/Claude, native discovery is not guaranteed: explicitly read the relevant repo files. None of these conventions automatically launches concurrent agents.
+The seven neutral workflow skills (including `embodied-loop`) live in `.agents/skills/`. Gemini CLI consumes them on demand; `/memory show`, `/skills list` and `/agents list` should be checked on the actual machine. Existing Claude-native files and complete skill mirrors are **legacy compatibility retained for the moment**; the existing CI parity check still expects them. Do not delete them or rely on their maintenance for a new workflow. Hosted chats must read repo content explicitly; no instruction file automatically launches worker agents, remote A2A services or live coordination.
+
+**Team communication:** GitHub issue comments for genuine cross-worker tasks and blockers, PRs for reviews, and one integrator coordinating merges. No additional message-server deployment or giant Markdown conversation folders. The repo is public; do not put private chats or credentials in its issue/PR threads. Actual model entitlement, API keys, limits, SDK invocation and grant credits remain to be verified.
 
 ## Working agreement
 

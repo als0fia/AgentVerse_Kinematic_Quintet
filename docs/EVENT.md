@@ -12,18 +12,47 @@
 | Submission | Sunday **14:00** | Organiser timetable and participant dashboard; **hard planning gate**, verify portal |
 | Judging | Sunday **15:00–16:00** | Organiser timetable |
 | Team size | Organiser site says **3–5** | Check actual portal and any contradictory listing |
-| Robotics track brief | **Not yet captured** | Do not assume theme or required hardware |
-| Hardware/sim/credits | **Not verified** | Ask at reveal / official resources |
+| Robotics theme (onsite slide) | **Embodied AI — “Turn perception into safe physical action.”** | Organiser presentation photographed by attendee on 7 Nov 2026. This is a track direction, **not** the exact scored challenge prompt or proof of mandated architecture |
+| Examples on Robotics slide | “3D drone fleets & assistive wearables”; “MuJoCo twins or offline Gemma 4”; caption “NVIDIA & UCL Robotics” | Illustrative slide examples and named collaborators, **not** evidence of supplied drones, wearables, simulator instances, GPUs, model access or credits |
+| Model/tool slide | “Gemini 4 Argon” (deep reasoning); “3.8 Flash + Gemma 4” (speed/offline); “3.8 Live + Speech” (vision/voice); “Banana · Lyria · Veo” (media) | Organiser slide photographed 7 Nov. **Gemini 4 Argon and Gemma 4 are distinct labels.** These are presentations, not verified entitlements, installed packages or tested model IDs |
+| Simulation requirement | **Simulated embodied agent** with at least one simulated sensor, a decision made from current sensed state, and an observable action; not just a pre-scripted route | **Robotics track organiser slide 35**, attendee photo 7 Nov 2026; exact sensor type and solution unrestricted in captured slide |
+| Simulator choices | **NVIDIA Isaac Sim recommended**; MuJoCo, PyBullet, Gazebo or Webots named as alternatives | **Robotics slide 36**; not proof of provision/availability; Isaac Sim remote WebRTC requires compatible GPU and NVENC |
+| Modal credits/GPU | **Promised verbally, not provisioned or verified** | Presenter STT refers to GPU/streaming and offered example GitHub setup; exact GPU model obscured by transcription; check booth/account before committing |
+| Hardware/sim/credits | **No team instance/account/credit receipt verified** | Requires member preflight; local MuJoCo or equivalent is legitimate fallback |
 | Prior work, AI, IP, submission fields | **Not verified** | Obtain actual written event-specific rules |
 
 ## Challenge capture (fill only from verified reveal)
 
-- **Exact official brief/link:** not captured
-- **Judging rubric + sponsor eligibility:** not captured
-- **Mandatory technical constraints and resources:** not captured
-- **Demo/video/repository/format requirements:** not captured
+- **Observed Robotics challenge statement:** “Give an agent a body.” Build an embodied agent that perceives a simulated world, reasons from sensed observations and acts autonomously. **Slides 35–38**, user-shared organiser photos on 7 Nov 2026; written official portal PDF/link not yet captured.
+- **Judging:** a later, clearer attendee photograph of the organiser's “How you'll be judged” slide (7 Nov) resolves the original glare: **perception-driven action 25%**, **adaptation to change 25%**, **operational autonomy 15%**, **relevance and impact 20%**, **ambition and technical quality 15%** (100% total). Relevance requires a well-evidenced real human need with the most critical failure visibly handled. This supersedes earlier uncertainty; the original photographs remain outside this public repo. Presenter says remote calls for every decision reduce autonomy; remotely hosted simulation is distinct from a remotely dependent policy. Sponsor prize eligibility remains unconfirmed.
+- **Technical constraints/resources:** at least one simulated sensor, observable action (navigation/movement/manipulation/communication), autonomous reaction to sensed state, and demonstrated recovery when a scene changes. Recommended Isaac Sim + headless streaming; others listed above. Actual Modal GPU credits, sensor feed, available GPU and model endpoints are *not* validated.
+- **Deliverables (slide 37):** (1) **one-page PDF technical summary** with beneficiary/problem, features, architecture, model placements, hardware/latency, limitations and safety; (2) **≤1-minute video from simulation stream** showing perception and actions side-by-side and an unexpected change in a **single continuous take**; (3) **five-minute live pitch only if shortlisted**. Portal submission fields, upload formats and link requirements still unverified.
 - **Allowed reuse, licences and AI disclosure:** not captured
-- **Observation time and source:** pending
+- **Observation time and source:** 7 Nov 2026, initial DeepMind introduction slides plus newer **Robotics-specific organiser slides 35–38** and attendee-provided presenter STT. The Robotics-specific later material supersedes earlier broad examples where narrower. Written brief link still pending. Model slide also mentions a claimed 1M window / Antigravity sandbox for Gemini 4 Argon, Gemma 4 E2B/E4B offline, and a reasoning-effort dial. Treat these as **slide claims only**, not verified technical access or implementation decisions
 - **Conflicts or interpretations for organiser clarification:** none recorded
+
+## Implementation implications from Robotics-specific official reveal
+
+**Perceive → decide → act, with feedback and variation.** The agent must consume **at least one sensor measured from the simulated world** and produce a grounded action that affects the next world state. Require visible changes in inputs and actions when an obstacle, goal, equipment state or scene condition changes. A prerecorded trajectory, fixed sequence, or UI narration without an actual closed loop is not a passing demo.
+
+**Autonomy is a behaviour, not a model brand.** Keep short-horizon action selection and safety checks inside the simulation/robot runtime where practical; benchmark an offline/network-loss condition rather than assuming cloud AI. A high-level LLM can help plan/diagnose if justified, but remote inference on every actuation tick is risky for latency, reliability and the rubric. **Remote GPU simulation/streaming is a separate issue from remote agent decision-making.**
+
+**NVIDIA caveats independently verified:** [Isaac Sim requirements](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html) are demanding and [WebRTC livestream docs](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/manual_livestream_clients.html) require NVENC, with a warning against insecure public stream exposure. [MuJoCo Python](https://mujoco.readthedocs.io/en/stable/python.html) is a documented alternative for a lighter local test loop. The presenter's vague GPU model in STT, the example GitHub launcher, issued Modal credits and live endpoint permissions remain unverified.
+
+**Engineering checklist:** a reproducible scene/seed; instrumented sensor; inspectable decision/log; action with bounds; mid-episode disturbance; behaviour change; objectively scored outcome; contrasted baseline; visible video capture; complete summary/pitch. No selected product, simulator, installed models, tests or credits are implied merely by this checklist. Official portal remains final authority for submission mechanics.
+
+## DeepMind onsite technical guidance (attendee photographs, 7 November)
+
+The Google DeepMind presenter showed three **optional** starting routes, not mandatory submission scaffolds:
+
+- **AI Studio Build:** https://aistudio.google.com/build — prototype UI, shader/3D elements and Gemini calls; sample model string `gemini-4-argon`.
+- **AI Studio Live:** https://aistudio.google.com/live — webcam/voice and low-latency multimodal tests; example strings `gemini-3.8-live`, `gemini-3.8-flash-tts` and `nano-banana-2.1`. These **slide strings** have not all been confirmed as currently available API identifiers.
+- **Antigravity + Skills:** suggested IDE/CLI tools and the command `npx skills add google-gemini/gemini-skills`. **Do not run fetched scripts or install tools just because they appeared on a slide**; inspect the source, version, licences and execution effects first.
+
+The slide encouraged collecting any onsite credits from the DeepMind booth; the **amount, applicability, account permissions and billing consequences remain unverified**. It also presented a **“Best Use of Gemini” named prize** and described combining modalities, a genuine working reasoning/proof loop, and an experience beyond a plain chat box. This is **presenter guidance and claimed award framing**, not the complete official scoring rubric or a rule that every project must use several models.
+
+The presenter offered examples of recent London projects and described an internal audit of “200+” previous Gemini hackathon repositories. Treat these as **presenter-reported examples**, not independently verified competition results, safety proofs or measured performance.
+
+**Externally checked model/API facts (7 Nov):** Google documents Gemini 4 Argon model ID `gemini-4-argon`, the Interactions API and reasoning levels LOW / MEDIUM / HIGH. See [Google's model guide](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-4-argon) and [Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview). That verifies API documentation, **not our team account's entitlement**. Automatic implicit caching exists but “95% cached” is **not a guaranteed rate**. For use as software-engineering assistants, see [team model routing](TEAM.md); for the actual presentation, see [demo guidance](DEMO.md).
 
 Do not paste confidential screenshots, participant emails, Discord transcripts or access tokens. Summarise only team-authorised constraints and source provenance.

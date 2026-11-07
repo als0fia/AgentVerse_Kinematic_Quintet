@@ -11,7 +11,8 @@ from scripts.sync_skills import EXPECTED_SKILLS, find_skill_errors
 class InteropTests(unittest.TestCase):
     def test_both_native_skill_trees_are_identical(self):
         self.assertEqual(find_skill_errors(ROOT), [])
-        self.assertEqual(len(EXPECTED_SKILLS), 6)
+        self.assertEqual(len(EXPECTED_SKILLS), 7)
+        self.assertIn('embodied-loop', EXPECTED_SKILLS)
 
     def test_entrypoints_import_the_canonical_instructions(self):
         claude = (ROOT / 'CLAUDE.md').read_text(encoding='utf-8')

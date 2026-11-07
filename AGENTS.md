@@ -7,7 +7,23 @@ The repo is public. It contains **shared submission engineering**, not personal 
 1. Follow this file as the single repository-wide instruction contract. Use `README.md` for orientation; inspect the current working tree/branch and relevant diffs, issues and PRs before changing code.
 2. For project selection or a changed brief, use `docs/EVENT.md` and `docs/PRODUCT.md`; for parallel work use `docs/TEAM.md`. If the challenge or project is unresolved, work only on reusable infrastructure or explicitly requested research.
 3. For interface/runtime changes, use `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md`, `docs/RUN.md` and relevant tests. For evaluation/demo use `docs/TESTING.md` / `docs/DEMO.md`. For tiny fixes, do not read unrelated documents.
-4. Load the **matching** `.agents/skills/<skill>/SKILL.md` when its workflow applies. Claude Code discovers the byte-identical `.agents/skills/` mirror. Skills do not grant extra tools or authority.
+4. Load only the **matching** `.agents/skills/<skill>/SKILL.md` when its workflow applies; do not inject all skills, histories and tool outputs into every prompt. Gemini CLI loads task skills on demand. Skills do not grant extra tools or authority.
+
+## AgentVerse Robotics judge-alignment gate (event-specific)
+
+**Before selecting a project, changing the embodied system, declaring a feature complete, or preparing a judge-facing claim**, read the organiser-derived [challenge and scoring evidence](docs/EVENT.md), then use [testing](docs/TESTING.md) and [demo requirements](docs/DEMO.md) for the applicable task. A reviewer/evaluator must challenge any unsupported claim; a developer must not substitute the appearance of an agent for behaviour in simulation.
+
+Every candidate and its acceptance tests must address these five **onsite organiser judging dimensions**:
+
+1. **Perception-driven action (25%):** at least one *real simulated sensor* informs the agent's decision, and that decision causes a meaningful action in the simulated world. No fixed-path animation, privileged-state shortcut disguised as perception, or static chat wrapper.
+2. **Adaptation to change (25%):** introduce an unexpected **mid-episode** change, observe it through permitted sensors and demonstrate changed behaviour, recovery or justified safe stop—not a separate hand-scripted second trajectory.
+3. **Operational autonomy (15%):** keep critical short-horizon decisions on-device/inside the simulator runtime where feasible, measure model calls and latency, and handle loss of any remote reasoning service honestly. A cloud-hosted *simulator* is distinct from a remotely dependent *control policy*.
+4. **Relevance and impact (20%):** show evidence of a real beneficiary, a useful outcome and the **most critical failure visibly handled**; compare one credible non-agent baseline and show reproducible evidence.
+5. **Ambition and technical quality (15%):** deliver an original, genuinely demanding behaviour at high technical quality, not a superficial tutorial or model-brand wrapper.
+
+**Scoring provenance:** a clearer attendee photograph of the organiser's 7 Nov judging slide resolves the originally obscured labels: **perception 25%, adaptation 25%, autonomy 15%, relevance/impact 20%, ambition/technical quality 15%**. The private source image is not copied here. **Submission gate:** prepare the organiser's **one-page technical PDF**, **≤60-second single continuous simulation recording** with perception and action visible plus a mid-run disturbance, and **five-minute pitch only if shortlisted**. Verify exact portal fields and actual deadline before submission.
+
+When scope is cut, maintain a demonstrable sensor → decision → action loop and measurable disturbance response ahead of optional media, multi-agent orchestration and marketing polish. Do not claim that CI/unit checks alone demonstrate any of these judge criteria. These constraints apply **only to this AgentVerse Robotics entry** and do not override the team-selected solution or unverified sponsor rules.
 
 ## Order of work
 
@@ -48,13 +64,16 @@ The repo is public. It contains **shared submission engineering**, not personal 
 | Diagnose bug | `.agents/skills/root-cause-debug/SKILL.md` |
 | Coordinate parallel agents | `.agents/skills/parallel-handoff/SKILL.md` + `docs/TEAM.md` |
 | Compare evidence | `.agents/skills/evaluate-and-demo/SKILL.md` + `docs/TESTING.md` |
+| Get a real simulated sensor/action loop working | `.agents/skills/embodied-loop/SKILL.md` + `docs/EVENT.md` and `docs/RUN.md` |
 
-## Model-agnostic entrypoints and skill parity
+## Gemini-first entrypoints and scoped delegation
 
-- `AGENTS.md` is authoritative for every human and coding agent. Claude Code imports it through `CLAUDE.md`; Gemini CLI through `GEMINI.md`; Codex reads it natively. Do not add another competing team rulebook.
-- The **canonical** six skills live in `.agents/skills/`, the **full-content Claude-compatible mirror** in `.claude/skills/`. Edit only `.agents/skills/` and run `python scripts/sync_skills.py --write` before committing. The consistency check rejects missing, extra or altered mirrors. Never replace Claude's complete skills with a weaker link-only wrapper.
-- Claude-native `.claude/agents/` remains available. The reusable responsibility/branch/contract/handoff model in `docs/TEAM.md` applies to Codex, Gemini, other assistants and humans without implying a common subagent API.
-- Chat-based agents without workspace-native discovery must read this document and applicable skill explicitly. No file naming convention grants remote execution, filesystem access or GitHub write permission.
-- The coordination rules are **guardrails, not an orchestration framework**: do not require a design review, ticket, rigid handoff fields or parallel agents for a trivial change. Only share and freeze an interface where independent modules actually depend on it.
+- **Primary:** Gemini CLI imports `AGENTS.md` through `GEMINI.md`. The seven canonical on-demand skills (including `embodied-loop`) live in `.agents/skills/`; optional specialised Gemini subagents are under `.gemini/agents/`. Run `/memory show`, `/skills list`, `/agents list` to verify actual discovery when locally installed. No file automatically starts a worker.
+- **Model/context routing:** follow [team coordination](docs/TEAM.md). Prefer Gemini 4 Argon for complex cross-module reasoning and Gemini 3.8 Flash for bounded specialist work, *if the team has access*. Supply the smallest relevant files, latest commit, interface and test fixture, not every chat or full repo. Use measured results, not marketing cache-hit guarantees.
+- **Coordination:** GitHub issue/PR threads and owned branches/worktrees are the default shared interface. No automatic live agent messenger or global inbox. Human integrator approves priorities and merging, and each AI run must be invoked explicitly.
+- **Other tooling:** Codex may follow the same neutral source `AGENTS.md` and skills. Claude-native entrypoints, agents and full skill mirrors are **retained as legacy compatibility only**, not the preferred route; existing CI currently checks their parity. Do not delete them or change shared CI without reconciling the team. Any assistant without workspace-native discovery must read relevant files explicitly.
+- Do not impose multi-agent ceremony on tiny solo changes. Create independent subagents only when a bounded task actually benefits; Gemini CLI subagents do not recursively delegate.
+
+The role/routing guidance above is for **developer agents**, not a commitment to use a particular model inside the eventual robotics product.
 
 The existence of an agent file or automation does **not** mean any assistant has access to multiple runtimes, is executing in background, or has passed a test.
