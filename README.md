@@ -70,6 +70,8 @@ The fixture comparison is **synthetic tooling data, not product performance**. O
 | [PROVENANCE](docs/PROVENANCE.md) | Attribution, pre-existing work, AI assistance, licensing and claims |
 | [DECISIONS](docs/DECISIONS.md) | Architecture/engineering decisions and trade-offs |
 | [RESEARCH](docs/RESEARCH.md) | Source-checked simulator requirements, workflow/agent-skill evaluation and relevant prior art |
+| [ANTENNA_RF_SUBSYSTEM](docs/ANTENNA_RF_SUBSYSTEM.md) | Dual-Antenna UWB (Qorvo DWM3000), Wi-Fi HaLow/ESP-NOW, IMU, mmWave radar, tether strain gauge and row-tracking sensor fusion |
+| [COMMERCIALIZATION_CHINA](docs/COMMERCIALIZATION_CHINA.md) | Commercial rice robotics comparison matrix, MARA Southern China market gap stats and commercialization criteria |
 
 Use GitHub Issues for substantial tasks, PRs for reviewed integration and source/tests as the proof. **No ticket is needed for a five-minute fix.** When multiple agents work at once, follow [the short GitHub and human-prompting guide](docs/TEAM.md#practical-parallel-work-without-ceremony), not shadow task lists or dated session logs. The private hackathon management workflow is separate from this public team code repository.
 

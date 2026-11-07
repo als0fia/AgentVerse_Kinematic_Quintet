@@ -73,3 +73,8 @@ Develop the 3–6-site world against a *physically actuated* mock rover if the d
 
 The product fails its core claim if no seed physically contacts a legitimate planting patch, if map values come from hidden truth instead of measured rover samples, if second rover has no distinct contribution, if a changed route triggers a scripted scene swap, or if apparent success is an unverified UI animation. One self-contained actual runnable episode with *physical seed placement and task-driven replanning* matters more than additional agents.
 
+## Antenna & RF Subsystem Sensor Fusion (Target Embodied Hardware Specification)
+
+See [ANTENNA_RF_SUBSYSTEM](ANTENNA_RF_SUBSYSTEM.md) for the complete breakdown of how the **Antenna** RF subsystem (dual Qorvo DWM3000 UWB transceivers + Sub-1GHz Wi-Fi HaLow / ESP-NOW antenna) fuses with the sensory suite (9-DOF IMU/AHRS ICM-42688-P + MMC5983MA, Infineon BGT60TR13C mmWave Doppler radar, INA240 tow hitch strain gauge, and VL53L8CX ToF + whiskers across the STM32H7 @ 200 Hz and RPi 5 / Jetson Orin Nano compute split). *(Target hardware specification; distinct from the current `rice.v1` simulation kernel).*
+
+
