@@ -19,18 +19,24 @@ REQUIRED = [
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
 
 
+def _ignored(path: Path, root: Path) -> bool:
+    rel_parts = path.relative_to(root).parts
+    return any(p in {".venv", "venv", ".git", "__pycache__"} for p in rel_parts)
+
+
 def find_errors(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     for path in REQUIRED:
         if not (root / path).is_file():
             errors.append(f"missing: {path}")
-    for path in sorted(root.rglob("SKILL.md")):
+    skill_files = [p for p in sorted(root.rglob("SKILL.md")) if not _ignored(p, root)]
+    for path in skill_files:
         content = path.read_text(encoding="utf-8")
         if not content.startswith("---\n") or not re.search(r"(?m)^name: [a-z][a-z0-9-]+$", content) or not re.search(r"(?m)^description: .{20,}$", content):
             errors.append(f"invalid skill frontmatter: {path.relative_to(root)}")
         if not content.count("\n---\n"):
             errors.append(f"unclosed skill frontmatter: {path.relative_to(root)}")
-    if not list(root.rglob("SKILL.md")):
+    if not skill_files:
         errors.append("no task-scoped skills")
     schema_path = root / "schemas/episode.schema.json"
     if schema_path.is_file():
@@ -41,6 +47,8 @@ def find_errors(root: Path = ROOT) -> list[str]:
         except ValueError as exc:
             errors.append(f"invalid episode schema JSON: {exc}")
     for md in sorted(root.rglob("*.md")):
+        if _ignored(md, root):
+            continue
         for match in LINK.finditer(md.read_text(encoding="utf-8")):
             href = match.group(1).strip().split(" ", 1)[0].strip("<>")
             path_part = unquote(href.split("#", 1)[0].split("?", 1)[0])
