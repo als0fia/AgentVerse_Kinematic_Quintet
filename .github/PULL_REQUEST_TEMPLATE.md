@@ -10,12 +10,13 @@
 - Integration dependencies / rollout:
 - Existing teammate changes preserved:
 
-## Verification and evidence
-- Exact commands **actually run** + observed result (or explicitly not run):
-- Input/output fixture, sensor/action trace or reproduction:
-- Real end-to-end result versus unit-only / synthetic checks:
-- Same-seed baseline and surprise-case result (if product-facing):
-- Unverified assumptions, risk and rollback plan:
+## Local verification and evidence
+- Local host/environment (OS, Isaac Sim version, GPU/VRAM **if relevant**; otherwise N/A):
+- Exact commands **actually run on this checkout**, tested commit/seed and observed pass/fail output:
+- Runtime proof for claimed physical features (sensor/action trace, real rover movement, seed release/contact; link clip/log/screenshot **if available**):
+- Tests or physics checks **not run**, with reason (CI alone is not Isaac validation):
+- Same-seed baseline and mid-episode surprise result **if product-facing and tested**:
+- Known failures, unverified assumptions, risk and rollback plan:
 
 ## Before merge (human integrator)
 - [ ] Latest target/base reviewed; no teammate work overwritten
