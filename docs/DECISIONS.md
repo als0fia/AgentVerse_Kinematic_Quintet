@@ -151,6 +151,28 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Revisit trigger:**
   - Hardware deployment onto physical compute boards (e.g., Raspberry Pi 5 / Jetson Orin Nano).
 
+## D-0013 — Hardware sensor telemetry binding (input_output.txt) and Challenge Slide 06 Embodied Loop UI
+
+- **Date:** 7 November 2026.
+- **Status:** adopted in `src/riceswarm_ai/core.py`, `src/riceswarm_ai/visualizer.py`, and `tests/test_sensor_reflexes.py`.
+- **Context:** Challenge Slide 06 and the evaluation rubric mandate closing the embodied cognitive loop: `[PERCEIVE -> DECIDE -> ACT]` with tangible physical sensor values matching the hardware matrix in `src/ricebot/agent/input_output.txt` (TDK ICM-42688-P IMU, Infineon BGT60TR13C 60GHz mmWave radar, Hall-effect whiskers / VL53L8CX ToF array, INA240 current shunts, and Qorvo DWM3000 UWB mast transceivers).
+- **Decision:**
+  1. Define `HardwareSensors` dataclass in `src/riceswarm_ai/core.py` directly binding live physical telemetry to each robot instance.
+  2. Implement realistic sensor telemetry synthesis in `_update_robot_sensors()`:
+     - Pitch / Roll / Accel-Z from IMU (triggering tilt halt cutoff when pitch > 20°).
+     - Doppler true ground velocity and slip ratio from 60GHz FMCW radar (triggering anti-digging throttle back when slip > 0.60).
+     - Whiskers / ToF cross-track error and row-steering angular velocity correction.
+     - INA240 motor current and hitch tow tension (20-350N during active rescue).
+     - Qorvo DWM3000 UWB peer distance, angle-of-arrival (AoA), and anti-collision stop flags.
+  3. Render real-time multi-line sensor telemetry and embodied loop indicators in `visualizer.py` console output.
+  4. Added `test_riceswarm_simulation_realistic_sensors` in `tests/test_sensor_reflexes.py` validating normal cruise, mud stranding cutoffs, and recovery load dynamics.
+- **Interface/tests/risks affected:**
+  - `src/riceswarm_ai/core.py`: Added `HardwareSensors` and `_update_robot_sensors()`.
+  - `src/riceswarm_ai/visualizer.py`: Updated sensor breakdown rendering.
+  - `tests/test_sensor_reflexes.py`: Added `test_riceswarm_simulation_realistic_sensors`.
+- **Revisit trigger:**
+  - Benchtop testbench sensor calibration on physical STM32 / hardware rigs.
+
 ## Decision template
 
 ```text
