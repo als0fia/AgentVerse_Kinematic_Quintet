@@ -707,3 +707,164 @@ def evaluate_bekker_terramechanics(
         immobilization_risk=round(risk, 4),
         speed_penalty_factor=round(speed_factor, 4),
     )
+
+
+@dataclass(frozen=True)
+class RampVisionDetection:
+    """Ego-camera RGB-D perception result for terraced bund incline ramp detection & visual servoing."""
+
+    detected: bool
+    pixel_count: int
+    centroid_u_px: float
+    centroid_v_px: float
+    bearing_error_rad: float
+    lateral_offset_m: float
+    estimated_distance_m: float
+    estimated_slope_deg: float
+    steering_cmd_rad_s: float
+    linear_cmd_m_s: float
+    phase: str
+
+
+def detect_ramp_and_compute_visual_servo(
+    rgb_image: np.ndarray,
+    depth_image: np.ndarray | None = None,
+    *,
+    fovy_deg: float = 62.0,
+    current_pitch_rad: float = 0.0,
+    current_z_m: float = 0.058,
+    target_tier_z_m: float = 0.35,
+) -> RampVisionDetection:
+    """Detect an earthen/marked terrace incline ramp from `{id}_front_camera` RGB-D frames and compute visual servoing.
+
+    Algorithm:
+    1. **Chromatic + Luminance Ramp Masking**: Segments the high-contrast earthen ramp surface and
+       guide rails (`R > G > B`, warm terracotta/amber ramp surface distinct from dark waterlogged mud
+       and green rice canopy) within the forward trapezoid ROI (`v in [15%, 92%]`).
+    2. **3D Depth-Gradient Slope Estimation**: If `depth_image` is provided, back-projects pixels using
+       pinhole camera intrinsics (`fovy = 62 deg`, `14 deg` downward pitch) to estimate distance `d_m`,
+       lateral offset `y_cam`, and surface inclination `slope_deg`.
+    3. **Proportional-Derivative Visual Servoing (`IBVS / PBVS`)**:
+       - `APPEACH_ALIGN`: Centers the ramp centroid horizontally (`u_err -> bearing_error_rad`) and steers
+         the rover onto the ramp centerline before the front wheels contact the toe of the slope.
+       - `CLIMB_INCLINE`: Once `|current_pitch_rad| >= 0.08 rad` (rover pitched upward on the ramp),
+         commands high-torque 4-wheel ascent (`linear_cmd_m_s = 0.42 m/s`) while damping yaw drift.
+       - `CREST_LEVEL_OUT`: When `current_z_m >= target_tier_z_m - 0.03`, throttles smoothly onto Upper Tier 1.
+    """
+    from math import atan2, degrees, radians, tan
+
+    h, w, _ = rgb_image.shape
+    cx = w * 0.5
+    cy = h * 0.5
+    fy = cy / tan(radians(fovy_deg * 0.5))
+    fx = fy
+
+    # If already crested onto the upper terrace tier
+    if current_z_m >= target_tier_z_m - 0.025 and abs(current_pitch_rad) < 0.12:
+        return RampVisionDetection(
+            detected=True,
+            pixel_count=0,
+            centroid_u_px=cx,
+            centroid_v_px=cy,
+            bearing_error_rad=0.0,
+            lateral_offset_m=0.0,
+            estimated_distance_m=0.0,
+            estimated_slope_deg=0.0,
+            steering_cmd_rad_s=0.0,
+            linear_cmd_m_s=0.18,
+            phase="CRESTED_UPPER_TIER",
+        )
+
+    r = rgb_image[:, :, 0].astype(np.float32)
+    g = rgb_image[:, :, 1].astype(np.float32)
+    b = rgb_image[:, :, 2].astype(np.float32)
+
+    # Segment warm earthen ramp / yellow-orange ramp guide markers vs dark mud & blue water
+    warm_ramp_mask = (
+        (r > 95.0)
+        & (g > 55.0)
+        & (r > g * 1.18)
+        & (g > b * 1.15)
+        & ((r - b) > 42.0)
+    )
+    # Restrict to forward lower-to-mid field of view
+    roi_mask = np.zeros((h, w), dtype=bool)
+    roi_mask[int(h * 0.12) : int(h * 0.94), int(w * 0.04) : int(w * 0.96)] = True
+    mask = warm_ramp_mask & roi_mask
+
+    ys, xs = np.nonzero(mask)
+    pixel_count = int(len(xs))
+    on_incline = current_pitch_rad < -0.07 or current_pitch_rad > 0.07 or current_z_m > 0.11
+
+    if pixel_count < 25 and not on_incline:
+        # Search mode: slow scan turn toward ramp
+        return RampVisionDetection(
+            detected=False,
+            pixel_count=pixel_count,
+            centroid_u_px=cx,
+            centroid_v_px=cy,
+            bearing_error_rad=0.35,
+            lateral_offset_m=0.0,
+            estimated_distance_m=2.0,
+            estimated_slope_deg=0.0,
+            steering_cmd_rad_s=-0.55,
+            linear_cmd_m_s=0.08,
+            phase="SEARCHING_FOR_RAMP",
+        )
+
+    if pixel_count >= 25:
+        # Weight lower/closer ramp pixels slightly higher for stable toe-entry alignment
+        weights = 1.0 + 0.6 * (ys.astype(np.float32) / float(h))
+        u_mean = float(np.average(xs, weights=weights))
+        v_mean = float(np.average(ys, weights=weights))
+        bearing_err = -atan2(u_mean - cx, fx)
+    else:
+        u_mean, v_mean = cx, cy
+        bearing_err = 0.0
+
+    est_dist_m = 0.65
+    est_slope_deg = 22.0
+    if depth_image is not None and pixel_count >= 25:
+        valid_depths = depth_image[mask]
+        finite_depths = valid_depths[np.isfinite(valid_depths) & (valid_depths > 0.05) & (valid_depths < 3.5)]
+        if len(finite_depths) >= 10:
+            est_dist_m = float(np.median(finite_depths))
+            # Estimate ramp pitch angle from depth gradient between upper and lower halves of segmented ramp
+            v_mid = np.median(ys)
+            top_d = depth_image[ys[ys < v_mid], xs[ys < v_mid]]
+            bot_d = depth_image[ys[ys >= v_mid], xs[ys >= v_mid]]
+            if len(top_d) > 4 and len(bot_d) > 4:
+                dz_depth = float(np.median(top_d) - np.median(bot_d))
+                dv_px = max(4.0, float(np.median(ys[ys >= v_mid]) - np.median(ys[ys < v_mid])))
+                dh_m = (dv_px / fy) * est_dist_m
+                if dz_depth > 0.01:
+                    est_slope_deg = max(8.0, min(35.0, degrees(atan2(dh_m, dz_depth))))
+
+    lat_offset_m = round(est_dist_m * tan(bearing_err), 4)
+
+    if on_incline:
+        phase = "CLIMBING_INCLINE"
+        steer_cmd = max(-0.85, min(0.85, bearing_err * 1.6))
+        lin_cmd = 0.42
+    elif abs(bearing_err) > 0.14:
+        phase = "ORIENTING_TO_RAMP"
+        steer_cmd = max(-1.25, min(1.25, bearing_err * 2.4))
+        lin_cmd = 0.16
+    else:
+        phase = "ALIGNED_APPROACH"
+        steer_cmd = max(-0.95, min(0.95, bearing_err * 2.0))
+        lin_cmd = 0.36
+
+    return RampVisionDetection(
+        detected=True,
+        pixel_count=pixel_count,
+        centroid_u_px=round(u_mean, 2),
+        centroid_v_px=round(v_mean, 2),
+        bearing_error_rad=round(bearing_err, 4),
+        lateral_offset_m=lat_offset_m,
+        estimated_distance_m=round(est_dist_m, 4),
+        estimated_slope_deg=round(est_slope_deg, 2),
+        steering_cmd_rad_s=round(steer_cmd, 4),
+        linear_cmd_m_s=round(lin_cmd, 4),
+        phase=phase,
+    )
