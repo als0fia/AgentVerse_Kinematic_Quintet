@@ -2,6 +2,8 @@
 
 **Update after merged PR #28 (7 Nov 2026):** `src/ricebot/agent/mycelial_swarm.py` now implements **simulated Policy B**: separate `LocalMycelialMap` and `LocalSlamGrid` instances for each rover, event-triggered `MycelialGossipPacket` exchanges with modelled distance/link blackout, provenance deduplication, and task bids. Tests include isolated vs connected maps, blackout recovery and changed planting target. It runs inside a shared Python/MuJoCo simulation; **no physical UWB or Wi-Fi HaLow radios, deployed distributed processes, Jetson inference or integrated autonomous physical rescue have been verified**. Policy A's `CooperativeSwarmPlanner` remains a centralised baseline. The merged PR #24 separate scripted MuJoCo rigid-docking/tandem extraction test is physical simulation mechanics, not the full sensed-rescue mission.
 
+**Deployment-direction correction (later 7 November 2026, D-0014):** The selected architecture is **event-driven inference at a nearby shared server**, accessed from a field gateway via local IP or verified terrestrial/satellite backhaul, with a locally independent numerical/safety policy. A sharded cross-Jetson LLM is **no longer the proposed deployment**; distributed-model notes below are historical research only. The existing code is still a synchronous bounded Gemini REST advisor, not the server architecture or an implemented tool loop. See [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md#active-topology-local-autonomy--nearby-shared-llm-server-d-0014).
+
 **Research synthesis 7 November 2026.** User's confirmed goal: the collective identifies a robot failure, integrates numerical risk and qualitative mission urgency, and selects/executes physical peer assistance or safe refusal. Rice-field mapping and planting provide realistic useful work rather than the primary invention. No Jetson hardware or pooled LLM has been proven. **PR #24 supplies a scripted MuJoCo rigid docking/cam-latch/tandem extraction test that asserts >0.08 m victim movement; a complete autonomous mission-triggered rescue is unverified.** [Plan](SWARM_EDGE_PLAN.md) / [product](PRODUCT.md).
 
 ## What merits research next
@@ -12,11 +14,11 @@
 | **P0** risky decision | Rescue now, investigate, defer or safely abandon under uncertain soil and qualitative urgency | never rescue, always rescue, **calibrated risk optimiser** | secondary loss, mission value, regret, time/energy, safe abstention |
 | **P0** continuing work | Successful recovery enables further sensing/mapping/planting | one multifunction rover and current field policy without recovery | map accuracy/freshness or physical seed contact after intervention |
 | **P1** learned skill | Train locomotion/contact skill across changed mass, traction and geometry | classical bounded controller | checkpoint, training setup, unseen-seed success and safety |
-| **P1** local contextual model | Does slow edge inference actually outperform optimised thresholds for ambiguous incidents? | same data, model off, small local model | matched outcomes, token latency, watts, confidence and no-network |
+| **P1** nearby contextual server | Does an event-driven shared LLM server using bounded numeric tools outperform calibrated offline rescue optimisation on ambiguous incidents? | same observations/skills, local numeric-only, LLM online/offline, cellular/satellite-like impairment | paired physical outcomes, safe refusals, response latency, tokens, link bytes, service outages, privacy/power/cost if measured |
 | **P2** P2P map and bids | Robots operate on partial local beliefs, gossip, delay/partitions | existing one-process shared-map auction | per-robot maps, unique evidence IDs, message bytes and collision-free assignments |
-| **P2** distributed LLM | One quantised model sharded across actual constrained devices | single device, offline farm box, several independent reasoners | RAM/KV, time-to-first-token, tokens/s, communication, watts, node-loss |
+| **Historical / not selected** sharded LLM | One quantised model distributed across constrained Jetsons (former proposal only) | shared farm/regional server now selected | archival RAM/KV/communication research; **not a development gate** |
 
-**Four separate hypotheses:** physical rescue, agentic triage, decentralised information sharing and distributed model-parallel inference. A working example of one does not prove the others.
+**Three active hypotheses:** physically feasible rescue; meaningful contextual triage benefit over a constrained mathematical baseline; and value from partially observed peer coordination. Shared-server availability/latency is a deployment reliability question. Sharded model-parallel inference is retained only as historical adjacent research.
 
 ## State of the existing team code
 
@@ -37,14 +39,14 @@ At the reviewed commit after PR #23, `CooperativeSwarmPlanner` centrally sorts a
 - Rescuer physically able to push/tow vs insufficient force/reach, hazardous approach, second casualty or bad weather/traction proxy.
 - Delayed/stale/duplicated peer observations; private hidden-truth only for evaluator, not policy.
 - Safe recovery choice with no helper, high-risk site, no local model, API timeout and no communication.
-- **Split-model paradox:** a two-node LLM may lose its weights/compute when one rover fails; require a functioning local fallback and measure node drop *during* incident.
-- Novelty baselines: physically competent classical controller; risk-aware optimisation; single rover vs multiple rovers; independently running local small models vs actual sharded larger model. A more articulate explanation does not establish better decisions.
+- **Nearby-server failure:** model unavailable, gateway loss, remote timeout, satellite/cellular blackouts, stale/duplicated reply and robot-peer partition; require a local numeric/safety fallback. The previous split-model node-loss paradox is now historical motivation for rejecting cross-rover model sharding.
+- Novelty baselines: physically competent classical controller, never/always rescue, **calibrated constrained offline optimiser**, contextual tool-using shared-server LLM with/without connectivity, and genuine per-rover partial beliefs. Better prose or a better-connected server does not establish better rescue decisions.
 
 ## Resource and implementation order
 
 1. **Immediately:** world+robot owners build physical stuck/traction/contact recovery; keep existing MuJoCo rice sensor/seed work. Independent grader compares a real recovered vs unrecovered robot.
 2. **Then:** integrator designs a *backwards-compatible* typed incident/recovery action-result seam. Agent owner builds numeric baseline then optional contextual reasoner; safety gate checks intervention feasibility.
-3. **Optional separate compute research:** confirm actual Jetson SKU/JetPack/device count/network and permission; first benchmark single-device offline model, then model partition over real devices. Record quantisation, compatible runtime, tokens/s, time to first token, RAM, link throughput and energy. Never pretend desktop emulation is verified Jetson.
+3. **Selected server study:** after interface repairs, run an asynchronous fake-advisor transport over local process/network and simulate delay, outage, duplicate and stale replies. On an approved real farm/co-op or regional GPU server, measure model/tool time, link RTT/dropout, memory, request bytes, optional energy and end-to-end decision value. **No cross-Jetson model partitioning is requested.** Do not install/provision hardware, spend, or claim a tested server before explicit approval.
 4. **Finally:** verify and profile the now-implemented **simulated** per-robot partial maps and gossip against Policy A, then research real radio/deployed-node semantics and leader/partition protocols. Keep kernel and working physics uninterrupted.
 
 **No hardware purchases, paid inference, public network service, deployment or final hackathon submission authorised by this document.**

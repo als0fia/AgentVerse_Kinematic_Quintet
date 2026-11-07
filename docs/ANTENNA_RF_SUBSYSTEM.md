@@ -1,5 +1,19 @@
 # Antenna radio and sensor-fusion options — feasibility, not deployed hardware
 
+## Selected role for each connectivity hop (D-0014, proposed)
+
+The active robot intelligence architecture is **rover-local deterministic safety + numerical triage + local peer packet exchange**, with **optional nearby GPU-hosted LLM advisory inference on unusual incidents**. The old research on sharding one LLM across multiple Jetsons is not a current requirement.
+
+| Hop | Responsible for | Plausible transport; verify at the deployment site |
+| --- | --- | --- |
+| Rover ↔ rover / field gateway | SOS, measured local map fragments, task bids, acknowledgement and valid short commands | Surveyed Wi-Fi, Wi-Fi HaLow (IEEE 802.11ah) or another permitted local IP/packet radio; keep UWB ranging separate |
+| Farm gateway ↔ shared inference server | Compact contextual rescue snapshot, numerical tool calls/results, validated proposals and audit log | LAN for farm/co-op GPU; otherwise existing 4G/LTE/5G/fixed broadband; optional **lawful satellite terminal on the gateway** when terrestrial backhaul is inadequate |
+| Onboard sensor/MCU ↔ local control | Immediate safety/reflex, bounded drive/docking, no-go and watchdog | Local wired/onboard buses; **never** require satellite, cellular or an LLM token for motor cutoff |
+
+Satellite performance or accessibility cannot be assumed from a regional map: verify the **exact farm address**, availability, local rules, plan/mobility restrictions, terminal power, mounting, weather performance and measured jitter. In the target rice-growing regions, terrestrial coverage is site-specific and may be preferable. Direct-to-robot satellite is **not** selected; there is no demonstrated satellite RF hardware. LoRaWAN may support alert packets, but its duty cycle/data rate is unsuited to streaming high-resolution camera imagery, and should not be conflated with Wi-Fi HaLow or cellular.
+
+Network outage means fall back to locally validated numerical rescue/abstain, never reuse expired LLM advice. Handle stale packet/state ID, duplicates, partial connectivity and helper ownership. See [selected architecture, event protocol and failure matrix](SWARM_EDGE_PLAN.md#active-topology-local-autonomy--nearby-shared-llm-server-d-0014).
+
 **Reconciliation of PR #22 (7 Nov 2026).** Simulated Policy B keeps a separate map per rover and exchanges modelled gossip/blackout messages inside **one Python/MuJoCo process**. The team has not demonstrated UWB radios, Wi-Fi HaLow, ESP-NOW hardware, Jetson inference, real distributed processes, radar ground-speed measurements, a 200 Hz MCU, or live force sensors. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) owns implementation status; [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md) owns the tests; the [robot module](../src/ricebot/robot/README.md) owns the tested **rigid docking**, not a tether.
 
 | Proposed modality | Sourced physical capability | What needs correcting or measuring |
