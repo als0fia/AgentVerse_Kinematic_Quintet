@@ -87,7 +87,7 @@ Why it matters to the rescue-first product:
 | Existing task group | Lead(s) | Work that can start now | Integration gate |
 | --- | --- | --- | --- |
 | **P0** repair boundary failures, golden rescue, UI/CLI divergence | A + B + C + E | A fixes session+type bugs; B physical docking; C honest fault evidence; E viewer parity | Independent same-scene rescue/abstain evidence and no hidden agent oracle |
-| **P1** offline constrained rescue, per-robot mapping/blackout | C + D | D numeric strategy/uncertainty; C peer validity and isolation | With LLM disabled, no second casualty from unapproved actions; required negative controls |
+| **P1** offline constrained rescue, per-robot mapping/blackout ([P1 research & proposal](P1-OFFLINE-INTELLIGENCE-RESEARCH-AND-PROPOSAL.md)) | C + D | D numeric strategy/uncertainty; C peer validity and isolation | With LLM disabled, no second casualty from unapproved actions; required negative controls |
 | **P2** incident protocol, asynchronous server, numeric tool loop | D with A/C interface review | Build fake-server timeout and stale-response tests now | No server controls torque; expiry, safety veto and logging verified |
 | **P3** agricultural network backhaul and regional feasibility | C + D + human | Site/country-specific research, fake latency/packet-loss fixtures | No unsupported satellite promises, no purchases or infrastructure without approval |
 | **P4** Isaac physics, trained docking and visual upgrade | B + D + E | Small Isaac/Isaac Lab prototype **separate from working MuJoCo scene**; measure resources | Actual executable physics, contact/sensor traces, policy checkpoint if trained |
