@@ -1,37 +1,59 @@
 # Runtime architecture
 
-**State: Robotics challenge confirmed; simulator and product architecture remain unselected.** After project selection, keep this as the sole current architectural description. Avoid creating multiple incompatible diagrams.
+**Selected application:** rice-field abnormal-water monitoring, active investigation and targeted response. **The robot body, simulator, models and actuator are design proposals, not built or proven.** This is the canonical architecture; the mission is in [PRODUCT](PRODUCT.md), shared wire contracts in [CONTRACTS](CONTRACTS.md), observed tests in [TESTING](TESTING.md).
 
-## Component map
-
-| Component | Responsibility | Input contract | Output contract | Owner | Tested? |
-| --- | --- | --- | --- | --- | --- |
-| User / world interface | TBD | TBD | TBD | unassigned | no |
-| Perception / state | Only if needed | TBD | TBD | unassigned | no |
-| High-level reasoning | Only if AI adds value | TBD | TBD | unassigned | no |
-| Deterministic executor | Validated actions / bounded control | TBD | TBD | unassigned | no |
-| Independent verifier | Outcome and test instrumentation | TBD | TBD | unassigned | no |
-
-Delete irrelevant rows when deciding the project. Component boundaries should match actual folders, public functions and run commands, not decorative boxes.
-
-## Minimum required embodied loop (challenge constraint, not product selection)
+## End-to-end system: a monitoring decision with physical consequences
 
 ```text
-simulated world -> simulated sensor(s) -> perception / state estimate
-      ^                                     |
-      |                                     v
- outcome / new observation <- bounded action <- decision / replanning
-      |                                     ^
-      +-- independent evaluator + disturbance injector + trace
+Field gauges / rover sensors -> belief + incident triage -> pick next informative task
+       ^                                                       |
+       |                                                       v
+Independent outcome verifier <- physical simulated environment <- safe local rover controller
+       ^                                                       ^
+       |                                                       |
+Mid-run disturbance injector                      optional gate/contact mitigation skill
 ```
 
-A valid first episode must visibly **use at least one sensor input**, make an observable decision that is **not just a fixed waypoint script**, execute an action, and react to an **unexpected mid-run change** (for example a blocked route or displaced object). Keep an independent observer for success, perception/action frames and latency. **Avoid giving the agent perfect ground-truth simulator state if the submission claims sensor-based perception**; ground truth may be accessed by the evaluator only.
+For P0, a **single real simulated rover** receives an abnormal-rise alert, drives to an inspection site using sampled sensors, encounters an unannounced route obstruction or sensor inconsistency, chooses a safe changed course and takes a follow-up observation. For P1, its **physical actuation** changes an explicit, simplified water/drainage model; an independent reading checks actual simulated effect. No scripted UI gate, magically cleared obstruction, oracle truth passed to the planner or mandatory cloud servo loop.
 
-The recommended control topology keeps the **time-sensitive action loop local to the simulator / robot runtime**, with explicit bounds, timeouts and graceful stop/re-plan. An optional remote reasoning model must have a narrow, infrequent role whose loss does not silently disable every decision. A remote *simulator/stream* (e.g. hosted Isaac Sim) is distinct from a remote *decision service*. Record both separately in RUN when selected.
+| Functional component | Input → output | Candidate method | Status |
+| --- | --- | --- | --- |
+| **Field / sensors** | Timed water/flow *measurements*, RGB/depth/range/contacts, time, noise → observations | Transparent simplified water-balance model and simulated sensors | Design only |
+| **Rover perception** | Local measured ranges, image/depth, odometry → obstacles and pose *estimates* | Classical perception/state estimation, small classifier only if necessary | Design only |
+| **Incident investigator** | Gauge/robot evidence → hypothesis and next useful observation | Bayesian belief + information gain; optional bounded LLM when it improves the baseline | Design only |
+| **Task coordinator** | Candidate inspection/response, battery, risk → approved robot task | Constrained planner/allocator; single robot to start | Design only |
+| **Robot control / safety** | Target task + fresh local sensing → bounded wheel/steering/contact forces | Deterministic navigation / motion planning / safety stop | Design only |
+| **Mitigation interface (P1)** | Inspected gate + reachable tool → bounded manipulation, then new water proxy | Simple lever/contact skill and simulated water balance, **only if implemented** | Wish / stretch |
+| **Independent evaluator** | Hidden simulator state + trace → measurements and failed attempts | Scripted world disturbance, automatic physical result checker, same-seed baseline | Design only |
 
-The simulation engine is undecided: NVIDIA Isaac Sim is organiser-recommended, but **MuJoCo / PyBullet / Gazebo / Webots** are organiser-named alternatives. Prefer the one that yields an observable running episode earliest on the actual team's resources; avoid costly GPU provisioning until compatibility, credits, streaming security and fallback are established.
+## Robot embodiment is a real engineering decision
 
-## Required design information after decision
+**A robot must have a physically plausible body and mechanisms; a moving map icon isn't enough.** For the first demo, the *recommended reference concept* is a compact wheeled inspection rover **travelling on a relatively firm rice-field bund/service edge**, looking into adjacent paddies and visiting an outlet. This is a deliberately restricted **simulated operating envelope**, not a claim a conventional rover can drive through flooded paddy crops.
+
+**Human-led design review is required before implementation commitments**: a teammate should approve where it operates, whether wheels/tracks/flotation are appropriate, approximate chassis dimensions, mass/centre of mass, wheelbase/track footprint, traction and clearance assumptions, motor/steering layout, battery and return reserve, sensor position, water ingress/splash limits, crop/no-go clearance, reach to a gate and safe contact-force limits. The AI may help generate concept options, parametrised models and tests but **must not invent a fabricated robot design as finished hardware** or autonomously decide to procure/modify hardware.
+
+| Design alternative | Benefit | Principal burden and suitability |
+| --- | --- | --- |
+| **Bund / field-edge wheeled rover (provisional P0)** | Simple reproducible physics, visual line of sight to drain, low crop disturbance, reachable outlet | Edges may be narrow, sloped or slippery; must confirm sufficient clear width and no-fall boundaries in the simulated scene |
+| **Tracked muddy-ground rover** | Potential traction on softer soil | Higher turning resistance, disturbance to rice roots/soil, track physics; P2 only if field access demands it |
+| **Floating / amphibious rice-row platform** | Can directly inspect submerged field and adapt to water level | Buoyancy, water propulsion, clearance around plants, contact realism and greater simulation complexity; P2 research path |
+| **Fixed station + small mobile rover** | Grounded water monitor and mobile verification, with local/offline control | Distributed sensors and possibly radio model; start with a local message interface, not a required second physical robot |
+
+**Mechanical simulation acceptance:** actuated joints/wheels; real collision geometries; reasonable mass and inertia; traversable/non-traversable surfaces, obstacle and crop-protection zones; locally sampled sensors with timestamps; a measurable stop/replan after surprising contact or obstacle; and one explicit fall/slip/battery/blocked-gate failure. A later manipulator must physically reach and operate the outlet with collision/force limits; if it does not, label the mitigation as a *recommendation* only.
+
+**Relevant engineering precedents:** [2026 paddy chassis review](https://pmc.ncbi.nlm.nih.gov/articles/PMC12901939/) reports tracked versus wheeled terrain/soil-disturbance trade-offs; a [2026 floating two-wheel paddy weeding robot](https://www.fujipress.jp/jrm/rb/robot003800020404/?lang=ja) uses floats and a four-bar wheel mechanism. Neither design is automatically our hardware or a ready-made MuJoCo asset. Do not extrapolate demonstrated paddy-row capability from an unverified bund-rover model.
+
+## Generalisable intervention framework, without claiming transfer
+
+Domain-neutral core: **detect uncertain event → decide inspect / wait / intervene / escalate → assign constrained physical skill → verify consequence / replan**. Rice-specific water-level interpretation, bund geometry, crop protection and outlet mechanism are **adapters**; forest restoration and space/construction would need *different bodies, sensors, safety and effect models*. They are pitch-level potential applications until separately simulated and evaluated.
+
+**Robot-to-robot rescue (P2 optional):** when the rover becomes trapped, disconnected or low on reserve, a future fleet agent weighs wait/self-recovery versus human contact versus safe helper dispatch and lost task productivity. A genuine rescue demo would require another physics-enabled robot physically assisting, not only a text assignment. It must not delay P0/P1.
+
+## Build ownership
+
+The human integrator should first verify that one candidate robot model can **move from sensor-conditioned commands in the actual local simulator**. Only then freeze a minimal observation/action schema, assign distinct perception/controller/mission/evaluator modules, and measure each. Core controller stays local; optional LLM reasoning may be offline/unavailable without causing unsafe motion. Record actual simulator/robot choices and tested parameters in [RUN](RUN.md) and versioned message contracts in [CONTRACTS](CONTRACTS.md).
+
+## Required details to confirm as the build proceeds
 
 - **Data and control flow:** observation → optional AI decision → validation → bounded execution → measured outcome; show retries, human override and failure exits.
 - **Runtime topology:** executable entrypoints, model/server/process placement, data sources, simulator/robot if any, ports, external APIs and trust boundaries.
