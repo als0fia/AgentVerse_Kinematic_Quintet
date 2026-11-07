@@ -1,6 +1,24 @@
 # Contracts and invariants — PaddyPatch rice planting
 
-**Proposed versioned `rice.v1` seam for this selected project; not implemented or tested.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
+**A narrow rice.v1 Python interface is now implemented and unit-tested; the Isaac Sim adapter and embodied product are NOT.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
+
+## Implemented rice.v1 Python core (actual code, NOT Isaac physics)
+
+The current importable implementation is `src/ricebot/contracts.py`, `mission.py`, `control.py` and `runtime.py`; its contract tests are `tests/test_ricebot_foundation.py`. The *broader* types below are still proposed refinements. Shared code is owned by **one human integrator**; don't introduce parallel incompatible message formats.
+
+| Implemented object | Boundary |
+| --- | --- |
+| `Site`, `Pose2D` | Metric public site coordinates, permitted/no-go area; not hidden soil ground truth. |
+| `SoilSample`, `SensorKind` | Per-robot timestamped *local* 0..1 synthetic moisture/firmness/stand-gap value, measured location and validity. Measurements outside sampling radius or with reused conflicting IDs are refused; unknown is not zero. |
+| `RobotObservation`, `ObservationFrame` | Estimated robot pose, physically reported front range or `None`, seed inventory and local samples from the current tick; no hidden event or future soil field. |
+| `RobotCapability`, `TaskIntent`, `RobotCommand` | SAMPLE / PLANT / HOLD intents, short TTL, bounded velocity intentions and optional seed-release request only at reachable sites. |
+| `PlantFeedback` | Physics adapter reports *observed* release/contact and task ID, not independently scored establishment success. Core blocks blind repeats while awaiting feedback. |
+| `MeasuredFieldMap` | Deduplicated local site means, sample counts and source IDs. Not interpolation, GP mapping or calibrated uncertainty yet. |
+| `SimpleMissionPlanner`, `LocalController`, `MissionCore` | Inspectable non-LLM baseline and one tick of measured-data → task → drive/release commands, with stop conditions. Not an obstacle-aware route planner or certified controller. |
+| `SimulationPort.reset(seed)`, `.step(commands)` | **Unimplemented Isaac Sim adapter boundary.** It must own actual articulation, range/odometry/soil sensing and rigid-body seed drop/contact; clamp physical limits and refuse stale commands. |
+| `ReadOnlyView.consume`, `EpisodeRunner.run` | Optional viewer subscriber, small runner. Mock-port tests do not prove embodiment. |
+
+No new general swarm message bus, mitigation actuator, plant-growth model or cloud service is needed. The next owner supplies **real Isaac physics** before anyone claims the rice robot works.
 
 ## Mission-visible messages (proposed, exclusive boundaries)
 

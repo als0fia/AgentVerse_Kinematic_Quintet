@@ -1,6 +1,6 @@
 # Testing, baseline and independent evidence
 
-**Current tests cover only the repository scaffolding and evaluator. No project capability has yet been tested.**
+**Current tests cover repository scaffolding/evaluator plus a standard-library `rice.v1` **contract/baseline with scripted observations**. NO Isaac Sim rover, actual sensor physics, physical seed placement or end-to-end planting scenario has been tested.**
 
 ## Judge-aligned verification map — confirmed Robotics rubric
 

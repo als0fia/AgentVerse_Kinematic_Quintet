@@ -60,6 +60,16 @@ At each natural sync, show a runnable demo or explicit blocker, not a slide. Con
 
 If branches conflict: integration lead preserves both contributors' intended behaviour and reruns affected interface and end-to-end tests. If new work breaks the demo, revert the **specific** bad change on a new safe commit or switch back to known-good commit; never force/reset others' history without human approval. Keep demo-safe branch/tag only when the team actively uses it.
 
+## First implementation / agent allocation (after core contract branch)
+
+The first pure-Python `rice.v1` core is now present in `src/ricebot/`. **One human integrator** reviews/owns the shared types and composition. We recommend **Gemini 4 Argon on the actual Isaac Sim workstation** as the *next implementation agent* for rover articulation, range sensing and physical seed release: its ability to inspect installed Isaac SDK and GPU errors is more important than its model label. This ChatGPT (GPT-6) can handle GitHub-wide contract review/integration and focused changes, but does not operate a teammate's local Gemini session.
+
+**Five human-owned workstreams** remain: (1) integrator/shared code + merge; (2) robot mechanics and hopper/seed contact in Isaac; (3) field/soil sensor proxies and physically moving scout; (4) measured map, site scoring and route/task decisions; (5) independent evaluator, baseline, read-only UI and continuous video. Use **one narrowly scoped agent task per owner at a time**, never five agents independently rewriting the architecture. Human robot owner must approve physical mechanism.
+
+**One additional ChatGPT Plus account** can be useful for an **independent reviewing/testing session**, checking leakage of hidden soil, bogus seed-contact claims, and edge cases, rather than creating a sixth owner of shared code. Other Plus sessions and Gemini runs are not automatically connected or launched by GitHub; each human supplies current `main` SHA, exclusive paths, test and observable outcome.
+
+**Time/complexity budget:** 3–6 sites, two simple chassis, one real seed contact, a shared map altered by distinct local samples and one surprise. If Isaac hardware cannot run, report blocker to human before choosing alternative; do not build an enormous simulated farm.
+
 ## Selected rice project: five-human work split (proposed, not yet assigned by name)
 
 **PaddyPatch P0:** two physically moving rice-field robots (planter + complementary scout), real local soil/stand sample proxies, **shared estimated soil/stand map**, site selection, safe coordinated routes, and **a physically dropped seed proxy in an eligible gap**, with a surprise change and measured results. **Isaac Sim is selected for now but NOT confirmed running.** Human roles below are proposals, not named people or authority to spend. The first milestone is one rover then its physical planting tool; the second embodied scout is the final cooperative target. [PRODUCT](PRODUCT.md) owns scope; [CONTRACTS](CONTRACTS.md) owns the single interface and [RUN](RUN.md) owns actual launch evidence.
