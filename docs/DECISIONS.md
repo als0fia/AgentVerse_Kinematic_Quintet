@@ -108,6 +108,34 @@ This records **durable rationale**, not a running task/status list. Put implemen
 - **Unchanged product:** rescue-first D-0009; a scripted mechanical tandem extraction test exists, but the fault detection, risk-aware decision and physical actuation have not yet been integrated into one autonomous recovery episode. No learned policy or distributed LLM demonstrated.
 - **Quality follow-up:** fixing the agent README reference to the renamed `input_output.txt` is a documentation-only CI repair. Real distributed inference and on-device radio/energy remain research questions.
 
+## D-0011 — Closed-loop sensor suite reflexes and 3-tier edge-to-cloud cognitive fallback
+
+- **Date:** 7 November 2026.
+- **Status:** adopted in src/ricebot/contracts.py, src/ricebot/control.py, src/ricebot/agent/planner.py; verified by unit tests.
+- **Problem and constraints:**
+  1. Real-time physical safety in flooded agricultural mud paddies cannot tolerate network latency, multi-agent consensus rounds, or cloud LLM API delays.
+  2. Severe rover tip-over on slippery bund dikes or ditch edges can occur in <200 ms; aggressive wheel spinning in saturated paddy clay causes catastrophic vehicle entrenchment (trench digging) within 1–2 seconds.
+  3. Deliberative planners and multi-agent task auctions (Tier 1 & Tier 2) operate on 100 ms to 2000 ms cycles. Placing safety-critical motor cutoffs or slip regulation inside deliberative planning loops guarantees physical damage or rollover under communication dropouts.
+- **Options considered and baseline:**
+  - (a) Centralized / LLM-in-the-loop reflex checking: Discarded due to unacceptable round-trip latency (>500 ms) and fatal failure under field radio blackouts.
+  - (b) Open-loop dead-reckoning: Discarded because wheel slip in wet paddy mud leads to massive odometry divergence, missed seedling targets, and undetected rover bogging.
+  - (c) 3-Tier Layered Cognitive & Control Architecture (Selected & Implemented):
+    - **Tier 0 — Local Deterministic Closed-Loop Physical Reflexes (<5 ms loop):** Located inside LocalController (src/ricebot/control.py), consuming physical telemetry from RobotObservation:
+      1. *IMU Tip-Over Cutoff:* Immediate linear and angular motor shutdown if |pitch| > 0.35 rad (~20 deg) or |roll| > 0.35 rad.
+      2. *Doppler Radar Anti-Digging Traction Control:* Measures true ground speed v_true via 60 GHz mmWave radar against commanded linear velocity v_cmd. When slip ratio s = 1 - v_true / v_cmd > 0.60, throttles speed proportionally to avoid digging mud ruts.
+      3. *UWB Peer Anti-Collision Emergency Brake:* Enforces zero drive if any peer distance d_ij < 1.0 m.
+      4. *Row-Centering Steering Feedback:* Tactile whiskers / ToF sensors measure furrow cross-track error e_row, applying corrective proportional steering to keep rovers centered between delicate crop rows without trampling stands.
+      5. *Bogged-Down Safety Cutoff:* Latches drive motor shutdown on is_bogged=True to halt wheel-spinning and signal rescue triage.
+    - **Tier 1 — On-Rover Micro-Edge Task Auction & Rescue Triage (<20 ms):** Implemented in SwarmRobotAgent and CooperativeSwarmPlanner (src/ricebot/agent/planner.py). Decoupled utility bidding balances Explore (SAMPLE) vs. Exploit (PLANT) with dynamic seed-depletion role switching and Pareto multi-objective rescue triage (J = w_t * T + w_e * E + w_c * C + w_s * S + w_r * R) with a strict C=0 zero-crop-damage constraint.
+    - **Tier 2 — Asynchronous Deliberative Supervisor (System-2, Event-Driven):** GeminiSwarmAdvisor, triggered strictly on discrete surprise events (route obstruction, soil quality overturn, peer stranding). Asynchronous and non-blocking; automatically falls back to Tier-1 micro-edge auction when offline or unconfigured.
+- **Interface/tests/risks affected:**
+  - src/ricebot/contracts.py: Extends RobotObservation with pitch_rad, roll_rad, true_speed_m_s, row_cross_track_m, peer_distances, is_bogged.
+  - src/ricebot/control.py: Implements ControlLimits and closed-loop reflex enforcement in LocalController.command().
+  - tests/test_sensor_reflexes.py: 5 deterministic unit tests verifying IMU cutoff, mud sink trap, UWB collision brake, row centering, and anti-digging traction control.
+  - tests/test_agentic_swarm.py: 7 tests verifying Tier-1 auction, VoI exploration, seed depletion role switching, rescue triage, and offline fallback.
+- **Revisit trigger:**
+  - Real hardware validation on physical microcontroller firmware (e.g., STM32/ESP32 low-level motor loop vs. Jetson Orin edge coordinator) with empirically measured sensor noise distributions.
+
 ## Decision template
 
 ```text

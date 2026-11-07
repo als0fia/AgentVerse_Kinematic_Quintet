@@ -34,7 +34,7 @@ No new general swarm message bus, mitigation actuator, plant-growth model or clo
 
 | Contract | Producer → consumer | Minimum semantics |
 | --- | --- | --- |
-| `RobotObservationV1` | Isaac Sim sensor bridge → map, mission planner, local controller | episode, robot ID, monotonic sim time, estimated pose + frame and covariance/validity, local range/odometry, local soil/stand proxy if in sample radius, timestamps, link validity; **never privileged true position/soil-quality map** |
+| RobotObservationV1 | Isaac Sim / MuJoCo sensor bridge → map, mission planner, local controller | episode, robot ID, monotonic sim time, estimated pose + frame and covariance/validity, local range/odometry, local soil/stand proxy if in sample radius, timestamps, link validity, plus physical telemetry (pitch/roll rad, Doppler radar true speed m/s, furrow cross-track error m, UWB peer distances m, bogged flag); **never privileged true position/soil-quality map** |
 | `SoilSampleV1` | rover local probe → shared field map | unique sample ID, actor, `(x_m,y_m)` and spatial uncertainty, time, measured moisture proxy (unit-defined) / local firmness proxy / vegetation coverage where supported, noise/quality/valid flag, sampling radius; no hidden establishment score |
 | `FieldBeliefV1` | map estimator → planner, viewer | cell/region ID, estimated soil property means + uncertainty, observed stand/gap evidence, source sample IDs, validity/age, traversability/no-go, unknown distinct from zero; no oracle quality |
 | `RobotCapabilityV1` | actor registry → allocator | actor ID, ability to NAVIGATE / SAMPLE / PLANT (planter only), working hopper count, reachable seed release zone, allowed terrain and optional battery proxy |
