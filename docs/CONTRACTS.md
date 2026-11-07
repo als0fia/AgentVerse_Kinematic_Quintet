@@ -1,4 +1,4 @@
-# Contracts and invariants — PaddyPatch rice planting
+# Contracts and invariants — Antenna rice planting
 
 **The Python `rice.v1` core is implemented and unit-tested, and a MuJoCo physics adapter tests the same `SimulationPort`. An Isaac Sim adapter and real agricultural deployment remain unverified.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
 
