@@ -12,9 +12,9 @@ Next ownership seam: physically observable fault → typed bounded evidence and 
 
 ## Current module ownership and mock/real replacement boundary
 
-The [canonical component guide](COMPONENTS.md) splits the world/field/probe owner, human-led robot/seed-tool designer, one Isaac scene-composition/SimulationPort writer, kernel integrator, planner and independent evaluator. The human using ChatGPT and the human using Gemini can exchange the world/robot roles without changing this boundary. Keep `src/ricebot/runtime.py`'s **implemented** `SimulationPort.reset(seed)/step(commands)` interface as the only cross-engine mission seam; the actual Isaac implementation must drive real joints and detect real seed contact.
+The [canonical component guide](COMPONENTS.md) splits the **existing** MuJoCo world/probe, homogeneous robot/mechanical rescue, one simulation composition writer, `rice.v1` kernel integrator, coordination/agent and independent evaluator. Keep the **implemented** `SimulationPort.reset(seed)/step(commands)` seam; add the smallest compatible fault/recovery action/result integration through its sole owner. Any future Isaac translation would reuse that seam and require separate physical validation.
 
-Develop the 3–6-site world against a *physically actuated* mock rover if the designed rover is not ready. Swap the asset and motor/sensor mapping in the Isaac composition layer after human approval; **retest** clearance, wheel radius, turning limits, mounting frames, reach, release and contact. No second episode kernel, independent planner, direct world-truth read or teleporting seed. The full [mock-to-real acceptance checklist](COMPONENTS.md#mock-rover-first--approved-designed-rover-next) is the reference.
+For the weekend, **reuse the committed MuJoCo rover bodies and small field**, not a second mock world or a new Isaac scene. The human mechanical owner controls dock/traction limits; the integrator wires actual contact, result and stop feedback. A future asset/engine swap would require retesting geometry, force, collision and sensor/actuator mapping under the [existing swap checklist](COMPONENTS.md#mock-rover-first--approved-designed-rover-next). Never create a second episode kernel, hidden-truth oracle or animation-only recovery.
 
 ## Single runtime and one rescue episode (current design target)
 
