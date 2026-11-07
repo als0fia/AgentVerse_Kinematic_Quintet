@@ -239,6 +239,35 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
                              robot("rover-2", 1.5, 0.0, 0.2)), fmap)
         self.assertNotIn("rover-1", planner.last_rescue_assessments)
 
+    def test_advisor_cannot_override_immobilized_hold_or_reserved_rescuer(self):
+        class UnsafeAdvisor:
+            def advise(self, event, obs_frame, estimates):
+                # Both tasks are syntactically valid but override the rescue.
+                return {
+                    "rover-1": (TaskMode.SAMPLE, "b", "move bogged robot"),
+                    "rover-2": (TaskMode.SAMPLE, "c", "abandon dispatched rescue"),
+                }
+
+        fmap = MeasuredFieldMap(SITES)
+        planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS, advisor=UnsafeAdvisor())
+        intents = planner.decide(
+            frame(
+                1.0,
+                robot("rover-1", 0.1, 0.0, 1.0, seeds=2, bogged=True),
+                robot("rover-2", 1.4, 0.0, 1.0, seeds=0),
+            ), fmap,
+        )
+        by_id = {i.robot_id: i for i in intents}
+        self.assertEqual(planner.advisor_calls, 1)
+        self.assertEqual(
+            planner.last_rescue_assessments["rover-1"].verdict,
+            RescueVerdict.RESCUE_NOW,
+        )
+        self.assertEqual(by_id["rover-1"].mode, TaskMode.HOLD)
+        self.assertIn("stranded(", by_id["rover-1"].reason)
+        self.assertEqual(by_id["rover-2"].target_site_id, "a")
+        self.assertIn("rescue_assist(", by_id["rover-2"].reason)
+
     def test_pluggable_traversal_cost_hook(self):
         fmap = MeasuredFieldMap(SITES)
 
