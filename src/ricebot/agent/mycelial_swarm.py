@@ -1043,6 +1043,12 @@ def evaluate_continuous_belief_field(
     soil_mud_risk = max(0.0, (mean_m - 0.55) * 1.4) * max(0.0, (0.55 - mean_f) * 1.4) * (1.0 - 0.5 * uncertainty)
     traversability_risk = max(0.02, min(0.99, max(slam_risk, soil_mud_risk)))
 
+    # 4. Continuous Rice-Planting Agronomic Fitness belief Φ_hat(x, y)
+    s_moisture = exp(-((mean_m - 0.56) ** 2) / (2.0 * 0.14 * 0.14))
+    s_firmness = exp(-((mean_f - 0.65) ** 2) / (2.0 * 0.16 * 0.16))
+    s_gap = max(0.0, min(1.0, (mean_g - 0.22) / 0.66)) ** 1.25
+    planting_fitness = max(0.0, min(1.0, s_gap * (0.52 * s_moisture + 0.48 * s_firmness) * (1.0 - 0.35 * slam_risk)))
+
     return {
         "moisture": round(mean_m, 4),
         "firmness": round(mean_f, 4),
@@ -1050,6 +1056,7 @@ def evaluate_continuous_belief_field(
         "plant_density": round(plant_density, 4),
         "uncertainty": round(uncertainty, 4),
         "traversability_risk": round(traversability_risk, 4),
+        "planting_fitness": round(planting_fitness, 4),
     }
 
 
@@ -1077,9 +1084,10 @@ def sample_continuous_belief_grid(
         "plant_density": [],
         "uncertainty": [],
         "traversability_risk": [],
+        "planting_fitness": [],
     }
     for y in ys:
-        row_m, row_f, row_g, row_p, row_u, row_r = [], [], [], [], [], []
+        row_m, row_f, row_g, row_p, row_u, row_r, row_fit = [], [], [], [], [], [], []
         for x in xs:
             val = evaluate_continuous_belief_field(local_map, x, y, length_scale_m=length_scale_m)
             row_m.append(val["moisture"])
@@ -1088,10 +1096,12 @@ def sample_continuous_belief_grid(
             row_p.append(val["plant_density"])
             row_u.append(val["uncertainty"])
             row_r.append(val["traversability_risk"])
+            row_fit.append(val["planting_fitness"])
         layers["moisture"].append(row_m)
         layers["firmness"].append(row_f)
         layers["stand_gap"].append(row_g)
         layers["plant_density"].append(row_p)
         layers["uncertainty"].append(row_u)
         layers["traversability_risk"].append(row_r)
+        layers["planting_fitness"].append(row_fit)
     return layers

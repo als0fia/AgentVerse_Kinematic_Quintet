@@ -1,31 +1,28 @@
-"""Native Side-by-Side 3D MuJoCo + 2D Top-Down Swarm Belief & Terramechanics Desktop Application.
+r"""Unified Side-by-Side 3D MuJoCo Physics & 2D Top-Down Swarm Belief Desktop Application.
 
-Combines in a single multi-tab native desktop window (Tkinter + MuJoCo Renderer):
-- **Tab 1 — Side-by-Side 3D MuJoCo Physics & Interactive 2D Top-Down Belief Heatmap Dashboard:**
-  - **Left Pane:** Live 3D MuJoCo physics view (`mujoco.Renderer`) with 3D belief beacons, local SLAM
-    occupancy/mud cells, and UWB/Wi-Fi HaLow gossip links, plus camera view selector and optional
-    synced interactive `mujoco.viewer` OpenGL window.
-  - **Right Pane:** Interactive 2D Top-Down Continuous Belief Heatmap where clicking directly on a
-    robot (`planter` or `scout`) or selecting from the top bar switches the entire heatmap and
-    inspector panel to show what that specific robot currently understands about the world
-    (`Planter Local Belief`, `Scout Local Belief`, `|Planter - Scout| Divergence`, or `Hidden Ground Truth`),
-    across 7 continuous spatial layers (`moisture`, `firmness`, `plant_density`, `stand_gap`,
-    `uncertainty`, `traversability_risk`, `elevation_m`).
-  - **Bottom Dock:** Live scenario/comms controls, real-time Bekker-Wong vehicle mass & wheel-size
-    sliders that directly modulate 3D MuJoCo wheel traction and belly-out immobilization, per-robot
-    sinkage & sensor cards, and the scrolling UWB/HaLow Mycelial Gossip log.
-- **Tab 2 — Bekker-Wong Wheel-Mud Terramechanics & Vehicle Sizing Curve Explorer:**
-  - Live interactive curves of wheel sinkage $z$ (mm), belly clearance margin $c_b - z$ (mm), and
-    mud compaction drag $R_c$ (N) across vehicle masses ($1.5..16$ kg) and wheel radii.
-- **Tab 3 — 6-Robot RiceSwarm Seasonal Lifecycle & Mud-Rescue Simulator (`src/riceswarm_ai/`):**
-  - Embeds the teammates' 6-robot (`RS1..RS6`) condition-based farming lifecycle and Pareto mud-rescue
-    simulator directly as an integrated tab.
+Single-window side-by-side layout (no extra tabs or low-fidelity grid simulators):
+- **Left Side — Live 3D MuJoCo Physics Simulation (`640 x 430`):**
+  - Renders the 3D undulating paddy terrace heightfield (`paddy_micro_relief`), physical rover
+    pitch/roll over uneven micro-topography, real-time 3D vertical wheel-mud sinkage ($z_{\text{sink}}$),
+    wheel-slip fishtailing in soft mud, 3D sunken wheel-rut tracks (`sim.mud_rut_history`), 3D mud-collar
+    rings around bogging wheels, split dual-rover belief beacons, local SLAM hazard cells, and UWB/HaLow
+    gossip beams.
+  - Directly beneath the 3D view: Live Bekker-Wong Vehicle Sizing Sliders (`Robot Mass kg`, `Wheel Radius mm`,
+    `Wheel Width mm`) and real-time 3D Terramechanics & Slip Gauges (`Sinkage z`, `Belly Clearance`,
+    `Wheel Slip s`, `Mud Drag Rc`, `Drawbar Pull`, and `S1 Belly-Out Status`).
+- **Right Side — Interactive 2D Top-Down Belief & Agronomic Fitness Heatmap (`550 x 430`) + Robot Inspector:**
+  - Click directly on `PLANTER` or `SCOUT` on the 2D canvas (or select from the top bar) to inspect what
+    that specific robot understands about the continuous field (`Planter Local Belief`, `Scout Local Belief`,
+    `|Planter - Scout| Divergence`, or `Hidden Ground Truth f(x,y)`).
+  - Switch across 8 continuous spatial layers including the agronomically researched **Wet Direct-Seeded
+    Rice Planting Fitness Index $\Phi_{\text{plant}}(x,y)$**, Soil Moisture $M(x,y)$, Cone Firmness $F(x,y)$,
+    Canopy Stand Gap $G(x,y)$, Plant Density $\rho(x,y)$, Epistemic Uncertainty $\sigma(x,y)$, Mud/SLAM
+    Traversability Risk $R(x,y)$, and Micro-Topography Elevation $z(x,y)$.
 """
 from __future__ import annotations
 
 from math import cos, hypot, sin
 import tkinter as tk
-from tkinter import ttk
 from typing import Any
 
 import mujoco
@@ -36,9 +33,8 @@ from ..agent import (
     SoilSafetyEnvelope,
     sample_continuous_belief_grid,
 )
-from ..contracts import Decision, ObservationFrame, SensorKind, TaskMode
+from ..contracts import Decision, ObservationFrame, TaskMode
 from ..mujoco_sim.adapter import DEFAULT_CAPABILITIES, DEFAULT_SITES, MujocoPaddySimulation
-from ..robot import PLANTER_SPEC, SCOUT_SPEC, evaluate_bekker_terramechanics
 from ..world import DEFAULT_HIDDEN_SOIL_TRUTH, UNEXPECTED_BAD_SOIL_TRUTH
 
 
@@ -51,7 +47,12 @@ def _rgb_array_to_tk_ppm(rgb: np.ndarray) -> bytes:
 
 def _colormap_hex(val: float, vmin: float, vmax: float, palette: str) -> str:
     t = max(0.0, min(1.0, (val - vmin) / max(1e-6, vmax - vmin)))
-    if palette == "moisture":
+    if palette == "fitness":
+        # Red/brown (unfit anoxic mud or dense crop) -> Amber -> Bright Emerald Green (high WDSR fitness)
+        r = int(195 * (1 - t) + 25 * t)
+        g = int(55 + 175 * (t**0.85))
+        b = int(45 + 65 * t)
+    elif palette == "moisture":
         r = int(215 - 185 * t)
         g = int(180 - 75 * (t**1.1) + 30 * (1 - abs(2 * t - 1)))
         b = int(95 + 150 * (t**0.85))
@@ -86,23 +87,24 @@ def _colormap_hex(val: float, vmin: float, vmax: float, palette: str) -> str:
 
 
 LAYER_META: dict[str, tuple[str, float, float, str]] = {
+    "planting_fitness": ("Rice Planting Fitness Φ(x,y)", 0.0, 0.85, "fitness"),
     "moisture": ("Soil Moisture M(x,y)", 0.25, 0.95, "moisture"),
     "firmness": ("Cone Firmness F(x,y)", 0.15, 0.90, "firmness"),
+    "stand_gap": ("Canopy Stand Gap G(x,y)", 0.0, 1.0, "gap"),
     "plant_density": ("Plant Density ρ(x,y)", 0.0, 1.0, "density"),
-    "stand_gap": ("Stand Gap G(x,y)", 0.0, 1.0, "gap"),
     "uncertainty": ("Epistemic Uncertainty σ(x,y)", 0.0, 1.0, "uncertainty"),
     "traversability_risk": ("Mud / SLAM Risk R(x,y)", 0.0, 1.0, "risk"),
-    "elevation_m": ("Elevation / Hilliness z(x,y) [m]", -0.02, 0.09, "elevation"),
+    "elevation_m": ("Micro-Topography z(x,y) [m]", -0.035, 0.025, "elevation"),
 }
 
 
 class LiveSwarmDashboardApp:
-    """Native multi-tab desktop window showing 3D MuJoCo simulation and 2D Top-Down Belief Dashboard side-by-side."""
+    """Single-window side-by-side 3D MuJoCo physics simulator and 2D Top-Down Belief & Fitness Dashboard."""
 
-    RENDER_W = 500
-    RENDER_H = 360
+    RENDER_W = 620
+    RENDER_H = 420
     MAP_W = 540
-    MAP_H = 360
+    MAP_H = 420
     GRID_NX = 28
     GRID_NY = 19
 
@@ -116,9 +118,9 @@ class LiveSwarmDashboardApp:
     ) -> None:
         self.root = root
         self.root.title(
-            "Antenna (PaddyPatch rice.v1) — Live 3D MuJoCo Simulator & Decentralised Top-Down Belief Dashboard"
+            "Antenna (PaddyPatch rice.v1) — Side-by-Side 3D MuJoCo Physics & Decentralised Robot Belief Dashboard"
         )
-        self.root.geometry("1520x920")
+        self.root.geometry("1540x900")
         self.root.configure(bg="#0b131e")
 
         self.seed = seed
@@ -127,7 +129,7 @@ class LiveSwarmDashboardApp:
         self.camera_var = tk.StringVar(value="isometric")
         self.selected_robot_var = tk.StringVar(value="planter")
         self.belief_view_var = tk.StringVar(value="planter")  # planter | scout | divergence | ground_truth
-        self.layer_var = tk.StringVar(value="moisture")
+        self.layer_var = tk.StringVar(value="planting_fitness")
 
         self.mass_kg_var = tk.DoubleVar(value=4.2)
         self.wheel_radius_mm_var = tk.DoubleVar(value=58.0)
@@ -180,10 +182,10 @@ class LiveSwarmDashboardApp:
         self.renderer = mujoco.Renderer(self.sim.model, height=self.RENDER_H, width=self.RENDER_W)
         self.free_cam = mujoco.MjvCamera()
         mujoco.mjv_defaultFreeCamera(self.sim.model, self.free_cam)
-        self.free_cam.lookat[:] = [1.25, -0.05, 0.06]
-        self.free_cam.distance = 2.85
-        self.free_cam.elevation = -33.0
-        self.free_cam.azimuth = 115.0
+        self.free_cam.lookat[:] = [1.22, -0.05, 0.05]
+        self.free_cam.distance = 2.55
+        self.free_cam.elevation = -28.0
+        self.free_cam.azimuth = 118.0
 
         self.truth_grid = self.sim.world.continuous_terrain.sample_grid(
             nx=self.GRID_NX, ny=self.GRID_NY
@@ -204,62 +206,17 @@ class LiveSwarmDashboardApp:
                 self.sim.robot_wheel_radius_m[rid] = r_m
                 self.sim.robot_wheel_width_m[rid] = b_m
         self.sim._update_rover_terramechanics()
+        self.sim._apply_3d_terrain_and_mud_sinkage_pose()
+        mujoco.mj_forward(self.sim.model, self.sim.data)
 
     def _build_ui(self) -> None:
-        style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
-        style.configure("TNotebook", background="#0b131e", borderwidth=0)
-        style.configure(
-            "TNotebook.Tab",
-            background="#132030",
-            foreground="#94a3b8",
-            padding=(14, 7),
-            font=("Segoe UI", 10, "bold"),
-        )
-        style.map(
-            "TNotebook.Tab",
-            background=[("selected", "#1e3a5f")],
-            foreground=[("selected", "#38bdf8")],
-        )
-
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
-
-        # Tab 1: Side-by-Side 3D MuJoCo + 2D Top-Down Belief Dashboard
-        self.tab_main = tk.Frame(self.notebook, bg="#0b131e")
-        self.notebook.add(
-            self.tab_main,
-            text="  1. Side-by-Side 3D MuJoCo Sim & 2D Top-Down Robot Belief Dashboard  ",
-        )
-        self._build_tab_main(self.tab_main)
-
-        # Tab 2: Bekker-Wong Terramechanics & Vehicle Sizing Curve Explorer
-        self.tab_bekker = tk.Frame(self.notebook, bg="#0b131e")
-        self.notebook.add(
-            self.tab_bekker,
-            text="  2. Bekker-Wong Wheel-Mud Sinkage & Vehicle Sizing Lab  ",
-        )
-        self._build_tab_bekker(self.tab_bekker)
-
-        # Tab 3: Combined 6-Robot RiceSwarm Lifecycle Simulator (from src/riceswarm_ai)
-        self.tab_riceswarm = tk.Frame(self.notebook, bg="#1a202c")
-        self.notebook.add(
-            self.tab_riceswarm,
-            text="  3. 6-Robot RiceSwarm Seasonal Lifecycle & Mud-Rescue Sim  ",
-        )
-        self._build_tab_riceswarm(self.tab_riceswarm)
-
-    def _build_tab_main(self, parent: tk.Frame) -> None:
         # Top Control Toolbar
-        toolbar = tk.Frame(parent, bg="#111d2c", highlightthickness=1, highlightbackground="#1f3247")
+        toolbar = tk.Frame(self.root, bg="#111d2c", highlightthickness=1, highlightbackground="#1f3247")
         toolbar.pack(fill=tk.X, padx=8, pady=(6, 4))
 
         self.play_btn = tk.Button(
             toolbar,
-            text="▶ Play Live Sim",
+            text="▶ Play Live 3D Sim",
             command=self.toggle_play,
             bg="#0284c7",
             fg="white",
@@ -293,7 +250,7 @@ class LiveSwarmDashboardApp:
 
         tk.Button(
             toolbar,
-            text="⚠ Test Mud Belly-Out (12.5 kg)",
+            text="⚠ Test Heavy Mud Sinkage & Belly-Out (13 kg)",
             command=self.trigger_mud_belly_out_demo,
             bg="#b91c1c",
             fg="white",
@@ -301,6 +258,17 @@ class LiveSwarmDashboardApp:
             padx=8,
             pady=3,
         ).pack(side=tk.LEFT, padx=6, pady=5)
+
+        tk.Button(
+            toolbar,
+            text="✓ Restore 4.2 kg Paddy Ant",
+            command=self.restore_nominal_sizing,
+            bg="#15803d",
+            fg="white",
+            font=("Segoe UI", 8, "bold"),
+            padx=7,
+            pady=3,
+        ).pack(side=tk.LEFT, padx=2, pady=5)
 
         tk.Label(toolbar, text="Scenario:", bg="#111d2c", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(
             side=tk.LEFT, padx=(10, 2)
@@ -353,14 +321,14 @@ class LiveSwarmDashboardApp:
         )
         self.status_lbl.pack(side=tk.RIGHT, padx=10)
 
-        # Middle Split Pane: Left = 3D MuJoCo View, Right = 2D Top-Down Belief Heatmap
-        mid_frame = tk.Frame(parent, bg="#0b131e")
+        # Middle Split Pane: Left = 3D MuJoCo View, Right = 2D Top-Down Belief Heatmap + Inspector
+        mid_frame = tk.Frame(self.root, bg="#0b131e")
         mid_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
         # LEFT PANE: 3D MuJoCo View
         left_pane = tk.LabelFrame(
             mid_frame,
-            text=" Live 3D MuJoCo Physics Simulation (Continuous Terrain + Paddy Ant Rovers + 3D Belief/UWB HUD) ",
+            text=" Live 3D MuJoCo Physics (Undulating Micro-Topography + 3D Mud Sinkage & Wheel Ruts + Slip + UWB HUD) ",
             bg="#111d2c",
             fg="#38bdf8",
             font=("Segoe UI", 9, "bold"),
@@ -376,16 +344,17 @@ class LiveSwarmDashboardApp:
         )
         for cam_id, cam_lbl in (
             ("isometric", "Isometric Terrace"),
-            ("top_overview", "Top Overview"),
+            ("wheel_closeup", "Low Mud/Wheel Close-Up"),
             ("planter_follow_cam", "Follow Planter"),
             ("scout_follow_cam", "Follow Scout"),
+            ("top_overview", "Top 3D"),
         ):
             tk.Radiobutton(
                 cam_bar,
                 text=cam_lbl,
                 variable=self.camera_var,
                 value=cam_id,
-                command=self._render_3d_view,
+                command=self._on_camera_radio_change,
                 bg="#111d2c",
                 fg="#e2e8f0",
                 selectcolor="#0284c7",
@@ -413,7 +382,6 @@ class LiveSwarmDashboardApp:
             highlightbackground="#1f3247",
         )
         self.canvas_3d.pack()
-        # Allow dragging on the 3D canvas to orbit the isometric camera
         self._drag_last_xy: tuple[int, int] | None = None
         self.canvas_3d.bind("<ButtonPress-1>", self._on_3d_mouse_down)
         self.canvas_3d.bind("<B1-Motion>", self._on_3d_mouse_drag)
@@ -421,7 +389,10 @@ class LiveSwarmDashboardApp:
 
         tk.Label(
             left_pane,
-            text="Tip: Drag on 3D view to orbit camera, scroll wheel to zoom. Spheres above patches = Scout (lower) & Planter (upper) beliefs.",
+            text=(
+                "3D Physics: Rovers pitch/roll over undulating terrain z(x,y), sink vertically by Bekker z_sink(x,y), "
+                "leave 3D mud ruts, and slip in soft clay."
+            ),
             bg="#111d2c",
             fg="#94a3b8",
             font=("Segoe UI", 8),
@@ -430,7 +401,7 @@ class LiveSwarmDashboardApp:
         # RIGHT PANE: Interactive 2D Top-Down Belief Heatmap & Click-to-Select Robot
         right_pane = tk.LabelFrame(
             mid_frame,
-            text=" Interactive 2D Top-Down Belief Heatmap (Click a Robot on Map or Select Below to Inspect Its World Model) ",
+            text=" Interactive 2D Top-Down Belief & Rice-Fitness Map (Click a Robot on Map or Select Below) ",
             bg="#111d2c",
             fg="#38bdf8",
             font=("Segoe UI", 9, "bold"),
@@ -467,7 +438,7 @@ class LiveSwarmDashboardApp:
                 selectcolor="#0284c7",
                 activebackground="#111d2c",
                 font=("Segoe UI", 8, "bold"),
-            ).pack(side=tk.LEFT, padx=4)
+            ).pack(side=tk.LEFT, padx=3)
 
         # Continuous Heatmap Layer Bar
         layer_bar = tk.Frame(right_pane, bg="#111d2c")
@@ -478,16 +449,17 @@ class LiveSwarmDashboardApp:
             bg="#111d2c",
             fg="#94a3b8",
             font=("Segoe UI", 8, "bold"),
-        ).pack(side=tk.LEFT, padx=(2, 6))
+        ).pack(side=tk.LEFT, padx=(2, 4))
 
         for l_id, l_short in (
+            ("planting_fitness", "🌾 Rice Fitness Φ"),
             ("moisture", "Moisture M"),
             ("firmness", "Firmness F"),
-            ("plant_density", "Plant Density ρ"),
             ("stand_gap", "Stand Gap G"),
+            ("plant_density", "Plant Density ρ"),
             ("uncertainty", "Uncertainty σ"),
             ("traversability_risk", "Mud/SLAM Risk R"),
-            ("elevation_m", "Elevation z"),
+            ("elevation_m", "Micro-Topo z"),
         ):
             tk.Radiobutton(
                 layer_bar,
@@ -500,7 +472,7 @@ class LiveSwarmDashboardApp:
                 selectcolor="#0284c7",
                 activebackground="#111d2c",
                 font=("Segoe UI", 8),
-            ).pack(side=tk.LEFT, padx=2)
+            ).pack(side=tk.LEFT, padx=1)
 
         map_and_inspector = tk.Frame(right_pane, bg="#111d2c")
         map_and_inspector.pack(fill=tk.BOTH, expand=True)
@@ -537,7 +509,7 @@ class LiveSwarmDashboardApp:
             fg="#e2e8f0",
             font=("Consolas", 8),
             wrap=tk.WORD,
-            height=22,
+            height=24,
             padx=6,
             pady=4,
             borderwidth=0,
@@ -545,13 +517,12 @@ class LiveSwarmDashboardApp:
         self.inspector_text.pack(fill=tk.BOTH, expand=True)
 
         # BOTTOM DOCK: Bekker-Wong Sliders + Per-Robot Sinkage Cards + UWB Gossip Log
-        bottom_frame = tk.Frame(parent, bg="#0b131e")
+        bottom_frame = tk.Frame(self.root, bg="#0b131e")
         bottom_frame.pack(fill=tk.BOTH, expand=False, padx=8, pady=(2, 6))
 
-        # Left of bottom dock: Bekker-Wong Vehicle Sizing Sliders + Live Sinkage Cards
         sizing_frame = tk.LabelFrame(
             bottom_frame,
-            text=" Live Bekker-Wong Wheel-Mud Terramechanics & Vehicle Sizing (Active in 3D MuJoCo Physics) ",
+            text=" Live 3D Bekker-Wong Mud Sinkage, Wheel Slip & Vehicle Sizing Controls ",
             bg="#111d2c",
             fg="#38bdf8",
             font=("Segoe UI", 9, "bold"),
@@ -599,7 +570,6 @@ class LiveSwarmDashboardApp:
         )
         self.terramech_cards_lbl.pack(fill=tk.X, pady=(4, 0))
 
-        # Right of bottom dock: Scrolling UWB / Wi-Fi HaLow Gossip & Consensus Log
         gossip_frame = tk.LabelFrame(
             bottom_frame,
             text=" Peer-to-Peer UWB / Wi-Fi HaLow Mycelial Gossip & Task Negotiation Log ",
@@ -613,7 +583,7 @@ class LiveSwarmDashboardApp:
 
         self.gossip_text = tk.Text(
             gossip_frame,
-            height=9,
+            height=8,
             bg="#070d14",
             fg="#cbd5e1",
             font=("Consolas", 8),
@@ -624,73 +594,25 @@ class LiveSwarmDashboardApp:
         )
         self.gossip_text.pack(fill=tk.BOTH, expand=True)
 
-    def _build_tab_bekker(self, parent: tk.Frame) -> None:
-        header = tk.Frame(parent, bg="#111d2c", pady=6, padx=10)
-        header.pack(fill=tk.X, padx=10, pady=8)
-        tk.Label(
-            header,
-            text=(
-                "Analytical Bekker-Wong Pressure-Sinkage z = (p / (kc/b + kφ))^(1/n) + Δz_slip  &  "
-                "Janosi-Hanamoto Shear Traction across Vehicle Masses (1.5 kg to 16 kg)"
-            ),
-            bg="#111d2c",
-            fg="#38bdf8",
-            font=("Segoe UI", 10, "bold"),
-        ).pack(side=tk.LEFT)
-
-        self.bekker_canvas = tk.Canvas(
-            parent,
-            width=1420,
-            height=720,
-            bg="#070d14",
-            highlightthickness=1,
-            highlightbackground="#1f3247",
-        )
-        self.bekker_canvas.pack(padx=12, pady=6, fill=tk.BOTH, expand=True)
-
-    def _build_tab_riceswarm(self, parent: tk.Frame) -> None:
-        """Embed the teammates' 6-Robot RiceSwarm AI visualizer inside Tab 3."""
-        try:
-            from riceswarm_ai.visualizer import RiceSwarmVisualizer
-
-            # Create an embedded wrapper so RiceSwarmVisualizer builds inside `parent`
-            class _EmbeddedRootProxy:
-                def __init__(self, frame: tk.Frame, real_root: tk.Tk) -> None:
-                    self._frame = frame
-                    self._real_root = real_root
-
-                def title(self, _t: str) -> None:
-                    pass
-
-                def geometry(self, _g: str) -> None:
-                    pass
-
-                def configure(self, **kw: Any) -> None:
-                    self._frame.configure(**kw)
-
-                def after(self, ms: int, func: Any = None, *args: Any) -> str:
-                    return self._real_root.after(ms, func, *args)
-
-                def after_cancel(self, ident: str) -> None:
-                    self._real_root.after_cancel(ident)
-
-                def __getattr__(self, name: str) -> Any:
-                    return getattr(self._frame, name)
-
-            proxy = _EmbeddedRootProxy(parent, self.root)
-            self._embedded_riceswarm = RiceSwarmVisualizer(proxy, introduce_mud=True)  # type: ignore[arg-type]
-        except Exception as exc:
-            tk.Label(
-                parent,
-                text=f"RiceSwarm 6-Robot Tab unavailable: {exc}",
-                bg="#1a202c",
-                fg="#f87171",
-                font=("Consolas", 11),
-            ).pack(padx=20, pady=20)
-
     # ------------------------------------------------------------------
     # Interactive Camera & Canvas Event Handlers
     # ------------------------------------------------------------------
+
+    def _on_camera_radio_change(self) -> None:
+        cam_id = self.camera_var.get()
+        if cam_id == "wheel_closeup":
+            sel = self.selected_robot_var.get()
+            r_xyz = self.sim.data.sensor(f"{sel}_pos").data
+            self.free_cam.lookat[:] = [float(r_xyz[0]), float(r_xyz[1]), 0.03]
+            self.free_cam.distance = 0.72
+            self.free_cam.elevation = -14.0
+            self.free_cam.azimuth = 128.0
+        elif cam_id == "isometric":
+            self.free_cam.lookat[:] = [1.22, -0.05, 0.05]
+            self.free_cam.distance = 2.55
+            self.free_cam.elevation = -28.0
+            self.free_cam.azimuth = 118.0
+        self._render_3d_view()
 
     def _on_3d_mouse_down(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         self._drag_last_xy = (event.x, event.y)
@@ -701,15 +623,17 @@ class LiveSwarmDashboardApp:
         dx = event.x - self._drag_last_xy[0]
         dy = event.y - self._drag_last_xy[1]
         self._drag_last_xy = (event.x, event.y)
-        self.camera_var.set("isometric")
+        if self.camera_var.get() not in ("isometric", "wheel_closeup"):
+            self.camera_var.set("isometric")
         self.free_cam.azimuth = (self.free_cam.azimuth - dx * 0.45) % 360.0
-        self.free_cam.elevation = max(-85.0, min(-8.0, self.free_cam.elevation - dy * 0.35))
+        self.free_cam.elevation = max(-85.0, min(-5.0, self.free_cam.elevation - dy * 0.35))
         self._render_3d_view()
 
     def _on_3d_mouse_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        self.camera_var.set("isometric")
-        delta = -0.18 if event.delta > 0 else 0.18
-        self.free_cam.distance = max(0.9, min(5.5, self.free_cam.distance + delta))
+        if self.camera_var.get() not in ("isometric", "wheel_closeup"):
+            self.camera_var.set("isometric")
+        delta = -0.16 if event.delta > 0 else 0.16
+        self.free_cam.distance = max(0.55, min(5.5, self.free_cam.distance + delta))
         self._render_3d_view()
 
     def _on_belief_view_button(self) -> None:
@@ -722,7 +646,7 @@ class LiveSwarmDashboardApp:
         """Allow clicking directly on planter or scout on the 2D top-down map to inspect its belief."""
         wx, wy = self._canvas_to_world(event.x, event.y)
         best_rid: str | None = None
-        best_d = 0.30
+        best_d = 0.32
         for r in self.frame.robots:
             d = hypot(wx - r.pose.x_m, wy - r.pose.y_m)
             if d < best_d:
@@ -738,10 +662,19 @@ class LiveSwarmDashboardApp:
         self._refresh_all_views()
 
     def trigger_mud_belly_out_demo(self) -> None:
-        """Set selected rover mass to 12.5 kg and wheel radius to 42 mm so it visibly bellies out in mud."""
-        self.mass_kg_var.set(12.5)
-        self.wheel_radius_mm_var.set(42.0)
-        self.wheel_width_mm_var.set(28.0)
+        """Set selected rover mass to 13.0 kg and wheel radius to 40 mm and switch to close-up camera."""
+        self.mass_kg_var.set(13.0)
+        self.wheel_radius_mm_var.set(40.0)
+        self.wheel_width_mm_var.set(26.0)
+        self._apply_vehicle_sizing_to_sim()
+        self.camera_var.set("wheel_closeup")
+        self._on_camera_radio_change()
+        self._refresh_all_views()
+
+    def restore_nominal_sizing(self) -> None:
+        self.mass_kg_var.set(4.2)
+        self.wheel_radius_mm_var.set(58.0)
+        self.wheel_width_mm_var.set(40.0)
         self._apply_vehicle_sizing_to_sim()
         self._refresh_all_views()
 
@@ -751,10 +684,10 @@ class LiveSwarmDashboardApp:
 
             if self._gl_viewer is None or not self._gl_viewer.is_running():
                 self._gl_viewer = mujoco.viewer.launch_passive(self.sim.model, self.sim.data)
-                self._gl_viewer.cam.lookat[:] = [1.25, -0.05, 0.06]
-                self._gl_viewer.cam.distance = 2.85
-                self._gl_viewer.cam.elevation = -33.0
-                self._gl_viewer.cam.azimuth = 115.0
+                self._gl_viewer.cam.lookat[:] = [1.22, -0.05, 0.05]
+                self._gl_viewer.cam.distance = 2.55
+                self._gl_viewer.cam.elevation = -28.0
+                self._gl_viewer.cam.azimuth = 118.0
         except Exception:
             pass
 
@@ -768,7 +701,7 @@ class LiveSwarmDashboardApp:
             self.play_btn.configure(text="⏸ Pause Sim", bg="#d97706")
             self._tick_loop()
         else:
-            self.play_btn.configure(text="▶ Play Live Sim", bg="#0284c7")
+            self.play_btn.configure(text="▶ Play Live 3D Sim", bg="#0284c7")
             if self.after_id is not None:
                 self.root.after_cancel(self.after_id)
                 self.after_id = None
@@ -803,7 +736,7 @@ class LiveSwarmDashboardApp:
         self._refresh_all_views()
 
     # ------------------------------------------------------------------
-    # Rendering: 3D MuJoCo View + 2D Top-Down Heatmap + Inspector + Bekker Lab
+    # Rendering: 3D MuJoCo View + 2D Top-Down Heatmap + Inspector
     # ------------------------------------------------------------------
 
     def _refresh_all_views(self) -> None:
@@ -820,10 +753,9 @@ class LiveSwarmDashboardApp:
         self._render_3d_view()
         self._render_2d_belief_map()
         self._update_inspector_and_logs()
-        self._render_bekker_curves_tab()
 
     def _append_3d_hud_geoms(self, scn: Any) -> None:
-        """Append 3D per-robot belief spheres, SLAM hazard cells, UWB gossip beams, and LiDAR rays to `scn`."""
+        """Append 3D mud ruts, wheel-sinkage collars, belief spheres, SLAM cells, and UWB gossip beams."""
         identity_mat = np.eye(3, dtype=np.float64).flatten()
         planted_sites = {
             d.target_site_id for d in self.sim.completed_drops if d.contact_observed_at_s is not None
@@ -847,6 +779,20 @@ class LiveSwarmDashboardApp:
                 g,
                 mujoco.mjtGeom.mjGEOM_SPHERE,
                 np.array([radius, 0.0, 0.0], dtype=np.float64),
+                np.array(pos, dtype=np.float64),
+                identity_mat,
+                np.array(rgba, dtype=np.float32),
+            )
+            scn.ngeom += 1
+
+        def add_cylinder(pos: list[float], radius: float, half_h: float, rgba: list[float]) -> None:
+            if scn.ngeom >= scn.maxgeom:
+                return
+            g = scn.geoms[scn.ngeom]
+            mujoco.mjv_initGeom(
+                g,
+                mujoco.mjtGeom.mjGEOM_CYLINDER,
+                np.array([radius, half_h, 0.0], dtype=np.float64),
                 np.array(pos, dtype=np.float64),
                 identity_mat,
                 np.array(rgba, dtype=np.float32),
@@ -888,6 +834,45 @@ class LiveSwarmDashboardApp:
             )
             scn.ngeom += 1
 
+        # 1. Render 3D sunken wheel-mud rut tracks left behind by the rovers
+        for _rid, rx, ry, rz, z_sink in self.sim.mud_rut_history[-60:]:
+            rut_alpha = min(0.85, 0.30 + 10.0 * z_sink)
+            rut_w = min(0.055, 0.025 + 0.55 * z_sink)
+            add_box(
+                [rx, ry - 0.11, max(0.002, rz * 0.5)],
+                [0.038, rut_w, 0.004 + 0.25 * z_sink],
+                [0.18, 0.12, 0.07, rut_alpha],
+            )
+            add_box(
+                [rx, ry + 0.11, max(0.002, rz * 0.5)],
+                [0.038, rut_w, 0.004 + 0.25 * z_sink],
+                [0.18, 0.12, 0.07, rut_alpha],
+            )
+
+        # 2. Render 3D mud-sinkage collars / splash rings around each rover's wheels
+        obs_by_id = {r.robot_id: r for r in self.frame.robots}
+        for rid, r_obs in obs_by_id.items():
+            sink = self.sim.latest_terramechanics.get(rid)
+            if sink is None:
+                continue
+            z_s = sink.sinkage_z_m
+            collar_rgba = (
+                [0.95, 0.18, 0.15, 0.82]
+                if sink.bellied_out
+                else ([0.85, 0.48, 0.12, 0.68] if z_s > 0.024 else [0.32, 0.23, 0.14, 0.52])
+            )
+            for dx_w in (-0.11, 0.11):
+                for dy_w in (-0.12, 0.12):
+                    wx = r_obs.pose.x_m + dx_w * cos(r_obs.pose.yaw_rad) - dy_w * sin(r_obs.pose.yaw_rad)
+                    wy = r_obs.pose.y_m + dx_w * sin(r_obs.pose.yaw_rad) + dy_w * cos(r_obs.pose.yaw_rad)
+                    add_cylinder(
+                        [wx, wy, max(0.006, 0.45 * z_s)],
+                        0.048 + 0.4 * z_s,
+                        max(0.005, 0.45 * z_s),
+                        collar_rgba,
+                    )
+
+        # 3. Render split dual-rover 3D belief spheres above each patch
         planter_node = self.runtime.nodes.get("planter")
         scout_node = self.runtime.nodes.get("scout")
         for site_id, site in self.sim.sites.items():
@@ -902,6 +887,7 @@ class LiveSwarmDashboardApp:
                 add_sphere([cx, cy, 0.26], 0.046, p_rgba)
                 add_line([cx, cy, 0.01], [cx, cy, 0.22], 0.005, p_rgba)
 
+        # 4. Render 3D SLAM hazard cells
         seen_slam: set[tuple[int, int]] = set()
         for node in self.runtime.nodes.values():
             for key, cell in node.local_map.slam.cells.items():
@@ -913,7 +899,7 @@ class LiveSwarmDashboardApp:
                 else:
                     add_box([cell.x_m, cell.y_m, 0.015], [0.07, 0.07, 0.012], [0.75, 0.15, 0.85, 0.45])
 
-        obs_by_id = {r.robot_id: r for r in self.frame.robots}
+        # 5. Render UWB / Wi-Fi HaLow gossip link beam
         if "planter" in obs_by_id and "scout" in obs_by_id:
             p_pose = obs_by_id["planter"].pose
             s_pose = obs_by_id["scout"].pose
@@ -928,6 +914,7 @@ class LiveSwarmDashboardApp:
                     [0.10, 0.98, 0.92, 0.92],
                 )
 
+        # 6. Render LiDAR rays & task vectors
         for intent in self.decision.intents:
             if intent.robot_id not in obs_by_id:
                 continue
@@ -953,7 +940,12 @@ class LiveSwarmDashboardApp:
 
     def _render_3d_view(self) -> None:
         cam_choice = self.camera_var.get()
-        if cam_choice == "isometric":
+        if cam_choice == "wheel_closeup":
+            sel = self.selected_robot_var.get()
+            r_xyz = self.sim.data.sensor(f"{sel}_pos").data
+            self.free_cam.lookat[:] = [float(r_xyz[0]), float(r_xyz[1]), 0.03]
+            self.renderer.update_scene(self.sim.data, camera=self.free_cam)
+        elif cam_choice == "isometric":
             self.renderer.update_scene(self.sim.data, camera=self.free_cam)
         else:
             self.renderer.update_scene(self.sim.data, camera=cam_choice)
@@ -964,6 +956,27 @@ class LiveSwarmDashboardApp:
         self._tk_3d_img = tk.PhotoImage(data=ppm_bytes)
         self.canvas_3d.delete("all")
         self.canvas_3d.create_image(0, 0, anchor=tk.NW, image=self._tk_3d_img)
+
+        # Overlay live 3D sinkage & slip telemetry badge directly on the 3D view
+        sel = self.selected_robot_var.get()
+        sink = self.sim.latest_terramechanics.get(sel)
+        pt = self.sim.latest_terrain_points.get(sel)
+        slip = self.sim.latest_slip_ratios.get(sel, 0.08)
+        if sink and pt:
+            badge_col = "#ef4444" if sink.bellied_out else ("#f59e0b" if sink.sinkage_z_m > 0.025 else "#38bdf8")
+            self.canvas_3d.create_rectangle(8, 8, self.RENDER_W - 8, 32, fill="#09131f", outline="#1f3247")
+            self.canvas_3d.create_text(
+                14,
+                20,
+                anchor="w",
+                text=(
+                    f"3D Physics [{sel.upper()}]: Terrain z={pt.elevation_m*1000:+.1f}mm | "
+                    f"Mud Sinkage z={sink.sinkage_z_m*1000:.1f}mm (Belly Clr={sink.belly_clearance_m*1000:+.1f}mm) | "
+                    f"Wheel Slip={slip*100:.0f}% | {'BELLIED OUT!' if sink.bellied_out else 'DRIVING'}"
+                ),
+                fill=badge_col,
+                font=("Consolas", 8, "bold"),
+            )
 
     def _world_to_canvas(self, x_m: float, y_m: float) -> tuple[float, float]:
         x_min, x_max = self.truth_grid["x_bounds"]
@@ -1128,7 +1141,6 @@ class LiveSwarmDashboardApp:
             sink_st = self.sim.latest_terramechanics.get(rid)
             bellied = bool(sink_st.bellied_out) if sink_st else False
 
-            # Highlight halo if this robot is currently selected for world-belief inspection
             if is_selected:
                 c.create_oval(
                     rx - 18, ry - 18, rx + 18, ry + 18, outline="#fef08a", width=3
@@ -1136,7 +1148,6 @@ class LiveSwarmDashboardApp:
 
             fill_col = "#ef4444" if bellied else ("#0284c7" if rid == "planter" else "#16a34a")
             c.create_oval(rx - 11, ry - 11, rx + 11, ry + 11, fill=fill_col, outline="#ffffff", width=2)
-            # Heading indicator line
             hx = rx + 16 * cos(r_obs.pose.yaw_rad)
             hy = ry - 16 * sin(r_obs.pose.yaw_rad)
             c.create_line(rx, ry, hx, hy, fill="#fef08a", width=2)
@@ -1151,13 +1162,12 @@ class LiveSwarmDashboardApp:
                 font=("Segoe UI", 8, "bold"),
             )
 
-        # Header overlay inside 2D map
         c.create_rectangle(6, 4, self.MAP_W - 6, 22, fill="#0b131e", outline="#1f3247")
         c.create_text(
             12,
             13,
             anchor="w",
-            text=f"View: {view_mode.upper()}  |  Layer: {layer_title} [{vmin:.2f} .. {vmax:.2f}]  (Click any robot icon to inspect)",
+            text=f"View: {view_mode.upper()}  |  Layer: {layer_title} [{vmin:.2f} .. {vmax:.2f}]  (Click robot to inspect)",
             fill="#38bdf8",
             font=("Consolas", 8, "bold"),
         )
@@ -1171,16 +1181,20 @@ class LiveSwarmDashboardApp:
         r_intent = intents_by_id.get(sel_rid)
         pt = self.sim.latest_terrain_points.get(sel_rid)
         sink = self.sim.latest_terramechanics.get(sel_rid)
+        slip_r = self.sim.latest_slip_ratios.get(sel_rid, 0.08)
         tel = self.runtime.latest_sensor_telemetry.get(sel_rid)
 
         self.inspector_title_lbl.configure(
-            text=f"🤖 {sel_rid.upper()}'S PRIVATE WORLD MODEL & SENSOR SUITE"
+            text=f"🤖 {sel_rid.upper()}'S WORLD MODEL & 3D MUD TELEMETRY"
         )
 
         lines: list[str] = []
         if r_obs is not None:
             lines.append(
                 f"Pose     : ({r_obs.pose.x_m:.2f}m, {r_obs.pose.y_m:.2f}m, yaw={r_obs.pose.yaw_rad:.2f}r)"
+            )
+            lines.append(
+                f"3D Tilt  : Pitch={r_obs.pitch_rad*57.3:+.1f}° | Roll={r_obs.roll_rad*57.3:+.1f}°"
             )
             lines.append(
                 f"Seeds    : {r_obs.seeds_remaining}  | Front LiDAR: {r_obs.front_range_m:.2f}m"
@@ -1192,18 +1206,21 @@ class LiveSwarmDashboardApp:
             lines.append(f"Reason   : {r_intent.reason}")
 
         if pt is not None and sink is not None:
-            lines.append("\n--- CONTINUOUS TERRAIN & BEKKER SINKAGE ---")
+            lines.append("\n--- 3D TERRAIN, SLIP & BEKKER SINKAGE ---")
             lines.append(
-                f"Terrain  : z={pt.elevation_m*1000:.1f}mm | slope={pt.slope_magnitude*100:.1f}%"
+                f"MicroTopo: z={pt.elevation_m*1000:+.1f}mm | slope={pt.slope_magnitude*100:.1f}%"
             )
             lines.append(
                 f"Soil     : M={pt.moisture:.2f} | F={pt.firmness:.2f} | Mud={pt.mud_depth_m*1000:.0f}mm"
             )
             lines.append(
+                f"Rice Fit : Φ={pt.planting_fitness:.2f} (WDSR Suitability)"
+            )
+            lines.append(
                 f"Sinkage z: {sink.sinkage_z_m*1000:.1f}mm (Belly clr: {sink.belly_clearance_m*1000:+.1f}mm)"
             )
             lines.append(
-                f"Mud Drag : Rc={sink.compaction_resistance_n:.1f}N | Pull={sink.drawbar_pull_margin_n:+.1f}N"
+                f"WheelSlip: s={slip_r*100:.1f}% | Drag Rc={sink.compaction_resistance_n:.1f}N"
             )
             lines.append(
                 f"Status   : {'⚠ BELLIED OUT (S1 STUCK)' if sink.bellied_out else '✓ TRAVERSABLE'}"
@@ -1211,10 +1228,6 @@ class LiveSwarmDashboardApp:
             )
 
         if tel is not None:
-            lines.append("\n--- LOCAL ONBOARD SENSOR TELEMETRY ---")
-            lines.append(
-                f"Slip s   : {tel.slip_ratio*100:.1f}% | Pitch={tel.pitch_deg:+.1f}° Roll={tel.roll_deg:+.1f}°"
-            )
             lines.append(f"UWB Peers: {dict(tel.uwb_peer_ranges_m)}")
 
         lines.append(f"\n--- {sel_rid.upper()}'S PRIVATE GAUSSIAN SITE BELIEFS ---")
@@ -1228,12 +1241,12 @@ class LiveSwarmDashboardApp:
             elif envelope.eligible(est):
                 status = "VIABLE ✓"
             else:
-                status = "REJECTED ✗"
+                status = "MUD REJECT ✗"
             m_str = f"{est.moisture:.2f}" if est.moisture is not None else " ?  "
             f_str = f"{est.firmness:.2f}" if est.firmness is not None else " ?  "
             g_str = f"{est.stand_gap:.2f}" if est.stand_gap is not None else " ?  "
             lines.append(
-                f"• {sid}: [{status:10s}] M={m_str} F={f_str} G={g_str} (σ={mean_unc:.2f})"
+                f"• {sid}: [{status:12s}] M={m_str} F={f_str} G={g_str} (σ={mean_unc:.2f})"
             )
 
         lines.append(f"\n--- LOCAL 2D SLAM CELLS ({len(node.local_map.slam.cells)}) ---")
@@ -1245,21 +1258,21 @@ class LiveSwarmDashboardApp:
         self.inspector_text.delete("1.0", tk.END)
         self.inspector_text.insert(tk.END, "\n".join(lines))
 
-        # Update bottom Bekker-Wong comparison cards for both rovers
         card_lines: list[str] = []
         for rid in ("planter", "scout"):
             s_st = self.sim.latest_terramechanics.get(rid)
             t_pt = self.sim.latest_terrain_points.get(rid)
+            slp = self.sim.latest_slip_ratios.get(rid, 0.08)
             if s_st and t_pt:
                 card_lines.append(
-                    f"{rid.upper():7s} (m={s_st.mass_kg:4.1f}kg, r={s_st.wheel_radius_m*1000:2.0f}mm, b={s_st.wheel_width_m*1000:2.0f}mm) | "
-                    f"Sink z={s_st.sinkage_z_m*1000:5.1f}mm | Clr={s_st.belly_clearance_m*1000:+5.1f}mm | "
-                    f"Drag Rc={s_st.compaction_resistance_n:5.1f}N | SpeedFactor={s_st.speed_penalty_factor*100:3.0f}% | "
-                    f"{'BELLIED OUT!' if s_st.bellied_out else 'OK'}"
+                    f"{rid.upper():7s} (m={s_st.mass_kg:4.1f}kg, r={s_st.wheel_radius_m*1000:2.0f}mm) | "
+                    f"Topo z={t_pt.elevation_m*1000:+5.1f}mm | Sink z={s_st.sinkage_z_m*1000:5.1f}mm | "
+                    f"Clr={s_st.belly_clearance_m*1000:+5.1f}mm | Slip={slp*100:2.0f}% | "
+                    f"Drag={s_st.compaction_resistance_n:4.1f}N | "
+                    f"{'BELLIED OUT (S1)!' if s_st.bellied_out else 'DRIVING'}"
                 )
         self.terramech_cards_lbl.configure(text="\n".join(card_lines))
 
-        # Update scrolling UWB/HaLow Gossip Log
         self.gossip_text.delete("1.0", tk.END)
         if not self.runtime.gossip_history:
             self.gossip_text.insert(
@@ -1276,109 +1289,6 @@ class LiveSwarmDashboardApp:
                 )
             self.gossip_text.insert(tk.END, "\n".join(g_lines))
 
-    def _render_bekker_curves_tab(self) -> None:
-        c = self.bekker_canvas
-        c.delete("all")
-        sel_rid = self.selected_robot_var.get()
-        pt = self.sim.latest_terrain_points.get(
-            sel_rid, self.sim.world.evaluate_continuous_point(1.4, -0.35)
-        )
-
-        w = 1380
-        h = 660
-        pad_l, pad_r, pad_t, pad_b = 80, 50, 60, 70
-        pw = w - pad_l - pad_r
-        ph = h - pad_t - pad_b
-
-        c.create_text(
-            pad_l,
-            24,
-            anchor="w",
-            text=(
-                f"Bekker-Wong Wheel-Mud Sinkage z(m) vs. Robot Mass at {sel_rid.upper()}'s Current Soil "
-                f"(Moisture={pt.moisture:.2f}, Firmness={pt.firmness:.2f}, Mud Depth={pt.mud_depth_m*1000:.0f}mm)"
-            ),
-            fill="#38bdf8",
-            font=("Segoe UI", 12, "bold"),
-        )
-
-        c.create_rectangle(pad_l, pad_t, pad_l + pw, pad_t + ph, fill="#0b1522", outline="#1f3247", width=2)
-
-        # Draw 44mm Paddy Ant belly clearance threshold line
-        max_z_mm = 110.0
-        belly_y = pad_t + ph - (44.0 / max_z_mm) * ph
-        c.create_line(pad_l, belly_y, pad_l + pw, belly_y, fill="#ef4444", width=2, dash=(6, 4))
-        c.create_text(
-            pad_l + 14,
-            belly_y - 10,
-            anchor="w",
-            text="Paddy Ant Chassis Belly Clearance Threshold (44 mm) — Above this line = S1 Belly-Out Immobilization",
-            fill="#f87171",
-            font=("Consolas", 9, "bold"),
-        )
-
-        masses = [1.5 + 0.5 * i for i in range(30)]  # 1.5 to 16.0 kg
-        configs = [
-            ("Small Wheel (r=42mm, b=28mm)", 0.042, 0.028, "#f97316"),
-            ("Standard Paddy Ant (r=58mm, b=40mm)", 0.058, 0.040, "#38bdf8"),
-            ("Wide Flotation Wheel (r=80mm, b=62mm)", 0.080, 0.062, "#22c55e"),
-        ]
-
-        for idx, (label, r_m, b_m, col) in enumerate(configs):
-            coords: list[float] = []
-            for m_kg in masses:
-                st = evaluate_bekker_terramechanics(
-                    PLANTER_SPEC,
-                    moisture=pt.moisture,
-                    firmness=pt.firmness,
-                    mud_depth_m=pt.mud_depth_m,
-                    slope_magnitude=pt.slope_magnitude,
-                    slip_ratio=0.22,
-                    mass_override_kg=m_kg,
-                    wheel_radius_override_m=r_m,
-                    wheel_width_override_m=b_m,
-                )
-                z_mm = min(max_z_mm, st.sinkage_z_m * 1000.0)
-                x_px = pad_l + ((m_kg - 1.5) / (16.0 - 1.5)) * pw
-                y_px = pad_t + ph - (z_mm / max_z_mm) * ph
-                coords.extend([x_px, y_px])
-            c.create_line(*coords, fill=col, width=3)
-            c.create_text(
-                pad_l + pw - 290,
-                pad_t + 25 + idx * 24,
-                anchor="w",
-                text=f"■ {label}",
-                fill=col,
-                font=("Segoe UI", 10, "bold"),
-            )
-
-        # Plot current slider operating point
-        cur_m = float(self.mass_kg_var.get())
-        cur_r = float(self.wheel_radius_mm_var.get()) / 1000.0
-        cur_b = float(self.wheel_width_mm_var.get()) / 1000.0
-        cur_st = evaluate_bekker_terramechanics(
-            PLANTER_SPEC,
-            moisture=pt.moisture,
-            firmness=pt.firmness,
-            mud_depth_m=pt.mud_depth_m,
-            slope_magnitude=pt.slope_magnitude,
-            slip_ratio=0.22,
-            mass_override_kg=cur_m,
-            wheel_radius_override_m=cur_r,
-            wheel_width_override_m=cur_b,
-        )
-        cx = pad_l + ((cur_m - 1.5) / (16.0 - 1.5)) * pw
-        cy = pad_t + ph - (min(max_z_mm, cur_st.sinkage_z_m * 1000.0) / max_z_mm) * ph
-        c.create_oval(cx - 8, cy - 8, cx + 8, cy + 8, fill="#fef08a", outline="#ef4444", width=2)
-        c.create_text(
-            cx + 12,
-            cy - 10,
-            anchor="w",
-            text=f"Active Slider Point: m={cur_m:.1f}kg, z={cur_st.sinkage_z_m*1000:.1f}mm, Rc={cur_st.compaction_resistance_n:.1f}N",
-            fill="#fef08a",
-            font=("Consolas", 9, "bold"),
-        )
-
 
 def launch_live_dashboard(
     *,
@@ -1387,7 +1297,7 @@ def launch_live_dashboard(
     seed: int = 7,
     auto_play: bool = True,
 ) -> None:
-    """Launch the native side-by-side 3D MuJoCo + 2D Top-Down Belief Heatmap desktop application."""
+    """Launch the unified side-by-side 3D MuJoCo + 2D Top-Down Belief & Fitness desktop window."""
     root = tk.Tk()
     app = LiveSwarmDashboardApp(
         root,
