@@ -1,6 +1,6 @@
 # Product mission and acceptance criteria
 
-**Current selected hackathon direction (7 November 2026; supersedes the earlier RiceWatch inspection-only scope): PaddyPatch — cooperative rice-field stand-gap mapping and targeted replanting.** The robots must **perform the agricultural task**, not simply detect faults, avoid obstacles or discuss how they would plant. A credible physical seed/seedling placement and measured completion of a small, variable field are the central result. Recovery and flood mitigation are supporting optional capabilities, **not** the main goal. Name is a working label, not a registered product.
+**Current selected hackathon direction (7 November 2026; supersedes the earlier Antenna inspection-only scope): Antenna — cooperative rice-field stand-gap mapping and targeted replanting.** The robots must **perform the agricultural task**, not simply detect faults, avoid obstacles or discuss how they would plant. A credible physical seed/seedling placement and measured completion of a small, variable field are the central result. Recovery and flood mitigation are supporting optional capabilities, **not** the main goal. Name is a working label, not a registered product.
 
 ## Real human problem and agronomic boundary
 
@@ -47,7 +47,7 @@ Prove the whole **observe → share local measurements → choose a site → rou
 
 - **P1 — Recovery assistance:** first local obstacle/failed planting-action recovery within the core loop (bounded retry/skip/return); true **robot-to-robot rescue** only if a second rover can physically assist with contacts/forces and there is time. Do not require physical towing for P0.
 - **P2 — Environmental monitoring and mitigation:** optional rising-water/blocked drain monitoring, further investigation and a *physically actuated* canal gate/valve with a labelled **synthetic flow/water model**. This is NOT part of the required planting task, initial contract, baseline or judge demo. It may affect future planting decisions, but no flood prevention can be claimed.
-- **P3 — Generalisation demonstrations:** reuse observation/map/actor/task-allocation interfaces for forest restoration, infrastructure, Firewatch or space. **A shared interface is not proof of performance outside rice.** Do not build extra world domains for this submission.
+- **P3 — Generalisation demonstrations:** reuse observation/map/actor/task-allocation interfaces for forest restoration, infrastructure, Antenna or space. **A shared interface is not proof of performance outside rice.** Do not build extra world domains for this submission.
 
 ## Software seams, human decisions, and risk
 

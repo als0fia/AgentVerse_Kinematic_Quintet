@@ -88,7 +88,7 @@ The first pure-Python `rice.v1` core is now present in `src/ricebot/`. **One hum
 
 ## Selected rice project: five-human work split (proposed, not yet assigned by name)
 
-**PaddyPatch P0:** two physically moving rice-field robots (planter + complementary scout), real local soil/stand sample proxies, **shared estimated soil/stand map**, site selection, safe coordinated routes, and **a physically dropped seed proxy in an eligible gap**, with a surprise change and measured results. **Isaac Sim is selected for now but NOT confirmed running.** Human roles below are proposals, not named people or authority to spend. The first milestone is one rover then its physical planting tool; the second embodied scout is the final cooperative target. [PRODUCT](PRODUCT.md) owns scope; [CONTRACTS](CONTRACTS.md) owns the single interface and [RUN](RUN.md) owns actual launch evidence.
+**Antenna P0:** two physically moving rice-field robots (planter + complementary scout), real local soil/stand sample proxies, **shared estimated soil/stand map**, site selection, safe coordinated routes, and **a physically dropped seed proxy in an eligible gap**, with a surprise change and measured results. **Isaac Sim is selected for now but NOT confirmed running.** Human roles below are proposals, not named people or authority to spend. The first milestone is one rover then its physical planting tool; the second embodied scout is the final cooperative target. [PRODUCT](PRODUCT.md) owns scope; [CONTRACTS](CONTRACTS.md) owns the single interface and [RUN](RUN.md) owns actual launch evidence.
 
 | Person / owner | Own code paths after first proven fixture | What they must deliver | Important exclusions |
 | --- | --- | --- | --- |

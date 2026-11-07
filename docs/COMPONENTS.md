@@ -1,6 +1,6 @@
 # Component ownership, replaceability and audit standard
 
-**Applies to all meaningful PaddyPatch modules and future features.** This is the canonical guide for **program sections** (world, robot, mapping, controls, evaluation), not Git branches. [TEAM](TEAM.md) governs Git collaboration; [CONTRACTS](CONTRACTS.md) defines the real `rice.v1` data model. Read only the relevant section and component README for the task. Do **not** add an agent file per function or a new framework for documentation.
+**Applies to all meaningful Antenna modules and future features.** This is the canonical guide for **program sections** (world, robot, mapping, controls, evaluation), not Git branches. [TEAM](TEAM.md) governs Git collaboration; [CONTRACTS](CONTRACTS.md) defines the real `rice.v1` data model. Read only the relevant section and component README for the task. Do **not** add an agent file per function or a new framework for documentation.
 
 ## Current source versus proposed functionality
 

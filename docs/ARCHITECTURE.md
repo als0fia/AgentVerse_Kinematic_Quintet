@@ -1,6 +1,6 @@
 # Runtime architecture — cooperative rice planting in Isaac Sim
 
-**Canonical mission:** [PaddyPatch PRODUCT](PRODUCT.md), superseding RiceWatch alarm-only monitoring. **Isaac Sim is the user-selected simulator** (version/platform not yet verified). P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
+**Canonical mission:** [Antenna PRODUCT](PRODUCT.md), superseding Antenna alarm-only monitoring. **Isaac Sim is the user-selected simulator** (version/platform not yet verified). P0 requires **physical planting**, locally measured heterogeneous field conditions, shared evidence from **two embodied rovers**, site selection, safe route/task coordination and changed-world adaptation. Flood mitigation and robot-to-robot physical rescue are optional.
 
 ## Current module ownership and mock/real replacement boundary
 

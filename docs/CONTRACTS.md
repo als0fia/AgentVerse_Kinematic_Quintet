@@ -1,4 +1,4 @@
-# Contracts and invariants — PaddyPatch rice planting
+# Contracts and invariants — Antenna rice planting
 
 **A narrow rice.v1 Python interface is now implemented and unit-tested; the Isaac Sim adapter and embodied product are NOT.** The human integrator freezes concrete Python types only after a real Isaac Sim rover/sensor/drop fixture, updating producers, consumers, tests and samples together. This supersedes the earlier rice-flood-alert-only `rice.v0` *draft* as the proposed product API, but preserves the **implemented JSONL evidence contract** below. Never require water-control gates, physical rescue, other worlds or LLM calls for the planting task.
 
@@ -59,7 +59,7 @@ viewer.consume(read_only_scene_and_trace) -> render frame
 
 ## Optional capability contracts — not needed to build
 
-Only if human-approved after demonstrated P0, define `RobotRecoveryRequestV2` or `MitigationRequestV2` against real additional actors and physics. Rescue requires actual helper behaviour; flood-control requires physical gate/outlet actuation and a transparently synthetic water model. Do not create unused mandatory fields, routes or mocks for these systems in `rice.v1`. Reforestation/Firewatch/space need new physical environments and validation, not just changing the name of a scenario.
+Only if human-approved after demonstrated P0, define `RobotRecoveryRequestV2` or `MitigationRequestV2` against real additional actors and physics. Rescue requires actual helper behaviour; flood-control requires physical gate/outlet actuation and a transparently synthetic water model. Do not create unused mandatory fields, routes or mocks for these systems in `rice.v1`. Reforestation/Antenna/space need new physical environments and validation, not just changing the name of a scenario.
 
 ## Shared-interface change rules
 

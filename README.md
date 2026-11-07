@@ -26,7 +26,7 @@ Short-lived feature branches and PRs exist only for independent, reviewable chan
 
 **Next builder:** [exact first Isaac Sim integration assignment](docs/RUN.md#next-agent-first-integration-task--isaac-sim-planting-first-skeleton-not-yet-implemented); first proof is actual wheel motion, a sampled ray sensor and **actual seed release/contact**. The second robot and soil map are the next integrated mission slice. **No working scene or planting is yet verified.** The mechanical lead approves simple wheeled body, reach and hopper geometry. A map without real planting and a clever rescue system with no task completion are not sufficient.
 
-**Prior scope history:** earlier RiceWatch fixed water-gauge verification and optional drainage gate were documented in [DECISIONS](docs/DECISIONS.md) as D-0005/D-0006; they are **superseded** by D-0007. Firewatch/reforestation/space are future application hypotheses only.
+**Prior scope history:** earlier Antenna fixed water-gauge verification and optional drainage gate were documented in [DECISIONS](docs/DECISIONS.md) as D-0005/D-0006; they are **superseded** by D-0007. Antenna/reforestation/space are future application hypotheses only.
 
 ## Hard constraint from the revealed challenge
 

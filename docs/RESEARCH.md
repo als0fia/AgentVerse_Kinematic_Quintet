@@ -13,7 +13,7 @@
 | [Devpost AI hackathon guide](https://www.devpost.com/) and public rules/examples | Value of idea, implementation and real-world impact as common dimensions | Claiming any generic 20/30% weights are AgentVerse's rubric |
 | [Official AgentVerse](https://agentverse.uclai.co.uk/) | Actual event timetable and current event authority | Treating last year's event or public guess as current track brief |
 
-## PaddyPatch-specific prior art and Isaac Sim readiness — 7 Nov 2026
+## Antenna-specific prior art and Isaac Sim readiness — 7 Nov 2026
 
 **Current user-selected mission:** physics-embodied **cooperative rice stand-gap survey, shared uncertain soil/stand mapping, physical seed placement and changing-route adaptation**, not primary flood monitoring or rescue. See [PRODUCT](PRODUCT.md) for precise acceptance and [DECISIONS](DECISIONS.md) D-0007. All soil/establishment values in the hackathon will be **synthetic proxies until field calibrated**. No Isaac Sim installation, sensors, video or robot result has been verified in this research entry.
 

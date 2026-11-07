@@ -1,6 +1,6 @@
 # Reproducible setup, run and recovery
 
-**Selected project is PaddyPatch cooperative rice-field stand-gap mapping, targeted replanting and physical seed placement.** **Isaac Sim is the user-selected simulator for now**, but exact version, machine/container, scene performance and hardware are **not yet verified**. Do not claim a running robot, working seed drop, GPU credits, model or deployment. Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
+**Selected project is Antenna cooperative rice-field stand-gap mapping, targeted replanting and physical seed placement.** **Isaac Sim is the user-selected simulator for now**, but exact version, machine/container, scene performance and hardware are **not yet verified**. Do not claim a running robot, working seed drop, GPU credits, model or deployment. Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
 
 ## New teammate or agent onboarding
 
@@ -62,7 +62,7 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 **Copy-paste first coding assignment:**
 ```text
-Implement the FIRST EXECUTABLE ISAAC SIM PADDYPATCH SKELETON.
+Implement the FIRST EXECUTABLE ISAAC SIM ANTENNA SKELETON.
 Use the latest main and read AGENTS, PRODUCT, ARCHITECTURE, CONTRACTS,
 RUN, and matching skills. Own one isolated branch/worktree.
 Inspect installed Isaac Sim version, compatibility and existing robot assets
@@ -87,7 +87,7 @@ expose secrets, spend credits or submit.
 
 **After first seam:** other owners independently build (a) second rover and locally sampled stand/soil proxy, (b) shared map estimation, (c) site selection and two-robot routing, (d) grader/baselines/video, all consuming the same tested contract. P0 still requires a complete physical rice planting mission and surprise-driven replanning. Separate time-permitting rescue and flood-gate work **only after** end-to-end physical placement and scoring are safe.
 
-**Target future command shape only (NOT implemented):** `./python.sh scripts/run_paddypatch.py --scenario patchy-stand --seed 7 --headless` if using an Isaac Sim workstation install; exact startup depends on verified installation, OS and pinned version. Replace with actually tested command in this file.
+**Target future command shape only (NOT implemented):** `./python.sh scripts/run_antenna.py --scenario patchy-stand --seed 7 --headless` if using an Isaac Sim workstation install; exact startup depends on verified installation, OS and pinned version. Replace with actually tested command in this file.
 
 ## Fill immediately after selecting the product stack
 

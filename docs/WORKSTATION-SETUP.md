@@ -1,13 +1,13 @@
 # Workstation onboarding — every human or coding agent
 
-**Scope:** reproducible **local** onboarding for PaddyPatch's existing Python `rice.v1` kernel, optional **MuJoCo environment smoke tests**, and the separately approved **Isaac Sim target**. This document is a recipe, **not a report of installs on another teammate's machine**, and not permission to spend money or alter another developer's files. Read [AGENTS](../AGENTS.md), [RUN](RUN.md) and [component ownership](COMPONENTS.md) before modifying a feature.
+**Scope:** reproducible **local** onboarding for Antenna's existing Python `rice.v1` kernel, optional **MuJoCo environment smoke tests**, and the separately approved **Isaac Sim target**. This document is a recipe, **not a report of installs on another teammate's machine**, and not permission to spend money or alter another developer's files. Read [AGENTS](../AGENTS.md), [RUN](RUN.md) and [component ownership](COMPONENTS.md) before modifying a feature.
 
 ## Safe start: choose a lane
 
 | Lane | Who | What counts as complete |
 | --- | --- | --- |
 | Core-only | Anyone with Python 3.10+ | Importable kernel and repository's standard-library checks really pass |
-| Local simulator sanity | Windows/macOS/Linux developer | An isolated `mujoco` Python environment can advance a real toy physics body and report a measured joint sensor; this is **not** an Isaac Sim or PaddyPatch result |
+| Local simulator sanity | Windows/macOS/Linux developer | An isolated `mujoco` Python environment can advance a real toy physics body and report a measured joint sensor; this is **not** an Isaac Sim or Antenna result |
 | Selected production engine | Approved Isaac Sim owner on qualifying machine/host | Actual installed Isaac version, real wheel joint/range observations, physical seed release/contact and recorded resource use; until then **unverified** |
 | Coding-agent harness | Optional Antigravity/Gemini CLI user | Confirm what this installed client actually discovers; model/credit/skills availability is not assumed |
 

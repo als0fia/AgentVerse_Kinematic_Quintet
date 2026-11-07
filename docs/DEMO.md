@@ -23,7 +23,7 @@
 
 **Working pace suggested by the speaker:** Saturday morning reduce to one user/pain and one 30-second capability; Saturday afternoon prove core loop before styling; Saturday evening layer optional senses and rehearsals; Sunday stop new features roughly **two hours before the verified deadline**, record a short backup and test the demo from a clean checkout. These are suggested *internal timeboxes*, **not organiser schedule changes**. The published latest BuilderBase portal now says **Sunday 8 Nov 13:00 GMT** (older site was 14:00), so use the earlier deadline unless organiser verifies an extension.
 
-## PaddyPatch: ≤60-second continuous rice-planting episode (not recorded)
+## Antenna: ≤60-second continuous rice-planting episode (not recorded)
 
 **User-facing pitch:** “A rice field has irregular failed emergence. Two autonomous robots gather different soil and crop-condition measurements, build a shared suitability map and coordinate where to replant—with fewer wasted seeds and safer routes. They must keep planting when new ground conditions invalidate their plan.” **Simulated benefit only; no claim of measured rice survival/yield.**
 
