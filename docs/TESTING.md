@@ -1,5 +1,7 @@
 # Testing, baseline and independent evidence
 
+**Post-PR #48 status (7 Nov 2026, `main` `16768dc`):** The single `scripts/run_mujoco_paddypatch.py --scenario golden_rescue` MuJoCo path now includes a typed `TaskMode.RESCUE`, a bounded docking/extraction command, `RecoveryFeedback` and post-rescue planting. [PR #48](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/48) merged; [combined GitHub CI](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/actions/runs/42418413738) ran **78 tests successfully**. The integrated test now checks two seed drops, maximum recorded equality-constraint force below 250 N and pitch below 0.12 rad in its fixture. **This proves the checked-in simulation/test path only:** helper survivability across hazardous traction, policy-only sensing without privileged simulator fault flags, independent multi-seed baselines, live model benefit, physical hardware and a finished submission video/PDF are *not* established by that CI.
+
 **Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
 
 **Current verification layers:** repository/tooling tests, Python `rice.v1` scripted tests, **and MuJoCo 4.0.0 prototype physics tests** (`tests/test_mujoco_sim.py`). Full CI installs [pinned optional MuJoCo](../requirements-mujoco.txt) with Python 3.11+ before discovery. These results **do not establish Isaac Sim integration, field agronomy or a complete judge demo**. Report CI and locally observed results separately.
@@ -20,7 +22,7 @@ The [official weight table and source photo provenance](EVENT.md#confirmed-robot
 
 ## Antenna P0 acceptance — rescue first, with fieldwork regression
 
-**P0 has not passed end-to-end.** Existing MuJoCo nominal soil/seed tests and scripted standalone rigid docking are partial prerequisites. Rescue is the core claim; real seed-contact remains a regression and a useful post-recovery task, not a substitute for recovering a robot.
+**P0 has passed its *automated golden-episode integration test* on `main` after PR #48 (78/78 CI tests passed).** This verifies the selected scripted fixture, including simulated fault handling, rescue command/extraction and two ground-contact seed placements; it does **not** prove the broader independent rescue acceptance matrix below. Multi-seed perturbations, independent ground-truth separation, safe refusal under difficult traction, second-casualty outcomes and a continuous judge video remain to be verified.
 
 | Required scenario | Input / no-leak constraint | Independent pass/fail |
 | --- | --- | --- |
