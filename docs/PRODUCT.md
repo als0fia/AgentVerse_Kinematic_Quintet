@@ -12,6 +12,19 @@
 
 **Why AI is necessary:** specify the ambiguous perception, uncertainty, diagnosis, experiment design or language reasoning that deterministic tools cannot cheaply handle. A tool-calling LLM is not itself differentiation.
 
+## Candidate system families (not selected)
+
+**These are two reusable systems, not five separate products.** The team has not yet chosen either or verified a working simulation. Applications are examples to help select **one testable embodied task**, not promises of simultaneous implementation.
+
+| System | Specific job / user | Minimum embodied demonstration | Difficult comparison |
+| --- | --- | --- | --- |
+| **Swarm Recovery & Assistance** | For field fleet operators, restore operation when one robot's ordinary self-recovery fails | A simulated disabled rover is assessed; one mobile helper investigates/reaches it and physically performs a bounded recovery or justified safe refusal after an unexpected scene change | Nearest-helper and deterministic rescue rules versus resource/risk-aware cooperative diagnosis and dispatch |
+| **Monitoring, Investigation & Targeted Mitigation** | For environmental/infrastructure monitors, turn uncertain alerts into safe, justified physical investigation or action | A fixed lookout detects an ambiguous event; a simulated scout chooses a useful observation point, physically travels, verifies sensor evidence and replans after a surprise | Fixed-sensor alarm, nearest-scout rule and Bayesian information-gain / risk-aware planner versus proposed agent |
+
+**Application focus:** Firewatch is the clearest current example of System 2: verify a suspected wildfire without unsafe or unnecessary deployments, and keep the scout safe during communications loss. Rice **drainage-failure inspection** and reforestation **restoration triage** are alternative uses of monitoring/mitigation, **not extra systems**. Simple precision rice planting has no established advantage over competent mechanised planting. A simulated forest-survival score cannot substantiate real tree establishment. Swarm Rescue is System 1 and may be a future optional fallback for a stranded scout, **not a required integration this weekend**.
+
+**First slice for either:** one physically actuated simulated robot, one genuine simulated sensor, one observation-conditioned decision, one surprise *during the same episode*, a bounded local controller and independent grader. Add a second robot, environmental actuator or deliberative model only after this works. Capture the real user benefit and nearest published/current alternative in [RESEARCH](RESEARCH.md) when the team chooses. See [CONTRACTS](CONTRACTS.md) for interface ownership and [TESTING](TESTING.md) for falsification; do not use privileged simulator ground truth as agent input. The actual **selection, baseline, simulator, ownership and acceptance metric** must replace this shortlist in this file after human agreement.
+
 ## Minimum live scenario
 
 | Field | Must be explicit after selection |
