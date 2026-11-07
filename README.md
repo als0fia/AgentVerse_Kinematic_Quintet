@@ -12,6 +12,8 @@ Short-lived feature branches and PRs exist only for independent, reviewable chan
 
 ## Start here
 
+**New computer or new agent?** Use [Workstation onboarding](docs/WORKSTATION-SETUP.md) for a safe local clone, Python checks, optional MuJoCo toy-physics test, Isaac Sim hardware gate, Gemini/Antigravity instructions and actual evidence handoff. For any major feature or world-vs-robot handoff, use [Component ownership and audit](docs/COMPONENTS.md). These guides are reusable; don't create duplicate frameworks.
+
 1. **Agent and human instructions:** read [AGENTS.md](AGENTS.md), [PRODUCT](docs/PRODUCT.md), [ARCHITECTURE](docs/ARCHITECTURE.md), [CONTRACTS](docs/CONTRACTS.md), and [TEAM](docs/TEAM.md). A human integrator owns the shared seam and actual decisions; Gemini CLI workers start **only** in human-owned worktrees.
 2. **Confirm Isaac Sim:** follow [RUN](docs/RUN.md#isaac-sim-preflight--chosen-target-not-yet-proven); check actual GPU/VRAM/RAM/driver and physics startup on the intended workstation or approved compute. The organiser later suggested MuJoCo for laptop convenience, **but the user has explicitly chosen Isaac Sim for this project**; don't switch without human agreement.
 3. **Build physical planting before a framework:** first actuated rover/range sensor and obstacle-replan; **immediately a physically released seed proxy with measured ground contact**. Then bring in a second scout, realistic local soil/stand proxies, shared estimated map, sample/site selection, safe routes, and new mid-episode evidence.
@@ -59,6 +61,8 @@ The fixture comparison is **synthetic tooling data, not product performance**. O
 | [PRODUCT](docs/PRODUCT.md) | Real beneficiary, workflow, success criterion, alternative and selection rationale |
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | Modules, data/control flow, ownership and dependencies |
 | [CONTRACTS](docs/CONTRACTS.md) | Versioned inter-module messages, units, errors and invariants |
+| [COMPONENTS](docs/COMPONENTS.md) | World/robot/Isaac/kernel boundaries, mock swap, per-module documentation, independent audits |
+| [WORKSTATION-SETUP](docs/WORKSTATION-SETUP.md) | Every teammate/agent: safe Windows setup, core checks, optional MuJoCo, gated Isaac, account hygiene |
 | [TEAM](docs/TEAM.md) | Ownership protocol, parallel tasks, integration and handoff |
 | [RUN](docs/RUN.md) | Reproducible setup, start, smoke and recovery commands |
 | [TESTING](docs/TESTING.md) | Test matrix, baseline metrics, evaluation cases and failure taxonomy |

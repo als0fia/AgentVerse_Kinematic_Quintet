@@ -2,6 +2,12 @@
 
 The human team decides roles. **No named teammate assignments have been verified.** An AI agent is a worker within human-approved scope, not a new registered team member. The organiser's 3–5 human team size does not specify an AI-agent quota; no separate AI-agent cap has been verified. Use **one human-led integration path, with as many bounded specialist tasks as can be independently tested**, not one monolithic shared AI session.
 
+## Simulation/robot co-development and recurring component audits
+
+Two human collaborators may exchange who uses ChatGPT or Gemini for **world simulation** versus **robot embodiment**. Do not lock the division to an AI brand. The actual source ownership follows [COMPONENTS](COMPONENTS.md): world owns field/soil/obstacles/probe rules, robot owns chassis/joints/motors/sensors/hopper, **one Isaac composition writer** loads both and implements the existing `SimulationPort`, and the kernel integrator alone changes public `rice.v1` types/runner. A physically moving mock rover lets the world developer progress before the finished vehicle, but replaceability must be revalidated for actual dimensions, control bounds, sensor mounting and landing/contact.
+
+For substantial new feature components require the small module README, actual test evidence and replacement notes in [COMPONENTS](COMPONENTS.md). On requests to audit/streamline/split program sections, activate [module-audit](../.agents/skills/module-audit/SKILL.md) and return **critical/major/minor findings, exact evidence, test status and owner**, no unapproved refactor. Agents setting up new machines follow [workstation setup](WORKSTATION-SETUP.md); neither a mock-only test nor a local MuJoCo demo proves real Isaac behaviour.
+
 ## One-writer ownership protocol
 
 1. **First make one executable path work.** The integrator and team define only the shared seam needed for that path (inputs, outputs, units, failures, one fixture). Avoid premature architecture and parallel dependencies.
