@@ -20,6 +20,8 @@ Short-lived feature branches and PRs exist only for independent, reviewable chan
 
 ## Selected rice project — immediate implementation focus
 
+**Start the next coding agent here:** [first runnable integration assignment](docs/RUN.md#next-agent-first-integration-task--not-yet-implemented). One integrator first proves a physics-actuated rover + real simulated range sensor + obstacle response, and freezes the `rice.v0` seam; then [five human roles and small scoped agent tasks](docs/TEAM.md#selected-rice-project-five-human-work-split-proposed-not-yet-assigned-by-name) can proceed in separate branches. Robot shape, sensor placement and gate mechanism are **human-reviewed**, not automatically chosen by the planner.
+
 **Human problem:** A rice-field operator needs to react when water rises abnormally and the cause is not immediately known. Ordinary controlled shallow flooding is not a failure. A mobile robot should investigate, adapt to an unexpected obstruction, and verify whether a **safe, physically modelled** drainage intervention helps.
 
 **Priority:** 1 rover + 1 real simulated sensor + local control + changing-world recovery **first**; next, a minimal gate/flow intervention if feasible; then a second rover/robot-rescue or a reforestation/space adapter **only if the core demo, evaluator and continuous video are already working**. Architecture and testable pass/fail details live in [PRODUCT](docs/PRODUCT.md), [ARCHITECTURE](docs/ARCHITECTURE.md) and [TESTING](docs/TESTING.md). No verified robotics implementation is implied.

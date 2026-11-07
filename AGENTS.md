@@ -11,6 +11,8 @@ The repo is public. It contains **shared submission engineering**, not personal 
 
 ## Current selected project (7 November 2026)
 
+**Engineering next action:** use [the exact first-agent assignment](docs/RUN.md#next-agent-first-integration-task--not-yet-implemented) and [five-person ownership](docs/TEAM.md#selected-rice-project-five-human-work-split-proposed-not-yet-assigned-by-name). Start with one human-led robot design check and one integrated sensor→motion→surprise fixture. Agents should do small owned features with actual tests, never simultaneous whole-stack rewrites or schema edits. Local controller and UI must remain separate; independent evaluator alone sees privileged world truth. The physical gate/rescue extensions are not yet implemented.
+
 **Build for the selected rice-field flood monitoring, investigation and adaptive response mission.** Read [PRODUCT](docs/PRODUCT.md) before adding features or changing the objective. The default build target is one simulated rover that uses real simulated sensing, physically navigates to investigate abnormal water/drainage behaviour, and recovers or stops safely after a mid-episode surprise. **Mitigation via a modelled gate/flow action is the preferred next capability**, not yet proven; multi-robot rescue, reforestation and space are optional applications of shared interfaces, not currently required or implemented. Treat controlled shallow paddy water as normal; never market all standing water as flooding damage. Preserve the existing programming-agent workflow and model evidence requirements.
 
 ## AgentVerse Robotics judge-alignment gate (event-specific)

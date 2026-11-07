@@ -35,6 +35,36 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 **Runtime topology disclosure, once implemented:** where **simulation** executes, where **policy/decision loop** executes, where **video stream** terminates, external LLM call frequency, degraded-network behaviour, data/privacy/asset licensing and billed GPU time. “Locally autonomous” must describe the *decision loop* honestly even if rendering is on a cloud GPU.
 
+## Next agent first integration task — not yet implemented
+
+**Goal:** make a real physics rover, sampled sensor and bounded local control loop function before five humans/agents implement competing feature stacks. A human integrator owns the first code branch and shared contract, and a human mechanical reviewer chooses/approves the rover's basic body and sensor geometry. Read [PRODUCT](PRODUCT.md), [ARCHITECTURE](ARCHITECTURE.md), the proposed `rice.v0` interfaces in [CONTRACTS](CONTRACTS.md), and [five-human ownership/assignment guide](TEAM.md#selected-rice-project-five-human-work-split-proposed-not-yet-assigned-by-name).
+
+**First coding agent assignment (copy into agent on its own branch/worktree):**
+
+```text
+Build the FIRST executable Rice flood-response architecture, not the complete app.
+Read AGENTS.md, PRODUCT, ARCHITECTURE, CONTRACTS, RUN and the two matching
+embodied-loop/contracts-first skills. Use the latest main SHA and own the
+initial src/ricebot/contracts.py, sim adapter, runner and integration tests.
+Confirm with the human owner a simple wheeled rover design on a service bank.
+Try actual local MuJoCo first. If unavailable, give exact logs and ask the
+human integrator to approve an allowed fallback; no unauthorised cloud usage.
+Implement one physically moving rover with a genuinely sampled range sensor,
+finite bounded commands and an observation-driven safe-stop/replan.
+Inject one new obstacle MID-EPISODE via the simulator, not the agent API.
+Freeze a minimal tested v0 observation/intent/control fixture and create a
+reproducible seed/reset/headless runner. A viewer may subscribe but cannot own
+world physics or command robot joints.
+Show ACTUAL commands executed, pass/fail results, a sensor-action-sensor
+trace, time/latency and limitations. No LLM, water CFD, manipulator,
+multi-agent rescue or invented successful tests in the first PR.
+Do not merge, spend credits or submit without human approval.
+```
+
+**First PR's independent acceptance:** an actual actuated wheel/position change, actual range value change, mid-run sensed obstruction, bounded changed controller action or safe HOLD, deterministic seed, a tested interface fixture, and exact setup/test commands. A mocked JSON sequence **alone** fails this gate. The intended future command shape is `python -m ricebot.runner --scenario blocked_route --seed 7 --headless`—this **does not exist yet**, and the next agent must replace it with an actually working invocation.
+
+**After first integration:** split world/water proxy, human-led robot mechanics/controller, investigation planner, and independent evaluator/UI across the other four owners. Desired P1 is a physically actuated accessible gate/lever or carefully distinguished separate field actuator that measurably changes a **synthetic** water model. P2 is optional second robot recovery. Do not claim flood prevention or physical rescue from advisory messages.
+
 ## Selected rice mission — proposed simulator smoke path
 
 **Product selected, runtime and geometry not yet approved or installed.** Use the organiser-recommended **MuJoCo laptop-first** route unless a teammate demonstrates a faster already-running compatible simulator. A human mechanical reviewer chooses a realistic provisional body: compact wheeled bund-inspection rover versus an explicitly simulated tracked/amphibious alternative. **Prove actuated wheels, collision, fresh range/depth/odometry sample and a changed-action response before inventing an agent stack.**
