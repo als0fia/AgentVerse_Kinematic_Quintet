@@ -48,8 +48,10 @@ PADDYPATCH_MJCF = """
   <option timestep="0.005" gravity="0 0 -9.81" integrator="RK4"/>
 
   <visual>
-    <global offwidth="640" offheight="480"/>
+    <global offwidth="640" offheight="480" azimuth="90" elevation="-42"/>
   </visual>
+
+  <statistic center="0.90 0.00 0.10" extent="1.6"/>
 
   <worldbody>
     <light name="sun" pos="0.8 0 3.5" dir="0 0 -1" diffuse="0.85 0.85 0.85"/>

@@ -99,6 +99,11 @@ def run_demo(
         frame = sim.reset(seed)
         start_wall = time.time()
         with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
+            # Frame the entire rice plot and both rovers clearly from an angled bird's-eye view
+            viewer.cam.lookat[:] = [0.90, 0.00, 0.05]
+            viewer.cam.distance = 2.4
+            viewer.cam.elevation = -42.0
+            viewer.cam.azimuth = 90.0
             for step_idx in range(steps):
                 if not viewer.is_running():
                     break
@@ -106,11 +111,11 @@ def run_demo(
                 recorder.consume(frame, decision)
                 frame = sim.step(decision.commands)
                 viewer.sync()
-                time.sleep(0.03)
+                time.sleep(0.05)
             # Keep window open for remaining viewer_seconds if finished early
             while viewer.is_running() and (time.time() - start_wall) < viewer_seconds:
                 viewer.sync()
-                time.sleep(0.03)
+                time.sleep(0.05)
     else:
         runner = EpisodeRunner(sim, core, view=recorder)
         runner.run(seed=seed, steps=steps)
