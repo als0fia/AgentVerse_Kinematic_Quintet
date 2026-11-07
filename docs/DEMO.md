@@ -23,6 +23,16 @@
 
 **Working pace suggested by the speaker:** Saturday morning reduce to one user/pain and one 30-second capability; Saturday afternoon prove core loop before styling; Saturday evening layer optional senses and rehearsals; Sunday stop new features roughly **two hours before the verified deadline**, record a short backup and test the demo from a clean checkout. These are suggested *internal timeboxes*, **not organiser schedule changes**. The published latest BuilderBase portal now says **Sunday 8 Nov 13:00 GMT** (older site was 14:00), so use the earlier deadline unless organiser verifies an extension.
 
+## Selected rice response: target continuous episode (not recorded)
+
+**Audience:** rice growers, irrigation and drainage operators; a drainage failure or excessive water rise needs inspection, not blanket assumption that all flooded-looking paddies are abnormal. The selected robotics proposal is *monitor → investigate → respond safely → verify*; robot rescue and other field domains remain possible extensions, not demonstrated features.
+
+**≤60-second storyboard target:** (0–10 s) show paddy, bund-side physical rover and live gauge/sensor; abnormal rise triggers a reasoned inspection. (10–23 s) rover moves physically while camera/range or other true sensor observations appear alongside its actions. (23–35 s) a new obstacle/incorrect reading is introduced during the **same uninterrupted episode**, without privileged notification to policy. (35–50 s) rover perceives changed situation, picks a revised safe route or explicitly stops, and reaches a vantage or response point. (50–60 s) independent result: inspection outcome, safety trace, and **if really implemented** a gate-contact actuation followed by a measured water change. Keep narrative and numbers subordinate to what genuinely runs.
+
+**Human mechanical review:** the rover should be a physically modelled machine, tentatively a simple bund/service-edge wheeled rover with mounted sensors; actual body/actuator selection requires teammate review. Do not promise off-road paddy travel, floodproof hardware, real gate torque or amphibious mobility without modelling, collision tests and evidence. A real in-water platform or multi-robot helper is optional next work.
+
+**Failure-focused explanation for judges:** after the mid-run obstruction or failed mitigation, the local controller must use a fresh observation to replan/abort safely; the high-level investigator chooses what to measure or which intervention to consider next. Show independent success/false-alarm and actual task disruption relative to a capable reactive baseline. If the actuation is only proposed, describe it as future work, not a completed demo.
+
 ## Demo card (fill with actual working entry)
 
 | Item | Value |
