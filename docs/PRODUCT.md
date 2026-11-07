@@ -43,7 +43,7 @@ Use `docs/DECISIONS.md` for durable selection/architecture decisions, this file 
 
 ## Embodied Robotics selection gate — revealed 7 November 2026
 
-**Challenge constraints are now known:** see [EVENT](EVENT.md) (onsite slides 35–38, partly illegible rubric), [independent evaluation](TESTING.md), and [fast/slow model / relevant prior-art research](RESEARCH.md#robotics-decision-model-research-fast-execution-slow-investigation-7-nov-2026). This is **not** a product choice. All candidate ideas must be judged by the same objective, not by whether they use an LLM or a fashionable framework.
+**Challenge constraints are now known:** see [EVENT](EVENT.md) (onsite slides 35–38, complete weights resolved from a clearer attendee photo), [independent evaluation](TESTING.md), and [fast/slow model / relevant prior-art research](RESEARCH.md#robotics-decision-model-research-fast-execution-slow-investigation-7-nov-2026). This is **not** a product choice. All candidate ideas must be judged by the same objective, not by whether they use an LLM or a fashionable framework.
 
 | Gate | Team must be able to show | Do not accept as proof |
 | --- | --- | --- |
