@@ -38,7 +38,11 @@
 
 **Field realism:** 4×4–6×6 candidate patches initially; existing stand gaps; synthetic ground moisture and firmness gradients; varying travel/access; limited planting inventory; known and newly revealed barriers. A soil measurement may be an explicit virtual probe with radius/noise and unit-specific sample, plus local vegetation/stand proxy; **a camera cannot directly know soil nutrients or compaction**. The hidden establishment-benefit model is an experiment scoring proxy, **not** an agronomic forecast of rice yield or survival. Record assumptions and compare to uniform/grid coverage as well as competent map-aware deterministic planning.
 
-## Parallel module seams (proposed paths, not present yet)
+## Implemented seam versus pending Isaac physics
+
+`src/ricebot/contracts.py`, `mission.py`, `control.py` and `runtime.py` now provide the **pure-Python** local observation → measured map → task → bounded drive/release command interface. The tests use **scripted observations**; they do not drive a physical Isaac articulation, render soil, or verify seed landing. The required Isaac Sim adapter, scene, second rover, actual range/soil sensors, hopper/dropper and contact observer remain **unimplemented**. The planner uses simple site means and a conservative straight-line HOLD rather than full spatial interpolation or a path planner. A human integration owner may refine this shared contract with tests; specialists should implement adapters/algorithms behind it.
+
+## Parallel module seams (proposed paths, partially implemented)
 
 | Module | What to implement | Owner |
 | --- | --- | --- |
