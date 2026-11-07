@@ -1,21 +1,20 @@
 # Reproducible setup, run and recovery
 
-**Selected project is PaddyPatch cooperative rice-field stand-gap mapping, targeted replanting and physical seed placement.** **Isaac Sim is the user-selected simulator for now**, but exact version, machine/container, scene performance and hardware are **not yet verified**. Do not claim a running robot, working seed drop, GPU credits, model or deployment. Do not falsely claim installation, simulator/robot access, models, cloud credits, supported operating systems or a live demo.
+**Selected project:** PaddyPatch cooperative rice-field stand-gap mapping and simulated seed placement. **Checked-in development backend:** MuJoCo 4.0.0 (rover/seed-contact prototype, testable headlessly). **Isaac Sim is the user-selected intended integration target, not yet implemented or verified.** A MuJoCo test is not agricultural validation or a completed judge demo; don't claim unseen resources or outcomes.
 
 ## New teammate or agent onboarding
 
-For **any fresh Windows/macOS/Linux machine**, start with [WORKSTATION-SETUP](WORKSTATION-SETUP.md): inspect/clone safely, create local `.venv`, run actual kernel checks, optionally verify a **toy MuJoCo physics joint/sensor** via `scripts/smoke_mujoco.py`, verify Antigravity/Gemini tool access, and gate Isaac Sim on real compatible GPU/RAM and permissions. Do not copy another teammate's private keys or assume their local prototype exists on this machine. Selected production target remains Isaac Sim; MuJoCo is optional local preflight/fallback by human decision. [COMPONENTS](COMPONENTS.md) owns world vs robot vs single Isaac integration writer and the module README standard.
+For **any fresh Windows/macOS/Linux machine**, start with [WORKSTATION-SETUP](WORKSTATION-SETUP.md): inspect/clone safely, create local `.venv`, run actual kernel checks, optionally verify a toy MuJoCo joint with `scripts/smoke_mujoco.py` **or run the now-merged PaddyPatch MuJoCo prototype**, verify Antigravity/Gemini access, and gate Isaac Sim on compatible hardware and permissions. Do not copy another teammate's private keys or assume their local prototype exists on this machine. Isaac Sim remains the selected target; **MuJoCo is already the approved active development prototype**. Porting to Isaac still requires tests. [COMPONENTS](COMPONENTS.md) owns world vs robot vs single Isaac integration writer and the module README standard.
 
 ## Implemented core check (no Isaac Sim required)
 
-From repo root with Python 3.10+:
+For **core-only** checks (Python 3.10+, no simulation dependency):
 
 ```bash
 python -m unittest discover -s tests -p 'test_ricebot_foundation.py' -v
-python -m unittest discover -s tests -v
 ```
 
-These checks exercise **scripted sensor frames**, measured local soil fusion, simple tasks, bounded commands and an injected fake simulation-port response. **They do not verify Isaac Sim wheel motion, a physical hopper, landing contact or a working demo.**
+These use **scripted observations only**. Full discovery additionally runs MuJoCo physics tests and requires Python 3.11+ and `requirements-mujoco.txt`. Neither level proves Isaac Sim or farm performance.
 
 **Next coding agent:** implement the actual Isaac Sim `SimulationPort` against `src/ricebot/contracts.py`; first a real wheel-driven rover and range sensor, then an **actual rigid-body seed drop and landing/contact feedback**. Use the installed Isaac version; report exact host/VRAM/driver, commands, physics traces and failures. The physical bridge must refuse expired/invalid drive and drop commands independently. Keep the hidden true soil field out of the observations.
 
@@ -23,13 +22,16 @@ These checks exercise **scripted sensor frames**, measured local soil fusion, si
 
 ## MuJoCo Rapid-Prototyping SimulationPort & Isaac Sim Translation Protocol
 
-For rapid local prototyping on 8 GB VRAM laptops before translating to a teammate's ≥16 GB VRAM Isaac Sim workstation, see [MUJOCO-PROTOTYPE-AND-ISAAC-TRANSLATION](MUJOCO-PROTOTYPE-AND-ISAAC-TRANSLATION.md) and [`src/ricebot/mujoco_sim/README.md`](../src/ricebot/mujoco_sim/README.md):
+The checked-in MuJoCo prototype is the **active local development backend**. See [translation notes](MUJOCO-PROTOTYPE-AND-ISAAC-TRANSLATION.md) and [component README](../src/ricebot/mujoco_sim/README.md). With Python 3.11+, in Windows PowerShell:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --viewer-seconds 12
-.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --headless
+.\.venv\Scripts\python.exe -m pip install -r requirements-mujoco.txt
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --headless
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --viewer-seconds 12
 ```
+
+Use `.venv/bin/python` on Linux/macOS. CI runs headlessly; a MuJoCo success does not prove Isaac translation or real crop outcomes.
 
 ## Foundation checks — actually available
 
@@ -40,7 +42,7 @@ python -m unittest discover -s tests -v
 python scripts/evaluate.py --candidate tests/fixtures/candidate.jsonl --baseline tests/fixtures/baseline.jsonl
 ```
 
-Run `python scripts/sync_skills.py --write` after editing any canonical `.agents/skills/` file. The check command fails if the complete Claude mirrors diverge or skills are missing/extra. Python 3.10+ standard library only. These checks validate **repo structure and evaluation tooling**, not any robotics entry.
+Run `python scripts/sync_skills.py --write` after editing a canonical `.agents/skills/` file. Repo/skill/evaluator tools remain Python 3.10+ standard-library-only; **full unittest discovery also executes MuJoCo integration tests and requires `requirements-mujoco.txt` on Python 3.11+**. CI installs it. Physics success does not establish Isaac compatibility.
 
 ## Optional Gemini CLI development-agent preflight
 
@@ -52,7 +54,7 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 **Use NVIDIA Isaac Sim** for the actual USD scene, physically actuated rover wheels and hopper, rigid-body seed proxies, raycast/range/contact/odometry and second scout. Start from [official Isaac Sim requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html), [current sensor docs](https://docs.isaacsim.omniverse.nvidia.com/latest/sensors/isaacsim_sensors_physics_raycast.html), [Python API](https://docs.isaacsim.omniverse.nvidia.com/latest/py/index.html). **Do not pin a version from these links**: confirm and pin the *actually installed* build and its supported API; versions differ.
 
-**Hardware reality:** official Isaac Sim guidance specifies 32 GB system RAM and 16 GB GPU VRAM minimum for supported workstation operation; some teammates' reported laptops with 8 GB VRAM are below that. Check each actual machine's CPU/system RAM, GPU model + **VRAM**, driver, OS, free disk and run the Isaac Sim Compatibility Checker. If one machine already runs it reliably, use that as the physics host and connect other PCs through a bounded, logged network layer **only if their permissions/network work**. A GPU cloud host is possible only after verifying allocation, cost/credits, security, streaming and explicit spending/deployment approval. The Linux-only container build, assets network requirements and RTX constraints may affect the choice. Keep a headless/low-sensor-count scene to reduce rendering load. **Do not silently switch back to MuJoCo**; if Isaac Sim genuinely blocks progress, report logs and obtain human choice for fallback.
+**Hardware reality:** official Isaac Sim guidance specifies 32 GB system RAM and 16 GB GPU VRAM minimum for supported workstation operation; some teammates' reported laptops with 8 GB VRAM are below that. Check each actual machine's CPU/system RAM, GPU model + **VRAM**, driver, OS, free disk and run the Isaac Sim Compatibility Checker. If one machine already runs it reliably, use that as the physics host and connect other PCs through a bounded, logged network layer **only if their permissions/network work**. A GPU cloud host is possible only after verifying allocation, cost/credits, security, streaming and explicit spending/deployment approval. The Linux-only container build, assets network requirements and RTX constraints may affect the choice. Keep a headless/low-sensor-count scene to reduce rendering load. **The already approved MuJoCo prototype can continue independently**; do not call it Isaac. If Isaac preflight fails, report logs and ask the human team whether to retain MuJoCo for the final demo.
 
 **Preflight must show actual evidence:** installed version, driver/VRAM/RAM, engine executable, physics tick rate, one moving wheel-driven articulation, one measured range sensor value, ability to generate rigid-body seed proxy with ground contact, deterministic reset, a screenshot/trace, CPU/GPU usage and any failures. No source or cloud credentials in Git. If physics is remote, distinguish onsite robot controller/agent process from remote simulation; a disconnected agent cannot be called locally autonomous merely because a remote renderer is still running.
 
