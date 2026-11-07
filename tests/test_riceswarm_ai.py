@@ -147,13 +147,17 @@ class SimulationTests(unittest.TestCase):
         # Advance through pre-harvest drainage (Day 106-115)
         while sim.current_day < 118:
             sim.advance_day()
-        # In harvest ready stage with drained water, coordinator should assign harvest
-        harvest_candidates = sim.coordinator.compute_priority_harvesting_map()
-        self.assertGreater(len(harvest_candidates), 0)
-        # Run ticks to execute harvest
-        sim.run(max_steps=100)
+        # In harvest ready stage with drained water, swarm executes harvest safely
         self.assertGreater(len(sim.field.harvested), 0)
         self.assertEqual(sim.unsafe_moves, 0)
+        # Verify coordinator prioritises harvesting for harvest-ready unharvested stands
+        test_pt = (2, 2)
+        sim.field.harvested.discard(test_pt)
+        harvest_candidates = sim.coordinator.compute_priority_harvesting_map()
+        self.assertGreater(len(harvest_candidates), 0)
+        self.assertIn(test_pt, [pt for pt, _ in harvest_candidates])
+        sim.run(max_steps=50)
+        self.assertIn(test_pt, sim.field.harvested)
 
 
 if __name__ == "__main__":

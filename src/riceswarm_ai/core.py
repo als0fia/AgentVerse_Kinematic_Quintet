@@ -394,6 +394,7 @@ class Field:
         self.harvested: set[Point] = set()
         self.risk_incidents: set[Point] = set()
         self.last_soil_sample_day: int = -999
+        self.tick_count: int = 0
 
     def inside(self, p: Point) -> bool:
         return p in self.truth
@@ -792,12 +793,29 @@ class SwarmCoordinator:
         scores.sort(key=lambda item: item[1], reverse=True)
         return scores
 
+    def compute_priority_scouting_map(self, robot: Robot) -> list[tuple[Point, float]]:
+        """Identifies traversable ridge/bund cells with stale or low-confidence observations."""
+        candidates: list[tuple[Point, float]] = []
+        occupied = {r.pos for r in self.robots.values() if r.name != robot.name}
+        for pt, cell in self.field.belief.items():
+            if not self.field.traversable(pt) or pt in occupied or pt in self.field.crop_targets:
+                continue
+            dist = abs(pt[0] - robot.pos[0]) + abs(pt[1] - robot.pos[1])
+            if dist < 1 or dist > 7:
+                continue
+            staleness = float(self.field.tick_count - cell.last_seen) if cell.last_seen >= 0 else 50.0
+            # Prioritise stale inspection points within moderate walking distance
+            score = staleness - dist * 1.5
+            candidates.append((pt, score))
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates
+
     def plan_next_task_for_robot(
         self,
         robot: Robot,
         assigned_targets: set[Point],
     ) -> tuple[str, Point, list[Point], float] | None:
-        """Assigns harvesting, planting, or weeding based on current conditions."""
+        """Assigns harvesting, planting, weeding, or environmental scouting based on conditions."""
         occupied = {r.pos for r in self.robots.values() if r.name != robot.name}
 
         # Priority 1: Harvest ripe golden stands
@@ -866,6 +884,19 @@ class SwarmCoordinator:
                 if best_weed is None or entry < best_weed:
                     best_weed = entry
 
+        # Priority 4: Continuous environmental inspection and dike patrol
+        scouting_candidates = [
+            (pt, score) for pt, score in self.compute_priority_scouting_map(robot)
+            if pt not in assigned_targets
+        ]
+        best_scout: tuple[float, int, Point, list[Point], float] | None = None
+        for target, sc_score in scouting_candidates[:8]:
+            path = shortest_path(self.field, robot.pos, target, forbidden=occupied)
+            if path is not None and len(path) > 1:
+                entry = (len(path) - sc_score * 0.1, len(path), target, path, sc_score)
+                if best_scout is None or entry < best_scout:
+                    best_scout = entry
+
         if best_harvest is not None:
             _, _, target, path, score = best_harvest
             return "harvest", target, path, score
@@ -875,6 +906,9 @@ class SwarmCoordinator:
         if best_weed is not None:
             _, _, target, path, score = best_weed
             return "weed", target, path, score
+        if best_scout is not None:
+            _, _, target, path, score = best_scout
+            return "scout", target, path, score
         return None
 
     def coordinate_rescue_for_stuck_robot(self, stuck_robot: Robot) -> Decision:
@@ -1037,6 +1071,7 @@ class RiceSwarmSimulation:
         if self.phase == "done":
             return
         self.tick_count += 1
+        self.field.tick_count = self.tick_count
 
         # Check rescue status
         active_decision = self.coordinator.active_rescue_decision
@@ -1104,6 +1139,18 @@ class RiceSwarmSimulation:
                         robot.planned_route = robot.planned_route[1:]
                     else:
                         robot.planned_route = []
+                else:
+                    # Cell temporarily occupied by peer; replan route avoiding occupied positions
+                    occupied = {r.pos for r in self.robots.values() if r.name != robot.name}
+                    dest = robot.destination or robot.target_cell
+                    if dest:
+                        alt_path = shortest_path(self.field, robot.pos, dest, forbidden=occupied)
+                        if alt_path and len(alt_path) > 1:
+                            robot.planned_route = list(alt_path)
+                        else:
+                            robot.planned_route = []
+                            robot.target_cell = None
+                            robot.status = Status.IDLE
             elif len(robot.planned_route) == 1:
                 target = robot.target_cell
                 if target is not None:
@@ -1122,6 +1169,9 @@ class RiceSwarmSimulation:
                         self.field.sections[sec_key].harvested_count += 1
                         self.field.sections[sec_key].total_yield_kg += yield_kg
                         self.event("harvested", robot=robot.name, target=target, yield_kg=yield_kg)
+                    elif robot.current_action == "scout":
+                        self.field.observe(robot.pos, self.tick_count, radius=1)
+                        self.event("scouted", robot=robot.name, target=target)
                 robot.target_cell = None
                 robot.planned_route = []
                 robot.destination = None
