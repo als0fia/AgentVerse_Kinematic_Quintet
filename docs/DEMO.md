@@ -1,6 +1,6 @@
 # Demonstration and submission gate
 
-**Status:** Nothing has been submitted. No tested product demo exists yet.
+**Status:** Robotics deliverables are now specified by organiser slides; no submission or tested product demo has been verified.
 
 ## Proof-first demonstration
 
@@ -37,6 +37,18 @@
 | Observed live-demo result/commit | TBD |
 | Fallback recording or deterministic replay (clearly labelled) | TBD |
 | Operator and handover | TBD |
+
+## Robotics track deliverables (7 Nov organiser slides 35–38)
+
+These **supersede generic demo suggestions** where they differ.
+
+| Requirement | Content / capture criterion | Owner / status |
+| --- | --- | --- |
+| **Technical summary — one page PDF** | Real user/problem, features, overall perception–decision–action architecture, which model runs where, hardware and measured latency, limitations, key failure mode and safety | **Not yet authored**; PDF creation belongs to the team once product evidence exists |
+| **Simulation video — up to one minute** | Actual simulation stream, sensor/perception data **alongside** agent actions, and one unexpected mid-run scene change in a **single continuous take** | **Not yet recorded**; use genuine episode, not edited transitions or canned path |
+| **Pitch — five minutes if shortlisted** | What problem is solved, how the robot works, demonstrated capabilities, limitations and value to the beneficiary | **Not yet required for every team**; prepare a grounded outline after core behaviour works |
+
+**Suggested storyboards (illustrative only):** start with the user problem and sensor viewpoint; show first action; introduce one unexpected change; show detected state and replan; show task outcome and limitation. This is not permission to fake the event. Record a separately labelled fallback video only if the genuine continuous run cannot be shown live.
 
 ## Submission preflight (must be human checked)
 
