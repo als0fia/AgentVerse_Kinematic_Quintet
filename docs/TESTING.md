@@ -1,10 +1,10 @@
 # Testing, baseline and independent evidence
 
-**Current tests cover repository scaffolding/evaluator plus a standard-library `rice.v1` **contract/baseline with scripted observations**. NO Isaac Sim rover, actual sensor physics, physical seed placement or end-to-end planting scenario has been tested.**
+**Current verification layers:** repository/tooling tests, Python `rice.v1` scripted tests, **and MuJoCo 4.0.0 prototype physics tests** (`tests/test_mujoco_sim.py`). Full CI installs [pinned optional MuJoCo](../requirements-mujoco.txt) with Python 3.11+ before discovery. These results **do not establish Isaac Sim integration, field agronomy or a complete judge demo**. Report CI and locally observed results separately.
 
 ## Component/module audit and swap verification
 
-For an explicit independent audit, use [module-audit](../.agents/skills/module-audit/SKILL.md) and [COMPONENTS](COMPONENTS.md#repeatable-independent-audit-any-feature-on-demand). Check ownership, matching code/docs/interfaces and **actual tests executed versus unavailable** before declaring a component merge-ready. World/robot mock-to-real swap must revalidate real physics motion, sensor/obstacle response, safety limits, seed release/contact and no hidden truth leakage on the **selected Isaac host**; pure Python `rice.v1` unit tests or optional [MuJoCo toy smoke](WORKSTATION-SETUP.md#c-optional-lightweight-local-physics-smoke-not-final-engine) are insufficient.
+For an explicit independent audit, use [module-audit](../.agents/skills/module-audit/SKILL.md) and [COMPONENTS](COMPONENTS.md#repeatable-independent-audit-any-feature-on-demand). Check ownership, matching code/docs/interfaces and **actual tests executed versus unavailable** before declaring a component merge-ready. World/robot mock-to-real swap must revalidate real physics motion, sensor/obstacle response, safety limits, seed release/contact and no hidden truth leakage on the **selected Isaac host**; pure Python `rice.v1` tests, the [toy MuJoCo smoke](WORKSTATION-SETUP.md#c-optional-lightweight-local-physics-smoke-not-final-engine), and even the full MuJoCo prototype tests **cannot validate the unbuilt Isaac adapter on their own**.
 
 ## Judge-aligned verification map — confirmed Robotics rubric
 

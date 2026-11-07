@@ -1,38 +1,38 @@
-# MuJoCo Rapid-Prototyping, Isaac Sim Translation Protocol & Simulation Design Backlog
+# MuJoCo prototype, proposed Isaac translation and simulation backlog
 
-## 1. Why MuJoCo First → Isaac Sim Next
-- **Hardware Constraint on 8 GB VRAM Laptops:** NVIDIA Isaac Sim 5.1 specifies a minimum of **32 GB System RAM** and **16 GB GPU VRAM** for supported workstation operation. Developer laptops with **8 GB VRAM / ~16 GB RAM** run **MuJoCo 4.0.0** at `>1,000x` real-time with zero cloud spend.
+## 1. Implemented MuJoCo prototype → unverified Isaac target
+- **Hardware Constraint on 8 GB VRAM Laptops:** NVIDIA Isaac Sim 5.1 specifies a minimum of **32 GB System RAM** and **16 GB GPU VRAM** for supported workstation operation. The team has committed a **MuJoCo 4.0.0 prototype**, which can be run headlessly without an RTX GPU. Performance on each laptop must be measured, not assumed. MuJoCo 4.0.0 requires Python 3.11+.
 - **Three-Way Architectural Split ([docs/COMPONENTS.md](COMPONENTS.md)):**
   1. **World & Sensor Host ([src/ricebot/world/README.md](../src/ricebot/world/README.md)):** Owns the 6-patch bunded rice terrace (`DEFAULT_SITES`), hidden synthetic spatial soil/stand-gap truth (`DEFAULT_HIDDEN_SOIL_TRUTH`), location-gated soil probe sampler (`PaddyTerraceWorld.sample_local_soil`), and world terrain geometry (`build_world_terrain_xml`).
   2. **Robot Embodiment ([src/ricebot/robot/README.md](../src/ricebot/robot/README.md)):** Owns the 4-wheel differential-drive rover specs (`PLANTER_SPEC`, `SCOUT_SPEC`), skid-steer wheel velocity kinematics (`compute_4wheel_skid_steer`), 3-ray forward LiDAR fan, odometry mount frames, and 6-DOF seed-hopper release embodiment (`build_rovers_and_seeds_xml`).
   3. **Simulator Composition Adapter ([src/ricebot/mujoco_sim/README.md](../src/ricebot/mujoco_sim/README.md) now, `src/ricebot/isaac/` next):** Composes `src/ricebot/world/` + `src/ricebot/robot/` behind `SimulationPort` (`reset(seed) -> ObservationFrame`, `step(commands) -> ObservationFrame`).
-- **Zero-Rewrite Guarantee:** Everything in `src/ricebot/contracts.py`, `src/ricebot/mission.py`, `src/ricebot/control.py`, `src/ricebot/runtime.py`, `src/ricebot/world/terrace.py`, and `src/ricebot/robot/rovers.py` is simulator-agnostic and reused directly when `IsaacPaddySimulation` (`src/ricebot/isaac/`) is plugged into `EpisodeRunner(sim, core, view)` on a ≥16 GB VRAM machine.
+- **Reuse objective, not guarantee:** `SimulationPort` and the world/robot split are intended to minimise rewrites. **No Isaac adapter or equivalent cross-engine physics/contact test has been verified.** Reuse shared mission/field/kinematics modules only after measured API/frame/sensor parity; any necessary change goes through the human integrator.
 
 ---
 
 ## 2. Running the 3D MuJoCo PaddyPatch Simulator Locally
 
-From the repository root (`cd repo_mirror`) using a Python 3.10+ `.venv` with `mujoco` installed:
+From the cloned repository root using Python **3.11+**, install the pinned [optional MuJoCo dependency](../requirements-mujoco.txt) first (`.\.venv\Scripts\python.exe -m pip install -r requirements-mujoco.txt` on Windows):
 
 ```powershell
 # 1. Launch interactive 3D MuJoCo viewer (bunded terrace, 2 wheeled rovers, live laser rays & belief-map rings)
-..\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --viewer-seconds 12
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --viewer-seconds 12
 
 # 2. Run headless episode (dual-rover soil sampling + physical seed drop + ground-contact JSON trace)
-..\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --headless
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --headless
 
 # 3. Run mid-episode obstacle surprise scenario (obstacle injected at t=1.5s, LiDAR fan triggers safe HOLD)
-..\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --scenario obstacle --viewer-seconds 10
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --scenario obstacle --viewer-seconds 10
 
-# 4. Run all 41 unit + world/robot + MuJoCo physics tests
-..\.venv\Scripts\python.exe -m unittest discover -s tests -v
+# 4. Run all current unit + world/robot + MuJoCo physics tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
 ---
 
-## 3. Exact 1-to-1 Translation Protocol to Isaac Sim (`src/ricebot/isaac/`)
+## 3. Proposed Isaac parity checklist (translation not yet implemented)
 
-When translating [`MujocoPaddySimulation`](../src/ricebot/mujoco_sim/adapter.py) into `src/ricebot/isaac/` on the Isaac Sim workstation, reuse `PaddyTerraceWorld` (`src/ricebot/world/`) and `compute_4wheel_skid_steer` / `RoverChassisSpec` (`src/ricebot/robot/`) directly:
+When building a future Isaac adapter, **aim to reuse** `PaddyTerraceWorld` (`src/ricebot/world/`), `compute_4wheel_skid_steer` and `RoverChassisSpec` (`src/ricebot/robot/`). Validate frames, joints, sensor readings, timing and actual seed contacts in both engines; the table is a **target parity checklist, not proven automatic compatibility**:
 
 | Boundary / Component | MuJoCo Prototype (`src/ricebot/mujoco_sim/`) | Isaac Sim Target (`src/ricebot/isaac/` on ≥16 GB VRAM host) | Shared Module / Contract Invariant |
 | :--- | :--- | :--- | :--- |
@@ -74,7 +74,7 @@ To make the final evaluation and video demo falsifiable across both MuJoCo and I
 2. **`obstacle` (Unannounced Mid-Episode Bund Collapse / Crate Obstruction):**
    - At $t = 1.5\text{ s}$, an unannounced obstacle enters the active transit lane. Forward 3-ray LiDAR detects `front_range_m < 0.35 m`, triggering immediate safe `HOLD` or waypoint bypass around `no_go_radius_m`.
 3. **`shifted_moisture` (Hidden Spatial Regime Shift Across Seeds):**
-   - Across randomized episode seeds (`seed=1..20`), which of `patch_a..patch_d` are waterlogged mud hazards vs. viable stand gaps permutes deterministically from `seed`. A blind/static policy plants into mud ~50% of the time, whereas the shared-map scout+planter policy achieves 100% viable seed placement.
+   - Across randomized episode seeds (`seed=1..20`), which of `patch_a..patch_d` are waterlogged mud hazards vs. viable stand gaps permutes deterministically from `seed`. **Hypothesis to test:** shared mapping may outperform blind/static planting on changing synthetic soil maps; measure actual success and failure distributions rather than declaring 50%/100% results in advance.
 4. **`sensor_degraded` (Rangefinder Dropout / Stale Command Fault Injection):**
    - Injects a 1.0-second rangefinder dropout (`front_range_m = None`) or expired command window to prove `LocalController` enforces fail-safe zero-velocity hold with zero collisions and zero ghost seed drops.
 
