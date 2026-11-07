@@ -1,4 +1,5 @@
-# Optional development/CI backend; the standard-library rice.v1 core does not require MuJoCo.
-# MuJoCo 4.0.0 requires Python >=3.11. The CI runner uses Python 3.12.
-# Pin to the version documented and exercised by the current MuJoCo prototype.
+# Optional development/CI backend
+# Standard-library rice.v1 core does not require MuJoCo.
+
+numpy
 mujoco==4.0.0
