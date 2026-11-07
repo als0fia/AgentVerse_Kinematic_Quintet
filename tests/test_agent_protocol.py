@@ -37,7 +37,7 @@ class AgentProtocolDocsTests(unittest.TestCase):
         self.assertIn("Gemini", team)
 
     def test_pull_request_template_requests_observed_checks_not_promises(self):
-        template = (ROOT / ".github/pull_request_template.md").read_text(encoding="utf-8")
+        template = (ROOT / ".github/PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
         self.assertIn("actually run", template)
         self.assertIn("observed result", template)
         self.assertIn("human integrator", template)
