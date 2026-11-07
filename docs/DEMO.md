@@ -38,6 +38,10 @@
 | Fallback recording or deterministic replay (clearly labelled) | TBD |
 | Operator and handover | TBD |
 
+## Judge-aligned story: real usefulness, not only technical spectacle
+
+The [confirmed organiser rubric](EVENT.md#confirmed-robotics-judging-rubric--clear-organiser-photograph-7-november-2026) assigns **20% to relevance and impact** and explicitly values handling the **most critical failure mode on screen**. The pitch and one-page PDF must be specific: beneficiary; measured or source-backed need; why the current controller/robot/workflow fails; what useful outcome improves; and how our system behaves in its worst credible scenario. Do not invent interviews, adoption, statistics or simulated safety certification. This user story complements, rather than replaces, the 50% perception/adaptation evidence.
+
 ## Robotics track deliverables (7 Nov organiser slides 35–38)
 
 These **supersede generic demo suggestions** where they differ.

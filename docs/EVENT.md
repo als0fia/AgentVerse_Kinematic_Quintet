@@ -24,12 +24,26 @@
 ## Challenge capture (fill only from verified reveal)
 
 - **Observed Robotics challenge statement:** “Give an agent a body.” Build an embodied agent that perceives a simulated world, reasons from sensed observations and acts autonomously. **Slides 35–38**, user-shared organiser photos on 7 Nov 2026; written official portal PDF/link not yet captured.
-- **Judging:** perception-driven action, adaptation to a mid-run scene change, operational autonomy/local decision-making, originality/quality. Slide 36 shows 25%, 25%, 20%, 15% clearly while another segment/association is obscured: **do not publish a complete weighted scoring table** without a clearer primary source. Presenter says remote calls for each decision reduce autonomy score; using remote simulation itself is not necessarily disallowed. Sponsor prize eligibility remains unconfirmed.
+- **Judging:** the additional **clear, complete organiser-slide photograph supplied by the attendee on 7 November 2026** resolves all five categories and weights. See the exact 100% rubric below. Presenter guidance warns against cloud reasoning for each control decision; remote simulation streaming is not itself disallowed. Sponsor-specific prize criteria remain unverified.
 - **Technical constraints/resources:** at least one simulated sensor, observable action (navigation/movement/manipulation/communication), autonomous reaction to sensed state, and demonstrated recovery when a scene changes. Recommended Isaac Sim + headless streaming; others listed above. Actual Modal GPU credits, sensor feed, available GPU and model endpoints are *not* validated.
 - **Deliverables (slide 37):** (1) **one-page PDF technical summary** with beneficiary/problem, features, architecture, model placements, hardware/latency, limitations and safety; (2) **≤1-minute video from simulation stream** showing perception and actions side-by-side and an unexpected change in a **single continuous take**; (3) **five-minute live pitch only if shortlisted**. Portal submission fields, upload formats and link requirements still unverified.
 - **Allowed reuse, licences and AI disclosure:** not captured
 - **Observation time and source:** 7 Nov 2026, initial DeepMind introduction slides plus newer **Robotics-specific organiser slides 35–38** and attendee-provided presenter STT. The Robotics-specific later material supersedes earlier broad examples where narrower. Written brief link still pending. Model slide also mentions a claimed 1M window / Antigravity sandbox for Gemini 4 Argon, Gemma 4 E2B/E4B offline, and a reasoning-effort dial. Treat these as **slide claims only**, not verified technical access or implementation decisions
 - **Conflicts or interpretations for organiser clarification:** none recorded
+
+## Confirmed Robotics judging rubric — clear organiser photograph, 7 November 2026
+
+**Primary evidence:** Additional attendee-supplied, unobscured photograph of the organiser's **“How you'll be judged”** slide on 7 November 2026, superseding earlier obscured photographs. The percentages are now fully legible and add to **100%**. This is the Robotics scoring rubric, not DeepMind's optional sponsor-prize guidance.
+
+| Category | Weight | Organiser's top-score description (faithful paraphrase) |
+| --- | ---: | --- |
+| Perception-driven action | **25%** | Every decision is traceable to perception, and behaviour corrects during execution |
+| Adaptation to change | **25%** | The scene changes mid-sequence; the agent visibly replans |
+| Operational autonomy | **15%** | Executes within a safe edge-device budget and behaves sensibly when unsure |
+| Relevance and impact | **20%** | Addresses a well-evidenced need and **handles its most critical failure mode on screen** |
+| Ambition and technical quality | **15%** | A technically demanding, original approach executed to a high standard |
+
+**Selection consequences:** The **20% impact** category is substantive: write down the actual beneficiary/workflow, evidence for need (source, observed workflow, user testimony or credible documented problem), measurable benefit, and most consequential realistic failure before declaring a concept selected. A dramatic robot with no useful job is weaker than an evidenced tool with a credible test. The two **25% behaviour** categories still require a true sensed-action loop and unplanned mid-episode change; the 15% autonomy category requires bounded on-device/inside-runtime decision-making and explicit uncertainty handling. Do not confuse a video showing a failure with handling that failure.
 
 ## Implementation implications from Robotics-specific official reveal
 
