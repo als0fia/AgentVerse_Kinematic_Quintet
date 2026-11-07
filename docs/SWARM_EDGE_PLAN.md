@@ -20,6 +20,14 @@
 
 **System 2 — rare incident reasoner:** when a credible incident is detected, consider calculated probability/risk of rescue, possible second-casualty cost, available hardware/skills, remaining fieldwork and seed budget, qualitative operator priorities, and uncertain weather/terrain context. Decide **self-recover, investigate, send help, defer or abandon/escalate**. A deterministic safety/feasibility gate can reject every model suggestion; high-rate control never waits on an LLM.
 
+## One supervisor, two decision timescales (proposal, not an existing subsystem)
+
+**Live incident:** fleet objectives and qualitative operator preferences are interpreted at the mission level; deterministic tools compute travel, risk, resource opportunity costs and legal/safety limits. A proposed tool-using supervisor may request fresh status, compare candidate help/abstain plans, dispatch a **bounded** recovery skill, read simulator-confirmed progress and revise/abort if the first attempt stalls. That is more agentic than a single `GeminiSwarmAdvisor.advise(...)` call, but the current advisor is not such an implemented tool-runner. Keep motor-rate decisions local and safe if the model/API disappears.
+
+**Start/end of simulated workday (follow-on, same supervisor):** inspect the same mission logs for coverage, redundant proximity, availability for rescue and losses; hypothesise a *bounded configuration change* (e.g., existing travel cost or scout peer-proximity preference), call the existing episode runner/evaluator on matched seeds, compare against the unchanged policy and deploy only if a validator approves; otherwise roll back and retain the negative result. This is not independent neural-network training or a second simulation. Do not add it before the physical rescue P0 is credible, and never imply the feedback loop is already implemented.
+
+**Current scope freeze:** one MuJoCo simulator, one homogeneous rover asset, one small field, one tested physical rescue manoeuvre plus at most one sensor-triggered correction/abort, one selected coordination integration path (Policy A or simulated Policy B; the other remains a comparator), and one independent outcome grader. Four learned rescue skills, real terramechanics, separate SLAM world engines, full rice growth, Isaac translation, radio hardware and multi-Jetson inference are research or future extensions, **not independent weekend build targets**.
+
 ## Optional offline reasoning: do not confuse three different concepts
 
 | Mode | Meaning | Key limitation |
