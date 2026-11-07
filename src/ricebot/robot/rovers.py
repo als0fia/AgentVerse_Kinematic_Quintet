@@ -273,6 +273,11 @@ def _build_homogeneous_ant_rover_xml(
       <geom name="{rid}_whisker_l" type="capsule" pos="0.142 0.086 0.018" euler="0 1.57 0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
       <geom name="{rid}_whisker_r" type="capsule" pos="0.142 -0.086 0.018" euler="0 1.57 -0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
 
+      <!-- Front Optical Surroundings Perception Camera (Ego-View: 14 deg downward pitch for crop stand, mud sinkhole & peer docking view) -->
+      <geom name="{rid}_cam_housing" type="box" pos="0.126 0 0.070" size="0.010 0.018 0.010" mass="0.015" contype="0" conaffinity="0" rgba="0.12 0.14 0.16 1"/>
+      <geom name="{rid}_cam_lens" type="cylinder" pos="0.137 0 0.070" zaxis="1 0 0" size="0.007 0.002" mass="0.005" contype="0" conaffinity="0" rgba="0.05 0.75 0.95 1"/>
+      <camera name="{rid}_front_camera" pos="0.139 0 0.070" xyaxes="0 -1 0  0.24 0 0.97" fovy="62" mode="fixed"/>
+
       <!-- Front LiDAR / Rangefinder Turret (3-ray fan: center, +18 deg left, -18 deg right) -->
       <geom name="{rid}_lidar_pod" type="cylinder" pos="0.112 0 0.056" size="0.020 0.013" mass="0.02" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
       <site name="{rid}_range_c" pos="0.140 0.00 0.050" zaxis="1 0 0" size="0.008" rgba="{ray_rgba}"/>
@@ -463,8 +468,8 @@ def build_rigid_docking_rescue_mjcf() -> str:
   </worldbody>
   <equality>
     <!-- Bidirectional Rigid Mechanical Latch Constraints (activated when docking cone locks into rear strike bar) -->
-    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.008 1.0"/>
-    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.008 1.0"/>
+    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.04 1.0"/>
+    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.04 1.0"/>
   </equality>
   <actuator>
     {actuators_xml}
@@ -481,7 +486,7 @@ def update_rigid_dock_latch(
     data: object,
     rescuer_id: str = "planter",
     target_id: str = "scout",
-    capture_radius_m: float = 0.065,
+    capture_radius_m: float = 0.022,
 ) -> bool:
     """Evaluate physical proximity between `rescuer_id` front cone and `target_id` rear funnel.
 

@@ -8,14 +8,21 @@ Supports two interchangeable coordination architectures over the identical `Simu
     2D SLAM Occupancy & Traversability Grid (`LocalSlamGrid`) and Gaussian Soil/Stand Belief
     Map (`LocalMycelialMap`).
   - **Mycelial Gossip over UWB + Wi-Fi HaLow:** Rovers measure inter-robot distance $d_{ij}$
-    and bearing ($\text{AoA}$) via Dual Qorvo DWM3000 UWB ranging and exchange compact,
+    and bearing ($\\text{AoA}$) via Dual Qorvo DWM3000 UWB ranging and exchange compact,
     event-triggered `MycelialGossipPacket`s when within wireless range.
   - **Consensus Task Bidding:** Rovers compute capability-aware bids (`SAMPLE`, `PLANT`) and
     settle on a single task owner without a central supervisor.
   - **Local SLAM Obstacle Bypass:** Rovers map mid-episode obstacles into their local SLAM grid
     and steer smoothly around them.
-- **Policy A (`--policy centralized`):** Offline Centralised Coordinator (`MissionCore` in
-  `src/ricebot/runtime.py` + `MeasuredFieldMap` + `SimpleMissionPlanner`).
+- **Policy A (`--policy centralized` or `--scenario golden_rescue`):** Offline Centralised Coordinator
+  (`MissionCore` in `src/ricebot/runtime.py` + `MeasuredFieldMap` + `CooperativeSwarmPlanner` / `SimpleMissionPlanner`).
+  - **`--scenario golden_rescue` (Antenna Canonical Rescue-First Golden Episode):**
+    Two physical MuJoCo rovers sample the terrace; `planter` becomes physically bogged in the
+    waterlogged Lannitian mud basin at `patch_d` (`is_bogged=True` with valid LiDAR range);
+    `CooperativeSwarmPlanner` evaluates `RescueVerdict.RESCUE_NOW` (`net=+0.66`) and dispatches
+    `scout` with `TaskMode.RESCUE`; `scout` docks rigidly via its front cam-latch (`rigid_latch_scout_to_planter`),
+    pitch-lifts `planter`'s chassis to break mud suction, extracts `planter` `>= 0.18 m` clear of
+    the mud trap, unlatches, and `planter` resumes autonomous fieldwork to plant both viable gaps (`patch_b`, `patch_c`).
 - **Evaluation Matrix (`--compare-policies`):** Benchmarks Single-Rover, Policy A (Centralised),
   and Policy B (Decentralised Mycelial) across Normal Comms, Intermittent Comms, Unexpected Bad
   Soil Sample, and Mid-Episode Obstacle Surprise.
@@ -41,7 +48,7 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 
-from ricebot.agent import DecentralizedMycelialRuntime, SoilSafetyEnvelope
+from ricebot.agent import CooperativeSwarmPlanner, DecentralizedMycelialRuntime, SoilSafetyEnvelope
 from ricebot.contracts import Decision, ObservationFrame, RobotCapability, SensorKind, TaskMode
 from ricebot.control import ControlLimits, LocalController
 from ricebot.mission import MeasuredFieldMap, SimpleMissionPlanner
@@ -72,7 +79,14 @@ class TelemetryRecorder:
                 )
             self.last_poses[r.robot_id] = (r.pose.x_m, r.pose.y_m)
 
-        if frame.plant_feedback or decision.ingested_samples > 0 or any(c.release_seed for c in decision.commands):
+        has_rescue = any(i.mode == TaskMode.RESCUE for i in decision.intents) or bool(frame.recovery_feedback)
+        if (
+            frame.plant_feedback
+            or frame.recovery_feedback
+            or decision.ingested_samples > 0
+            or any(c.release_seed for c in decision.commands)
+            or has_rescue
+        ):
             self.events.append(
                 {
                     "time_s": frame.time_s,
@@ -82,11 +96,18 @@ class TelemetryRecorder:
                             "pose": (r.pose.x_m, r.pose.y_m, r.pose.yaw_rad),
                             "front_range_m": r.front_range_m,
                             "seeds_remaining": r.seeds_remaining,
+                            "is_bogged": r.is_bogged,
                         }
                         for r in frame.robots
                     },
                     "intents": [
-                        {"robot_id": i.robot_id, "mode": i.mode.value, "target": i.target_site_id, "reason": i.reason}
+                        {
+                            "robot_id": i.robot_id,
+                            "mode": i.mode.value,
+                            "target": i.target_site_id,
+                            "target_robot_id": i.target_robot_id,
+                            "reason": i.reason,
+                        }
                         for i in decision.intents
                     ],
                     "commands": [
@@ -96,10 +117,14 @@ class TelemetryRecorder:
                             "angular_rad_s": round(c.angular_rad_s, 3),
                             "release_seed": c.release_seed,
                             "target_site_id": c.target_site_id,
+                            "recovery_target_id": c.recovery_target_id,
+                            "dock_pitch_rad": c.dock_pitch_rad,
+                            "latch_rad": c.latch_rad,
                         }
                         for c in decision.commands
                     ],
                     "plant_feedback": [asdict(fb) for fb in frame.plant_feedback],
+                    "recovery_feedback": [asdict(rf) for rf in frame.recovery_feedback],
                 }
             )
 
@@ -258,6 +283,10 @@ def _draw_viewer_hud_overlays(
         r = obs_by_id[intent.robot_id]
         rx, ry, ryaw = r.pose.x_m, r.pose.y_m, r.pose.yaw_rad
 
+        if r.is_bogged:
+            # Red distress beacon above bogged rover
+            add_sphere([rx, ry, 0.24], 0.042, [1.0, 0.12, 0.12, 0.92])
+
         beam_len = min(r.front_range_m if r.front_range_m is not None else 0.75, 0.75)
         bx = rx + beam_len * cos(ryaw)
         by = ry + beam_len * sin(ryaw)
@@ -268,7 +297,15 @@ def _draw_viewer_hud_overlays(
         )
         add_line([rx, ry, 0.08], [bx, by, 0.08], 0.004, beam_rgba)
 
-        if intent.target_site_id and intent.target_site_id in sim.sites:
+        if intent.mode == TaskMode.RESCUE and intent.target_robot_id in obs_by_id:
+            peer_r = obs_by_id[intent.target_robot_id]
+            add_line(
+                [rx, ry, 0.14],
+                [peer_r.pose.x_m, peer_r.pose.y_m, 0.14],
+                0.009,
+                [1.0, 0.45, 0.10, 0.92],
+            )
+        elif intent.target_site_id and intent.target_site_id in sim.sites:
             tsite = sim.sites[intent.target_site_id]
             line_rgba = (
                 [0.98, 0.84, 0.15, 0.82]
@@ -287,6 +324,9 @@ def run_demo(
     viewer_seconds: float = 0.0,
     single_rover_only: bool = False,
 ) -> dict[str, object]:
+    is_golden_rescue = scenario == "golden_rescue"
+    if is_golden_rescue and steps == 140:
+        steps = 195
     inject_at = 1.6 if scenario == "obstacle" else None
     truth = generate_hidden_soil_truth(scenario, seed)
     sim = MujocoPaddySimulation(
@@ -296,6 +336,9 @@ def run_demo(
         inject_obstacle_at_s=inject_at,
         obstacle_xy=(0.75, -0.25),
         hidden_truth=truth,
+        trap_robot_id="planter" if is_golden_rescue else None,
+        trap_site_id="patch_d",
+        trap_radius_m=0.28,
     )
     caps = (
         (RobotCapability("planter", can_sample=True, can_plant=True), RobotCapability("scout", can_sample=False, can_plant=False))
@@ -303,8 +346,15 @@ def run_demo(
         else DEFAULT_CAPABILITIES
     )
 
-    if policy == "mycelial":
-        runtime: Any = DecentralizedMycelialRuntime(
+    if is_golden_rescue:
+        field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
+        planner: SimpleMissionPlanner = CooperativeSwarmPlanner(caps)
+        controller = LocalController(
+            ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
+        )
+        runtime: Any = MissionCore(field_map, planner, controller)
+    elif policy == "mycelial":
+        runtime = DecentralizedMycelialRuntime(
             sites=DEFAULT_SITES,
             capabilities=caps,
             comm_range_m=2.15,
@@ -400,7 +450,7 @@ def run_demo(
 
     return {
         "engine": f"MuJoCo {mujoco.__version__} (3D Rice Terrace + 4-Wheel Articulated Rovers SimulationPort)",
-        "policy": "single_rover" if single_rover_only else policy,
+        "policy": "cooperative_swarm_rescue" if is_golden_rescue else ("single_rover" if single_rover_only else policy),
         "comms_mode": comms,
         "scenario": scenario,
         "seed": seed,
@@ -408,6 +458,7 @@ def run_demo(
         "obstacle_injected": sim.obstacle_injected,
         "viable_seed_placements": viable_seed_placements,
         "total_seeds_dropped": len(sim.completed_drops),
+        "completed_recoveries": [asdict(r) for r in sim.completed_recoveries],
         "completion_time_s": last_plant_time_s,
         "travel_distance_m": recorder.travel_distance_m,
         "total_travel_m": round(sum(recorder.travel_distance_m.values()), 3),
@@ -432,6 +483,7 @@ def run_policy_comparison_matrix(seed: int = 7) -> dict[str, object]:
         ("5_unexpected_bad_soil_policy_B_mycelial", "bad_soil", "mycelial", "normal", False, 155),
         ("6_obstacle_surprise_policy_A_centralized", "obstacle", "centralized", "normal", False, 155),
         ("7_obstacle_surprise_policy_B_mycelial_slam", "obstacle", "mycelial", "normal", False, 155),
+        ("8_golden_rescue_episode_cooperative_swarm", "golden_rescue", "centralized", "normal", False, 195),
     ]
     results: dict[str, object] = {}
     for label, scen, pol, comm, single, st in cases:
@@ -449,6 +501,7 @@ def run_policy_comparison_matrix(seed: int = 7) -> dict[str, object]:
             "scenario": res["scenario"],
             "comms_mode": res["comms_mode"],
             "viable_seed_placements": res["viable_seed_placements"],
+            "completed_recoveries": res["completed_recoveries"],
             "completion_time_s": res["completion_time_s"],
             "total_travel_m": res["total_travel_m"],
             "comm_packets": res["comm_packets"],
@@ -506,7 +559,11 @@ def export_multi_scenario_dashboard(output_path: str | Path, seed: int = 7) -> P
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scenario", choices=("nominal", "obstacle", "bad_soil", "shifted_moisture", "sensor_degraded"), default="nominal")
+    parser.add_argument(
+        "--scenario",
+        choices=("nominal", "obstacle", "bad_soil", "shifted_moisture", "sensor_degraded", "golden_rescue"),
+        default="nominal",
+    )
     parser.add_argument("--policy", choices=("mycelial", "centralized", "single_rover"), default="mycelial")
     parser.add_argument("--comms", choices=("normal", "intermittent", "isolated"), default="normal")
     parser.add_argument("--seed", type=int, default=7)

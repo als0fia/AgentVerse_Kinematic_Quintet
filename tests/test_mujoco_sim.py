@@ -7,7 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ricebot.contracts import RobotCommand
+from ricebot.agent import CooperativeSwarmPlanner, RescueVerdict
+from ricebot.contracts import RobotCommand, TaskMode
 from ricebot.control import ControlLimits, LocalController
 from ricebot.mission import MeasuredFieldMap, SimpleMissionPlanner
 try:
@@ -103,6 +104,77 @@ class MujocoPaddySimulationTests(unittest.TestCase):
         frame1 = sim.step((scout_drop,))
         self.assertEqual(len(sim.completed_drops), 0)
         self.assertEqual(len(frame1.plant_feedback), 0)
+
+    def test_autonomous_sensed_mud_fault_triggers_physical_rigid_dock_rescue_and_resumes_mission(self) -> None:
+        """Golden Episode Seam: sensed mud immobilization -> RESCUE_NOW triage -> rigid dock/latch/tow -> resumed planting."""
+        sim = MujocoPaddySimulation(
+            sites=DEFAULT_SITES,
+            probe_radius_m=0.28,
+            substeps_per_tick=25,
+            trap_robot_id="planter",
+            trap_site_id="patch_d",
+            trap_radius_m=0.28,
+        )
+        field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
+        planner = CooperativeSwarmPlanner(DEFAULT_CAPABILITIES)
+        controller = LocalController(
+            ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
+        )
+        core = MissionCore(field_map, planner, controller)
+
+        frame = sim.reset(seed=7)
+        observed_bogged_with_valid_lidar = False
+        observed_rescue_now_verdict = False
+        observed_rescue_command = False
+
+        max_efc_force = 0.0
+        max_chassis_z = 0.0
+        max_pitch_rad = 0.0
+
+        for _ in range(195):
+            decision = core.decide(frame)
+            p_obs = next(r for r in frame.robots if r.robot_id == "planter")
+            if p_obs.is_bogged and p_obs.front_range_m is not None and p_obs.front_range_m > 0.35:
+                observed_bogged_with_valid_lidar = True
+            assessment = planner.last_rescue_assessments.get("planter")
+            if assessment is not None and assessment.verdict == RescueVerdict.RESCUE_NOW:
+                observed_rescue_now_verdict = True
+            s_intent = next(i for i in decision.intents if i.robot_id == "scout")
+            s_cmd = next(c for c in decision.commands if c.robot_id == "scout")
+            if s_intent.mode == TaskMode.RESCUE and s_cmd.recovery_target_id == "planter":
+                observed_rescue_command = True
+            frame = sim.step(decision.commands)
+            if len(sim.data.efc_force) > 0:
+                max_efc_force = max(max_efc_force, float(abs(sim.data.efc_force).max()))
+            max_chassis_z = max(
+                max_chassis_z,
+                float(sim.data.sensor("planter_pos").data[2]),
+                float(sim.data.sensor("scout_pos").data[2]),
+            )
+            for r in frame.robots:
+                max_pitch_rad = max(max_pitch_rad, abs(r.pitch_rad))
+
+        # 1. True mud immobilization was sensed independently of LiDAR range failure
+        self.assertTrue(observed_bogged_with_valid_lidar)
+        # 2. Planner evaluated RESCUE_NOW and Controller emitted bounded physical rescue command
+        self.assertTrue(observed_rescue_now_verdict)
+        self.assertTrue(observed_rescue_command)
+        # 3. Physical MuJoCo rigid docking, cam-latching, pitch-lift & tandem extraction succeeded (>= 0.18 m)
+        self.assertEqual(len(sim.completed_recoveries), 1)
+        rec = sim.completed_recoveries[0]
+        self.assertEqual(rec.helper_robot_id, "scout")
+        self.assertEqual(rec.target_robot_id, "planter")
+        self.assertTrue(rec.latched)
+        self.assertTrue(rec.extracted)
+        self.assertGreaterEqual(rec.victim_displacement_m, 0.18)
+        # 3b. M4 Physical Audit Gate: No constraint-snap impulse (< 250 N), rovers remain grounded (< 0.072 m), no V-tent jackknife (< 0.12 rad)
+        self.assertLess(max_efc_force, 250.0)
+        self.assertLess(max_chassis_z, 0.072)
+        self.assertLess(max_pitch_rad, 0.12)
+        # 4. After unlatching, planter resumed autonomous fieldwork and planted both viable stand gaps
+        self.assertEqual(len(sim.completed_drops), 2)
+        planted_sites = {d.target_site_id for d in sim.completed_drops}
+        self.assertEqual(planted_sites, {"patch_b", "patch_c"})
 
 
 if __name__ == "__main__":

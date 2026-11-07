@@ -115,6 +115,8 @@ class RobotModuleTest(unittest.TestCase):
         bodies_xml, actuators_xml, sensors_xml = build_rovers_and_seeds_xml()
         for rid in ("planter", "scout"):
             self.assertIn(f'body name="{rid}_body"', bodies_xml)
+            self.assertIn(f'camera name="{rid}_front_camera"', bodies_xml)
+            self.assertIn(f'geom name="{rid}_cam_lens"', bodies_xml)
             self.assertIn(f'geom name="{rid}_hopper_outer"', bodies_xml)
             self.assertIn(f'geom name="{rid}_probe_boom"', bodies_xml)
             self.assertIn(f'body name="{rid}_dock_boom"', bodies_xml)
@@ -148,28 +150,40 @@ class RobotModuleTest(unittest.TestCase):
         pitch_act_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "planter_dock_pitch_act")
 
         locked = False
-        for _ in range(120):
+        for _ in range(140):
             data.ctrl[0:4] = w_fwd
-            data.ctrl[latch_act_id] = 0.55  # Command cam-latch hook closed on contact
+            data.ctrl[latch_act_id] = 0.55  # Command cam-latch hook closed on near-contact (<= 22 mm)
             mujoco.mj_step(model, data)
-            if update_rigid_dock_latch(model, data, rescuer_id="planter", target_id="scout"):
+            if update_rigid_dock_latch(model, data, rescuer_id="planter", target_id="scout", capture_radius_m=0.022):
                 locked = True
                 break
 
         self.assertTrue(locked, "Rescuer front docking cone failed to rigidly lock onto peer rear strike bar")
 
-        # Step 2: Actuate front docking boom pitch-lift (+0.35 rad) and reverse to tow peer backward
+        # Step 2: Actuate bounded pitch-lift (+0.08 rad) and reverse to tow peer backward while grounded
         w_rev = compute_4wheel_skid_steer(PLANTER_SPEC, -0.35, 0.0)
-        for _ in range(90):
+        max_efc_force = 0.0
+        max_chassis_z = 0.0
+        for _ in range(110):
             data.ctrl[0:4] = w_rev
+            data.ctrl[4:8] = w_rev
             data.ctrl[latch_act_id] = 0.55
-            data.ctrl[pitch_act_id] = 0.35
-            update_rigid_dock_latch(model, data, rescuer_id="planter", target_id="scout")
+            data.ctrl[pitch_act_id] = 0.08
+            update_rigid_dock_latch(model, data, rescuer_id="planter", target_id="scout", capture_radius_m=0.022)
             mujoco.mj_step(model, data)
+            if len(data.efc_force) > 0:
+                max_efc_force = max(max_efc_force, float(abs(data.efc_force).max()))
+            max_chassis_z = max(
+                max_chassis_z,
+                float(data.sensor("planter_pos").data[2]),
+                float(data.sensor("scout_pos").data[2]),
+            )
 
         final_victim_x = float(data.sensor("scout_pos").data[0])
-        # Verify the stranded peer was physically pulled backward along the row by the rigid latch
+        # Verify the stranded peer was physically pulled backward while staying grounded (< 0.075 m) and without >500 N snap
         self.assertLess(final_victim_x, initial_victim_x - 0.08)
+        self.assertLess(max_chassis_z, 0.075)
+        self.assertLess(max_efc_force, 500.0)
 
     def test_export_standalone_mjcf_assets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

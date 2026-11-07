@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .contracts import (Decision, ObservationFrame, RobotCommand)
+from .contracts import Decision, ObservationFrame, RobotCommand, TaskMode
 from .control import LocalController
 from .mission import MeasuredFieldMap, SimpleMissionPlanner
 
 
 class SimulationPort(Protocol):
-    """Isaac adapter implements this, owning all articulation/contact physics."""
+    """Isaac/MuJoCo adapter implements this, owning all articulation/contact physics."""
 
     def reset(self, seed: int) -> ObservationFrame: ...
     def step(self, commands: tuple[RobotCommand, ...]) -> ObservationFrame: ...
@@ -62,8 +62,18 @@ class MissionCore:
         intents = self.planner.decide(frame, self.field_map, excluded)
         commands = []
         for task in intents:
-            cmd = self.controller.command(observations[task.robot_id], task,
-                           self.field_map.sites, self.planner.capabilities[task.robot_id])
+            peer_pose = (
+                observations[task.target_robot_id].pose
+                if task.mode == TaskMode.RESCUE and task.target_robot_id in observations
+                else None
+            )
+            cmd = self.controller.command(
+                observations[task.robot_id],
+                task,
+                self.field_map.sites,
+                self.planner.capabilities[task.robot_id],
+                peer_pose=peer_pose,
+            )
             if task.robot_id in self._pending_plant:
                 cmd = RobotCommand(task.robot_id, frame.time_s, frame.time_s + 0.2, task_id=task.task_id)
             elif cmd.release_seed:

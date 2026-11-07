@@ -21,159 +21,305 @@
     <geom name="mud_trap_pan" type="cylinder" pos="0.85 0.0 0.002" size="0.24 0.002" material="mud_hazard_mat" contype="0" conaffinity="0"/>
     
     <!-- ========================================================================= -->
-    <!-- HOMOGENEOUS SWARM UNIT: PLANTER (Work + Sensor + Rigid Dock/Lock Rescue) -->
+    <!-- HOMOGENEOUS SWARM UNIT: PLANTER (Farming + Sensing + Rigid Dock/Lock Rescue) -->
     <!-- ========================================================================= -->
     <body name="planter_body" pos="0.400 0.000 0.068">
       <freejoint name="planter_free"/>
-      <!-- Sealed IP68 Waterproof Hull (270 x 190 x 64 mm, outer wheel width 276 mm < 300 mm row) -->
-      <geom name="planter_chassis" type="box" pos="0 0 0.015" size="0.135 0.095 0.032" mass="2.6" contype="2" conaffinity="5" rgba="0.16 0.46 0.86 1"/>
-      <!-- Top Electronics Deck & BeiDou RTK Mast -->
-      <geom name="planter_deck" type="box" pos="-0.02 0 0.055" size="0.080 0.070 0.012" mass="0.15" contype="0" conaffinity="0" rgba="0.92 0.94 0.96 1"/>
-      <geom name="planter_rtk_mast" type="cylinder" pos="-0.075 0.048 0.095" size="0.008 0.035" mass="0.02" contype="0" conaffinity="0" rgba="0.85 0.85 0.85 1"/>
-      <geom name="planter_rtk_dome" type="sphere" pos="-0.075 0.048 0.135" size="0.018" mass="0.01" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
-      <!-- Soil Moisture / Firmness Probe Mast (present on every homogeneous unit) -->
-      <geom name="planter_probe_boom" type="cylinder" pos="-0.075 -0.048 0.088" size="0.010 0.028" mass="0.02" contype="0" conaffinity="0" rgba="0.25 0.85 0.92 1"/>
-      <!-- Seed Hopper Funnel & Bottom Drop Chute (present on every homogeneous unit) -->
-      <geom name="planter_hopper_outer" type="cylinder" pos="0.025 0 0.075" size="0.040 0.026" mass="0.10" contype="0" conaffinity="0" rgba="0.95 0.76 0.14 1"/>
-      <geom name="planter_hopper_inner" type="cylinder" pos="0.025 0 0.102" size="0.030 0.004" mass="0.01" contype="0" conaffinity="0" rgba="0.22 0.22 0.24 1"/>
+      <!-- Sealed IP68 Waterproof Hull (270 x 190 x 64 mm) + Hydrodynamic Belly Skid -->
+      <geom name="planter_chassis" type="box" pos="0 0 0.015" size="0.135 0.095 0.032" mass="2.45" contype="2" conaffinity="5" rgba="0.16 0.46 0.86 1"/>
+      <geom name="planter_belly_skid" type="box" pos="0 0 -0.019" size="0.115 0.078 0.005" mass="0.08" contype="0" conaffinity="0" rgba="0.22 0.24 0.27 1"/>
+      <geom name="planter_deck" type="box" pos="-0.010 0 0.052" size="0.105 0.078 0.008" mass="0.10" contype="0" conaffinity="0" rgba="0.90 0.93 0.96 1"/>
+
+      <!-- BeiDou RTK-GNSS Receiver Mast & Status Beacon -->
+      <geom name="planter_rtk_mast" type="cylinder" pos="-0.088 0.058 0.095" size="0.007 0.036" mass="0.01" contype="0" conaffinity="0" rgba="0.82 0.84 0.88 1"/>
+      <geom name="planter_rtk_dome" type="sphere" pos="-0.088 0.058 0.135" size="0.018" mass="0.01" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
+
+      <!-- FARMING TOOL 1: Conformal Seed Hopper Funnel + Seed Sight-Glass + Bottom Drop Chute -->
+      <geom name="planter_hopper_outer" type="cylinder" pos="0.034 0 0.076" size="0.042 0.024" mass="0.06" contype="0" conaffinity="0" rgba="0.95 0.74 0.12 1"/>
+      <geom name="planter_hopper_inner" type="cylinder" pos="0.034 0 0.102" size="0.034 0.005" mass="0.01" contype="0" conaffinity="0" rgba="0.22 0.24 0.28 1"/>
+      <geom name="planter_hopper_seeds_vis" type="ellipsoid" pos="0.034 0 0.106" size="0.028 0.028 0.008" mass="0.01" contype="0" conaffinity="0" rgba="0.98 0.86 0.18 1"/>
+      <geom name="planter_seed_chute_tube" type="cylinder" pos="0.018 0 -0.005" size="0.014 0.026" mass="0.01" contype="0" conaffinity="0" rgba="0.78 0.80 0.84 1"/>
+
+      <!-- FARMING TOOL 2: Articulated Vertical Seed-Planter Dibber & Soil-Probe Plunger -->
+      <geom name="planter_probe_boom" type="cylinder" pos="-0.015 -0.048 0.082" size="0.012 0.028" mass="0.01" contype="0" conaffinity="0" rgba="0.28 0.32 0.36 1"/>
+      <body name="planter_dibber_arm" pos="-0.015 -0.048 0.045">
+        <joint name="planter_dibber_j" type="slide" axis="0 0 1" range="-0.052 0.010" damping="1.5" armature="0.002"/>
+        <geom name="planter_dibber_rod" type="cylinder" pos="0 0 0.010" size="0.007 0.058" mass="0.01" contype="0" conaffinity="0" rgba="0.20 0.88 0.96 1"/>
+        <geom name="planter_dibber_collar" type="cylinder" pos="0 0 -0.038" size="0.016 0.005" mass="0.005" contype="0" conaffinity="0" rgba="0.98 0.78 0.12 1"/>
+        <geom name="planter_dibber_tip" type="sphere" pos="0 0 -0.048" size="0.011" mass="0.005" contype="0" conaffinity="0" rgba="0.98 0.45 0.12 1"/>
+      </body>
+
+      <!-- FARMING TOOL 3: Dual Counter-Rotating Underbelly Finger Weeders (Left & Right) -->
+      <body name="planter_weeder_l" pos="-0.012 0.066 -0.022">
+        <joint name="planter_weeder_jl" type="hinge" axis="0 0 1" damping="0.02" armature="0.001"/>
+        <geom name="planter_weeder_hub_l" type="cylinder" size="0.012 0.008" mass="0.005" contype="0" conaffinity="0" rgba="0.95 0.55 0.10 1"/>
+        <geom name="planter_weeder_tine_l1" type="box" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+        <geom name="planter_weeder_tine_l2" type="box" euler="0 0 1.047" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+        <geom name="planter_weeder_tine_l3" type="box" euler="0 0 2.094" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+      </body>
+      <body name="planter_weeder_r" pos="-0.012 -0.066 -0.022">
+        <joint name="planter_weeder_jr" type="hinge" axis="0 0 1" damping="0.02" armature="0.001"/>
+        <geom name="planter_weeder_hub_r" type="cylinder" size="0.012 0.008" mass="0.005" contype="0" conaffinity="0" rgba="0.95 0.55 0.10 1"/>
+        <geom name="planter_weeder_tine_r1" type="box" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+        <geom name="planter_weeder_tine_r2" type="box" euler="0 0 1.047" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+        <geom name="planter_weeder_tine_r3" type="box" euler="0 0 2.094" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+      </body>
+
+      <!-- FARMING TOOL 4: Conformal Bio-Sprayer Tank, Rear 4-Nozzle Spray Boom & Front Crop Whiskers -->
+      <geom name="planter_spray_tank" type="box" pos="-0.062 0.005 0.070" size="0.032 0.036 0.014" mass="0.03" contype="0" conaffinity="0" rgba="0.18 0.82 0.78 0.92"/>
+      <geom name="planter_spray_boom" type="box" pos="-0.128 0 0.038" size="0.006 0.092 0.005" mass="0.01" contype="0" conaffinity="0" rgba="0.22 0.85 0.42 1"/>
+      <geom name="planter_nozzle_l1" type="cylinder" pos="-0.128 0.075 0.026" size="0.004 0.010" contype="0" conaffinity="0" rgba="0.98 0.88 0.15 1"/>
+      <geom name="planter_nozzle_l2" type="cylinder" pos="-0.128 0.028 0.026" size="0.004 0.010" contype="0" conaffinity="0" rgba="0.98 0.88 0.15 1"/>
+      <geom name="planter_nozzle_r1" type="cylinder" pos="-0.128 -0.028 0.026" size="0.004 0.010" contype="0" conaffinity="0" rgba="0.98 0.88 0.15 1"/>
+      <geom name="planter_nozzle_r2" type="cylinder" pos="-0.128 -0.075 0.026" size="0.004 0.010" contype="0" conaffinity="0" rgba="0.98 0.88 0.15 1"/>
+      <!-- Front Tactile Crop-Row Alignment Whiskers -->
+      <geom name="planter_whisker_l" type="capsule" pos="0.142 0.086 0.018" euler="0 1.57 0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
+      <geom name="planter_whisker_r" type="capsule" pos="0.142 -0.086 0.018" euler="0 1.57 -0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
+
+      <!-- Front Optical Surroundings Perception Camera (Ego-View: 14 deg downward pitch for crop stand, mud sinkhole & peer docking view) -->
+      <geom name="planter_cam_housing" type="box" pos="0.126 0 0.070" size="0.010 0.018 0.010" mass="0.015" contype="0" conaffinity="0" rgba="0.12 0.14 0.16 1"/>
+      <geom name="planter_cam_lens" type="cylinder" pos="0.137 0 0.070" zaxis="1 0 0" size="0.007 0.002" mass="0.005" contype="0" conaffinity="0" rgba="0.05 0.75 0.95 1"/>
+      <camera name="planter_front_camera" pos="0.139 0 0.070" xyaxes="0 -1 0  0.24 0 0.97" fovy="62" mode="fixed"/>
 
       <!-- Front LiDAR / Rangefinder Turret (3-ray fan: center, +18 deg left, -18 deg right) -->
-      <geom name="planter_lidar_pod" type="cylinder" pos="0.112 0 0.055" size="0.020 0.013" mass="0.02" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
-      <site name="planter_range_c" pos="0.140 0.00 0.048" zaxis="1 0 0" size="0.008" rgba="1 0.2 0.2 1"/>
-      <site name="planter_range_l" pos="0.138 0.04 0.048" zaxis="0.951 0.309 0" size="0.006" rgba="1 0.2 0.2 1"/>
-      <site name="planter_range_r" pos="0.138 -0.04 0.048" zaxis="0.951 -0.309 0" size="0.006" rgba="1 0.2 0.2 1"/>
+      <geom name="planter_lidar_pod" type="cylinder" pos="0.112 0 0.056" size="0.020 0.013" mass="0.02" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
+      <site name="planter_range_c" pos="0.140 0.00 0.050" zaxis="1 0 0" size="0.008" rgba="1 0.2 0.2 1"/>
+      <site name="planter_range_l" pos="0.138 0.04 0.050" zaxis="0.951 0.309 0" size="0.006" rgba="1 0.2 0.2 1"/>
+      <site name="planter_range_r" pos="0.138 -0.04 0.050" zaxis="0.951 -0.309 0" size="0.006" rgba="1 0.2 0.2 1"/>
       <site name="planter_odom_site" pos="0 0 0" size="0.01" rgba="1 1 1 1"/>
 
       <!-- COMBINED RIGID DOCKING & CAM-LOCKING RESCUE MECHANISM (FRONT ACTIVE CONE + LATCH) -->
-      <body name="planter_dock_boom" pos="0.135 0 0.012">
+      <body name="planter_dock_boom" pos="0.135 0 0.010">
         <!-- Active pitch-lift joint: pries a docked stuck peer upward (+Z) to break mud suction -->
         <joint name="planter_dock_pitch" type="hinge" axis="0 -1 0" range="-0.20 0.45" damping="2.5" armature="0.005"/>
         <geom name="planter_dock_shank" type="box" pos="0.022 0 0" size="0.022 0.018 0.009" mass="0.01" contype="0" conaffinity="0" rgba="0.82 0.85 0.90 1"/>
-        <geom name="planter_dock_cone" type="cylinder" pos="0.048 0 0" zaxis="1 0 0" size="0.016 0.014" mass="0.01" contype="0" conaffinity="0" rgba="0.95 0.42 0.18 1"/>
+        <geom name="planter_dock_cone" type="cylinder" pos="0.048 0 0" zaxis="1 0 0" size="0.016 0.015" mass="0.01" contype="0" conaffinity="0" rgba="0.96 0.42 0.14 1"/>
         <site name="planter_front_dock_site" pos="0.058 0 0" size="0.010" rgba="1 0.3 0.1 1"/>
         <!-- Rotary Cam-Locking Jaw inside the Docking Cone (grabs peer's rear strike bar rigidly) -->
-        <body name="planter_latch_jaw" pos="0.048 0 0.010">
+        <body name="planter_latch_jaw" pos="0.048 0 0.012">
           <joint name="planter_latch_j" type="hinge" axis="0 1 0" range="0.0 0.65" damping="0.8" armature="0.002"/>
-          <geom name="planter_latch_hook" type="box" pos="0.012 0 -0.008" size="0.014 0.010 0.006" mass="0.005" contype="0" conaffinity="0" rgba="0.98 0.22 0.22 1"/>
+          <geom name="planter_latch_arm" type="box" pos="0.012 0 0.002" size="0.014 0.008 0.004" mass="0.003" contype="0" conaffinity="0" rgba="0.98 0.18 0.18 1"/>
+          <geom name="planter_latch_hook" type="box" pos="0.022 0 -0.008" size="0.005 0.010 0.010" mass="0.003" contype="0" conaffinity="0" rgba="0.98 0.18 0.18 1"/>
         </body>
       </body>
 
       <!-- REAR PASSIVE ALIGNMENT FUNNEL & RIGID STRIKE BAR (Matches peer's Front Docking Cone) -->
-      <geom name="planter_rear_funnel_l" type="box" pos="-0.150 0.024 0.012" euler="0 0 -0.35" size="0.018 0.005 0.014" mass="0.005" contype="0" conaffinity="0" rgba="0.75 0.78 0.82 1"/>
-      <geom name="planter_rear_funnel_r" type="box" pos="-0.150 -0.024 0.012" euler="0 0 0.35" size="0.018 0.005 0.014" mass="0.005" contype="0" conaffinity="0" rgba="0.75 0.78 0.82 1"/>
-      <geom name="planter_rear_strike_bar" type="cylinder" pos="-0.148 0 0.012" zaxis="0 1 0" size="0.006 0.020" mass="0.005" contype="0" conaffinity="0" rgba="0.95 0.75 0.15 1"/>
-      <site name="planter_rear_dock_site" pos="-0.148 0 0.012" size="0.010" rgba="0.95 0.85 0.15 1"/>
+      <geom name="planter_rear_funnel_l" type="box" pos="-0.150 0.026 0.010" euler="0 0 -0.38" size="0.020 0.005 0.015" mass="0.005" contype="0" conaffinity="0" rgba="0.78 0.82 0.88 1"/>
+      <geom name="planter_rear_funnel_r" type="box" pos="-0.150 -0.026 0.010" euler="0 0 0.38" size="0.020 0.005 0.015" mass="0.005" contype="0" conaffinity="0" rgba="0.78 0.82 0.88 1"/>
+      <geom name="planter_rear_strike_bar" type="cylinder" pos="-0.148 0 0.010" zaxis="0 1 0" size="0.007 0.024" mass="0.005" contype="0" conaffinity="0" rgba="0.98 0.78 0.12 1"/>
+      <site name="planter_rear_dock_site" pos="-0.148 0 0.010" size="0.010" rgba="0.95 0.85 0.15 1"/>
 
       <!-- REAR DEPLOYABLE HARDPAN ANCHOR SPADES (Reaction anchor during heavy pry/pull) -->
       <body name="planter_spade_arm" pos="-0.132 0 -0.005">
         <joint name="planter_spade_j" type="hinge" axis="0 1 0" range="0.0 0.85" damping="1.2" armature="0.003"/>
-        <geom name="planter_spade_l" type="box" pos="-0.028 0.055 -0.018" euler="0 0.55 0" size="0.026 0.008 0.004" mass="0.005" contype="0" conaffinity="0" rgba="0.88 0.22 0.22 1"/>
-        <geom name="planter_spade_r" type="box" pos="-0.028 -0.055 -0.018" euler="0 0.55 0" size="0.026 0.008 0.004" mass="0.005" contype="0" conaffinity="0" rgba="0.88 0.22 0.22 1"/>
+        <geom name="planter_spade_l" type="box" pos="-0.028 0.055 -0.018" euler="0 0.55 0" size="0.028 0.010 0.004" mass="0.005" contype="0" conaffinity="0" rgba="0.90 0.22 0.22 1"/>
+        <geom name="planter_spade_r" type="box" pos="-0.028 -0.055 -0.018" euler="0 0.55 0" size="0.028 0.010 0.004" mass="0.005" contype="0" conaffinity="0" rgba="0.90 0.22 0.22 1"/>
       </body>
 
-      <!-- 4 Revolute Paddy Wheels (radius=0.058m, half-width=0.020m, outer width=276mm) -->
+      <!-- 4 Revolute Open-Lug Paddy Wheels (radius=0.058m, half-width=0.020m, outer width=276mm) -->
       <body name="planter_wheel_fl" pos="0.085 0.118 0.0">
         <joint name="planter_j_fl" type="hinge" axis="0 1 0" damping="0.08" armature="0.005"/>
         <geom name="planter_w_fl" type="cylinder" size="0.058 0.020" zaxis="0 1 0" mass="0.35" material="wheel_rubber_mat" contype="2" conaffinity="1" friction="1.4 0.01 0.005"/>
-        <geom name="planter_hub_fl" type="box" pos="0 0.021 0" size="0.038 0.002 0.010" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_hub_fl" type="box" pos="0 0.022 0" size="0.042 0.003 0.009" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_hub_fl_b" type="box" pos="0 0.022 0" size="0.009 0.003 0.042" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_lug_fl_0" type="box" pos="0.0550 0 0.0000" euler="0 -0.0000 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fl_1" type="box" pos="0.0275 0 0.0476" euler="0 -1.0472 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fl_2" type="box" pos="-0.0275 0 0.0476" euler="0 -2.0944 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fl_3" type="box" pos="-0.0550 0 0.0000" euler="0 -3.1416 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fl_4" type="box" pos="-0.0275 0 -0.0476" euler="0 -4.1888 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fl_5" type="box" pos="0.0275 0 -0.0476" euler="0 -5.2360 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
       </body>
       <body name="planter_wheel_fr" pos="0.085 -0.118 0.0">
         <joint name="planter_j_fr" type="hinge" axis="0 1 0" damping="0.08" armature="0.005"/>
         <geom name="planter_w_fr" type="cylinder" size="0.058 0.020" zaxis="0 1 0" mass="0.35" material="wheel_rubber_mat" contype="2" conaffinity="1" friction="1.4 0.01 0.005"/>
-        <geom name="planter_hub_fr" type="box" pos="0 -0.021 0" size="0.038 0.002 0.010" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_hub_fr" type="box" pos="0 -0.022 0" size="0.042 0.003 0.009" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_hub_fr_b" type="box" pos="0 -0.022 0" size="0.009 0.003 0.042" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_lug_fr_0" type="box" pos="0.0550 0 0.0000" euler="0 -0.0000 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fr_1" type="box" pos="0.0275 0 0.0476" euler="0 -1.0472 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fr_2" type="box" pos="-0.0275 0 0.0476" euler="0 -2.0944 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fr_3" type="box" pos="-0.0550 0 0.0000" euler="0 -3.1416 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fr_4" type="box" pos="-0.0275 0 -0.0476" euler="0 -4.1888 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_fr_5" type="box" pos="0.0275 0 -0.0476" euler="0 -5.2360 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
       </body>
       <body name="planter_wheel_rl" pos="-0.085 0.118 0.0">
         <joint name="planter_j_rl" type="hinge" axis="0 1 0" damping="0.08" armature="0.005"/>
         <geom name="planter_w_rl" type="cylinder" size="0.058 0.020" zaxis="0 1 0" mass="0.35" material="wheel_rubber_mat" contype="2" conaffinity="1" friction="1.4 0.01 0.005"/>
-        <geom name="planter_hub_rl" type="box" pos="0 0.021 0" size="0.038 0.002 0.010" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_hub_rl" type="box" pos="0 0.022 0" size="0.042 0.003 0.009" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_hub_rl_b" type="box" pos="0 0.022 0" size="0.009 0.003 0.042" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_lug_rl_0" type="box" pos="0.0550 0 0.0000" euler="0 -0.0000 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rl_1" type="box" pos="0.0275 0 0.0476" euler="0 -1.0472 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rl_2" type="box" pos="-0.0275 0 0.0476" euler="0 -2.0944 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rl_3" type="box" pos="-0.0550 0 0.0000" euler="0 -3.1416 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rl_4" type="box" pos="-0.0275 0 -0.0476" euler="0 -4.1888 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rl_5" type="box" pos="0.0275 0 -0.0476" euler="0 -5.2360 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
       </body>
       <body name="planter_wheel_rr" pos="-0.085 -0.118 0.0">
         <joint name="planter_j_rr" type="hinge" axis="0 1 0" damping="0.08" armature="0.005"/>
         <geom name="planter_w_rr" type="cylinder" size="0.058 0.020" zaxis="0 1 0" mass="0.35" material="wheel_rubber_mat" contype="2" conaffinity="1" friction="1.4 0.01 0.005"/>
-        <geom name="planter_hub_rr" type="box" pos="0 -0.021 0" size="0.038 0.002 0.010" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_hub_rr" type="box" pos="0 -0.022 0" size="0.042 0.003 0.009" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_hub_rr_b" type="box" pos="0 -0.022 0" size="0.009 0.003 0.042" contype="0" conaffinity="0" rgba="0.90 0.75 0.15 1"/>
+        <geom name="planter_lug_rr_0" type="box" pos="0.0550 0 0.0000" euler="0 -0.0000 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rr_1" type="box" pos="0.0275 0 0.0476" euler="0 -1.0472 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rr_2" type="box" pos="-0.0275 0 0.0476" euler="0 -2.0944 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rr_3" type="box" pos="-0.0550 0 0.0000" euler="0 -3.1416 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rr_4" type="box" pos="-0.0275 0 -0.0476" euler="0 -4.1888 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="planter_lug_rr_5" type="box" pos="0.0275 0 -0.0476" euler="0 -5.2360 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
       </body>
     </body>
 
     
     <!-- ========================================================================= -->
-    <!-- HOMOGENEOUS SWARM UNIT: SCOUT (Work + Sensor + Rigid Dock/Lock Rescue) -->
+    <!-- HOMOGENEOUS SWARM UNIT: SCOUT (Farming + Sensing + Rigid Dock/Lock Rescue) -->
     <!-- ========================================================================= -->
     <body name="scout_body" pos="0.820 0.000 0.056">
       <freejoint name="scout_free"/>
-      <!-- Sealed IP68 Waterproof Hull (270 x 190 x 64 mm, outer wheel width 276 mm < 300 mm row) -->
-      <geom name="scout_chassis" type="box" pos="0 0 0.015" size="0.135 0.095 0.032" mass="2.6" contype="4" conaffinity="5" rgba="0.18 0.72 0.36 1"/>
-      <!-- Top Electronics Deck & BeiDou RTK Mast -->
-      <geom name="scout_deck" type="box" pos="-0.02 0 0.055" size="0.080 0.070 0.012" mass="0.15" contype="0" conaffinity="0" rgba="0.92 0.94 0.96 1"/>
-      <geom name="scout_rtk_mast" type="cylinder" pos="-0.075 0.048 0.095" size="0.008 0.035" mass="0.02" contype="0" conaffinity="0" rgba="0.85 0.85 0.85 1"/>
-      <geom name="scout_rtk_dome" type="sphere" pos="-0.075 0.048 0.135" size="0.018" mass="0.01" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
-      <!-- Soil Moisture / Firmness Probe Mast (present on every homogeneous unit) -->
-      <geom name="scout_probe_boom" type="cylinder" pos="-0.075 -0.048 0.088" size="0.010 0.028" mass="0.02" contype="0" conaffinity="0" rgba="0.25 0.85 0.92 1"/>
-      <!-- Seed Hopper Funnel & Bottom Drop Chute (present on every homogeneous unit) -->
-      <geom name="scout_hopper_outer" type="cylinder" pos="0.025 0 0.075" size="0.040 0.026" mass="0.10" contype="0" conaffinity="0" rgba="0.95 0.76 0.14 1"/>
-      <geom name="scout_hopper_inner" type="cylinder" pos="0.025 0 0.102" size="0.030 0.004" mass="0.01" contype="0" conaffinity="0" rgba="0.22 0.22 0.24 1"/>
+      <!-- Sealed IP68 Waterproof Hull (270 x 190 x 64 mm) + Hydrodynamic Belly Skid -->
+      <geom name="scout_chassis" type="box" pos="0 0 0.015" size="0.135 0.095 0.032" mass="2.45" contype="4" conaffinity="5" rgba="0.18 0.72 0.36 1"/>
+      <geom name="scout_belly_skid" type="box" pos="0 0 -0.019" size="0.115 0.078 0.005" mass="0.08" contype="0" conaffinity="0" rgba="0.22 0.24 0.27 1"/>
+      <geom name="scout_deck" type="box" pos="-0.010 0 0.052" size="0.105 0.078 0.008" mass="0.10" contype="0" conaffinity="0" rgba="0.90 0.93 0.96 1"/>
+
+      <!-- BeiDou RTK-GNSS Receiver Mast & Status Beacon -->
+      <geom name="scout_rtk_mast" type="cylinder" pos="-0.088 0.058 0.095" size="0.007 0.036" mass="0.01" contype="0" conaffinity="0" rgba="0.82 0.84 0.88 1"/>
+      <geom name="scout_rtk_dome" type="sphere" pos="-0.088 0.058 0.135" size="0.018" mass="0.01" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
+
+      <!-- FARMING TOOL 1: Conformal Seed Hopper Funnel + Seed Sight-Glass + Bottom Drop Chute -->
+      <geom name="scout_hopper_outer" type="cylinder" pos="0.034 0 0.076" size="0.042 0.024" mass="0.06" contype="0" conaffinity="0" rgba="0.95 0.74 0.12 1"/>
+      <geom name="scout_hopper_inner" type="cylinder" pos="0.034 0 0.102" size="0.034 0.005" mass="0.01" contype="0" conaffinity="0" rgba="0.22 0.24 0.28 1"/>
+      <geom name="scout_hopper_seeds_vis" type="ellipsoid" pos="0.034 0 0.106" size="0.028 0.028 0.008" mass="0.01" contype="0" conaffinity="0" rgba="0.98 0.86 0.18 1"/>
+      <geom name="scout_seed_chute_tube" type="cylinder" pos="0.018 0 -0.005" size="0.014 0.026" mass="0.01" contype="0" conaffinity="0" rgba="0.78 0.80 0.84 1"/>
+
+      <!-- FARMING TOOL 2: Articulated Vertical Seed-Planter Dibber & Soil-Probe Plunger -->
+      <geom name="scout_probe_boom" type="cylinder" pos="-0.015 -0.048 0.082" size="0.012 0.028" mass="0.01" contype="0" conaffinity="0" rgba="0.28 0.32 0.36 1"/>
+      <body name="scout_dibber_arm" pos="-0.015 -0.048 0.045">
+        <joint name="scout_dibber_j" type="slide" axis="0 0 1" range="-0.052 0.010" damping="1.5" armature="0.002"/>
+        <geom name="scout_dibber_rod" type="cylinder" pos="0 0 0.010" size="0.007 0.058" mass="0.01" contype="0" conaffinity="0" rgba="0.20 0.88 0.96 1"/>
+        <geom name="scout_dibber_collar" type="cylinder" pos="0 0 -0.038" size="0.016 0.005" mass="0.005" contype="0" conaffinity="0" rgba="0.98 0.78 0.12 1"/>
+        <geom name="scout_dibber_tip" type="sphere" pos="0 0 -0.048" size="0.011" mass="0.005" contype="0" conaffinity="0" rgba="0.98 0.45 0.12 1"/>
+      </body>
+
+      <!-- FARMING TOOL 3: Dual Counter-Rotating Underbelly Finger Weeders (Left & Right) -->
+      <body name="scout_weeder_l" pos="-0.012 0.066 -0.022">
+        <joint name="scout_weeder_jl" type="hinge" axis="0 0 1" damping="0.02" armature="0.001"/>
+        <geom name="scout_weeder_hub_l" type="cylinder" size="0.012 0.008" mass="0.005" contype="0" conaffinity="0" rgba="0.95 0.55 0.10 1"/>
+        <geom name="scout_weeder_tine_l1" type="box" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+        <geom name="scout_weeder_tine_l2" type="box" euler="0 0 1.047" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+        <geom name="scout_weeder_tine_l3" type="box" euler="0 0 2.094" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+      </body>
+      <body name="scout_weeder_r" pos="-0.012 -0.066 -0.022">
+        <joint name="scout_weeder_jr" type="hinge" axis="0 0 1" damping="0.02" armature="0.001"/>
+        <geom name="scout_weeder_hub_r" type="cylinder" size="0.012 0.008" mass="0.005" contype="0" conaffinity="0" rgba="0.95 0.55 0.10 1"/>
+        <geom name="scout_weeder_tine_r1" type="box" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+        <geom name="scout_weeder_tine_r2" type="box" euler="0 0 1.047" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+        <geom name="scout_weeder_tine_r3" type="box" euler="0 0 2.094" size="0.034 0.004 0.005" contype="0" conaffinity="0" rgba="0.98 0.72 0.12 1"/>
+      </body>
+
+      <!-- FARMING TOOL 4: Conformal Bio-Sprayer Tank, Rear 4-Nozzle Spray Boom & Front Crop Whiskers -->
+      <geom name="scout_spray_tank" type="box" pos="-0.062 0.005 0.070" size="0.032 0.036 0.014" mass="0.03" contype="0" conaffinity="0" rgba="0.18 0.82 0.78 0.92"/>
+      <geom name="scout_spray_boom" type="box" pos="-0.128 0 0.038" size="0.006 0.092 0.005" mass="0.01" contype="0" conaffinity="0" rgba="0.22 0.85 0.42 1"/>
+      <geom name="scout_nozzle_l1" type="cylinder" pos="-0.128 0.075 0.026" size="0.004 0.010" contype="0" conaffinity="0" rgba="0.98 0.88 0.15 1"/>
+      <geom name="scout_nozzle_l2" type="cylinder" pos="-0.128 0.028 0.026" size="0.004 0.010" contype="0" conaffinity="0" rgba="0.98 0.88 0.15 1"/>
+      <geom name="scout_nozzle_r1" type="cylinder" pos="-0.128 -0.028 0.026" size="0.004 0.010" contype="0" conaffinity="0" rgba="0.98 0.88 0.15 1"/>
+      <geom name="scout_nozzle_r2" type="cylinder" pos="-0.128 -0.075 0.026" size="0.004 0.010" contype="0" conaffinity="0" rgba="0.98 0.88 0.15 1"/>
+      <!-- Front Tactile Crop-Row Alignment Whiskers -->
+      <geom name="scout_whisker_l" type="capsule" pos="0.142 0.086 0.018" euler="0 1.57 0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
+      <geom name="scout_whisker_r" type="capsule" pos="0.142 -0.086 0.018" euler="0 1.57 -0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
+
+      <!-- Front Optical Surroundings Perception Camera (Ego-View: 14 deg downward pitch for crop stand, mud sinkhole & peer docking view) -->
+      <geom name="scout_cam_housing" type="box" pos="0.126 0 0.070" size="0.010 0.018 0.010" mass="0.015" contype="0" conaffinity="0" rgba="0.12 0.14 0.16 1"/>
+      <geom name="scout_cam_lens" type="cylinder" pos="0.137 0 0.070" zaxis="1 0 0" size="0.007 0.002" mass="0.005" contype="0" conaffinity="0" rgba="0.05 0.75 0.95 1"/>
+      <camera name="scout_front_camera" pos="0.139 0 0.070" xyaxes="0 -1 0  0.24 0 0.97" fovy="62" mode="fixed"/>
 
       <!-- Front LiDAR / Rangefinder Turret (3-ray fan: center, +18 deg left, -18 deg right) -->
-      <geom name="scout_lidar_pod" type="cylinder" pos="0.112 0 0.055" size="0.020 0.013" mass="0.02" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
-      <site name="scout_range_c" pos="0.140 0.00 0.048" zaxis="1 0 0" size="0.008" rgba="0.2 1.0 0.4 1"/>
-      <site name="scout_range_l" pos="0.138 0.04 0.048" zaxis="0.951 0.309 0" size="0.006" rgba="0.2 1.0 0.4 1"/>
-      <site name="scout_range_r" pos="0.138 -0.04 0.048" zaxis="0.951 -0.309 0" size="0.006" rgba="0.2 1.0 0.4 1"/>
+      <geom name="scout_lidar_pod" type="cylinder" pos="0.112 0 0.056" size="0.020 0.013" mass="0.02" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
+      <site name="scout_range_c" pos="0.140 0.00 0.050" zaxis="1 0 0" size="0.008" rgba="0.2 1.0 0.4 1"/>
+      <site name="scout_range_l" pos="0.138 0.04 0.050" zaxis="0.951 0.309 0" size="0.006" rgba="0.2 1.0 0.4 1"/>
+      <site name="scout_range_r" pos="0.138 -0.04 0.050" zaxis="0.951 -0.309 0" size="0.006" rgba="0.2 1.0 0.4 1"/>
       <site name="scout_odom_site" pos="0 0 0" size="0.01" rgba="1 1 1 1"/>
 
       <!-- COMBINED RIGID DOCKING & CAM-LOCKING RESCUE MECHANISM (FRONT ACTIVE CONE + LATCH) -->
-      <body name="scout_dock_boom" pos="0.135 0 0.012">
+      <body name="scout_dock_boom" pos="0.135 0 0.010">
         <!-- Active pitch-lift joint: pries a docked stuck peer upward (+Z) to break mud suction -->
         <joint name="scout_dock_pitch" type="hinge" axis="0 -1 0" range="-0.20 0.45" damping="2.5" armature="0.005"/>
         <geom name="scout_dock_shank" type="box" pos="0.022 0 0" size="0.022 0.018 0.009" mass="0.01" contype="0" conaffinity="0" rgba="0.82 0.85 0.90 1"/>
-        <geom name="scout_dock_cone" type="cylinder" pos="0.048 0 0" zaxis="1 0 0" size="0.016 0.014" mass="0.01" contype="0" conaffinity="0" rgba="0.95 0.42 0.18 1"/>
+        <geom name="scout_dock_cone" type="cylinder" pos="0.048 0 0" zaxis="1 0 0" size="0.016 0.015" mass="0.01" contype="0" conaffinity="0" rgba="0.96 0.42 0.14 1"/>
         <site name="scout_front_dock_site" pos="0.058 0 0" size="0.010" rgba="1 0.3 0.1 1"/>
         <!-- Rotary Cam-Locking Jaw inside the Docking Cone (grabs peer's rear strike bar rigidly) -->
-        <body name="scout_latch_jaw" pos="0.048 0 0.010">
+        <body name="scout_latch_jaw" pos="0.048 0 0.012">
           <joint name="scout_latch_j" type="hinge" axis="0 1 0" range="0.0 0.65" damping="0.8" armature="0.002"/>
-          <geom name="scout_latch_hook" type="box" pos="0.012 0 -0.008" size="0.014 0.010 0.006" mass="0.005" contype="0" conaffinity="0" rgba="0.98 0.22 0.22 1"/>
+          <geom name="scout_latch_arm" type="box" pos="0.012 0 0.002" size="0.014 0.008 0.004" mass="0.003" contype="0" conaffinity="0" rgba="0.98 0.18 0.18 1"/>
+          <geom name="scout_latch_hook" type="box" pos="0.022 0 -0.008" size="0.005 0.010 0.010" mass="0.003" contype="0" conaffinity="0" rgba="0.98 0.18 0.18 1"/>
         </body>
       </body>
 
       <!-- REAR PASSIVE ALIGNMENT FUNNEL & RIGID STRIKE BAR (Matches peer's Front Docking Cone) -->
-      <geom name="scout_rear_funnel_l" type="box" pos="-0.150 0.024 0.012" euler="0 0 -0.35" size="0.018 0.005 0.014" mass="0.005" contype="0" conaffinity="0" rgba="0.75 0.78 0.82 1"/>
-      <geom name="scout_rear_funnel_r" type="box" pos="-0.150 -0.024 0.012" euler="0 0 0.35" size="0.018 0.005 0.014" mass="0.005" contype="0" conaffinity="0" rgba="0.75 0.78 0.82 1"/>
-      <geom name="scout_rear_strike_bar" type="cylinder" pos="-0.148 0 0.012" zaxis="0 1 0" size="0.006 0.020" mass="0.005" contype="0" conaffinity="0" rgba="0.95 0.75 0.15 1"/>
-      <site name="scout_rear_dock_site" pos="-0.148 0 0.012" size="0.010" rgba="0.95 0.85 0.15 1"/>
+      <geom name="scout_rear_funnel_l" type="box" pos="-0.150 0.026 0.010" euler="0 0 -0.38" size="0.020 0.005 0.015" mass="0.005" contype="0" conaffinity="0" rgba="0.78 0.82 0.88 1"/>
+      <geom name="scout_rear_funnel_r" type="box" pos="-0.150 -0.026 0.010" euler="0 0 0.38" size="0.020 0.005 0.015" mass="0.005" contype="0" conaffinity="0" rgba="0.78 0.82 0.88 1"/>
+      <geom name="scout_rear_strike_bar" type="cylinder" pos="-0.148 0 0.010" zaxis="0 1 0" size="0.007 0.024" mass="0.005" contype="0" conaffinity="0" rgba="0.98 0.78 0.12 1"/>
+      <site name="scout_rear_dock_site" pos="-0.148 0 0.010" size="0.010" rgba="0.95 0.85 0.15 1"/>
 
       <!-- REAR DEPLOYABLE HARDPAN ANCHOR SPADES (Reaction anchor during heavy pry/pull) -->
       <body name="scout_spade_arm" pos="-0.132 0 -0.005">
         <joint name="scout_spade_j" type="hinge" axis="0 1 0" range="0.0 0.85" damping="1.2" armature="0.003"/>
-        <geom name="scout_spade_l" type="box" pos="-0.028 0.055 -0.018" euler="0 0.55 0" size="0.026 0.008 0.004" mass="0.005" contype="0" conaffinity="0" rgba="0.88 0.22 0.22 1"/>
-        <geom name="scout_spade_r" type="box" pos="-0.028 -0.055 -0.018" euler="0 0.55 0" size="0.026 0.008 0.004" mass="0.005" contype="0" conaffinity="0" rgba="0.88 0.22 0.22 1"/>
+        <geom name="scout_spade_l" type="box" pos="-0.028 0.055 -0.018" euler="0 0.55 0" size="0.028 0.010 0.004" mass="0.005" contype="0" conaffinity="0" rgba="0.90 0.22 0.22 1"/>
+        <geom name="scout_spade_r" type="box" pos="-0.028 -0.055 -0.018" euler="0 0.55 0" size="0.028 0.010 0.004" mass="0.005" contype="0" conaffinity="0" rgba="0.90 0.22 0.22 1"/>
       </body>
 
-      <!-- 4 Revolute Paddy Wheels (radius=0.058m, half-width=0.020m, outer width=276mm) -->
+      <!-- 4 Revolute Open-Lug Paddy Wheels (radius=0.058m, half-width=0.020m, outer width=276mm) -->
       <body name="scout_wheel_fl" pos="0.085 0.118 0.0">
         <joint name="scout_j_fl" type="hinge" axis="0 1 0" damping="0.08" armature="0.005"/>
         <geom name="scout_w_fl" type="cylinder" size="0.058 0.020" zaxis="0 1 0" mass="0.35" material="wheel_rubber_mat" contype="4" conaffinity="1" friction="1.4 0.01 0.005"/>
-        <geom name="scout_hub_fl" type="box" pos="0 0.021 0" size="0.038 0.002 0.010" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_hub_fl" type="box" pos="0 0.022 0" size="0.042 0.003 0.009" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_hub_fl_b" type="box" pos="0 0.022 0" size="0.009 0.003 0.042" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_lug_fl_0" type="box" pos="0.0550 0 0.0000" euler="0 -0.0000 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fl_1" type="box" pos="0.0275 0 0.0476" euler="0 -1.0472 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fl_2" type="box" pos="-0.0275 0 0.0476" euler="0 -2.0944 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fl_3" type="box" pos="-0.0550 0 0.0000" euler="0 -3.1416 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fl_4" type="box" pos="-0.0275 0 -0.0476" euler="0 -4.1888 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fl_5" type="box" pos="0.0275 0 -0.0476" euler="0 -5.2360 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
       </body>
       <body name="scout_wheel_fr" pos="0.085 -0.118 0.0">
         <joint name="scout_j_fr" type="hinge" axis="0 1 0" damping="0.08" armature="0.005"/>
         <geom name="scout_w_fr" type="cylinder" size="0.058 0.020" zaxis="0 1 0" mass="0.35" material="wheel_rubber_mat" contype="4" conaffinity="1" friction="1.4 0.01 0.005"/>
-        <geom name="scout_hub_fr" type="box" pos="0 -0.021 0" size="0.038 0.002 0.010" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_hub_fr" type="box" pos="0 -0.022 0" size="0.042 0.003 0.009" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_hub_fr_b" type="box" pos="0 -0.022 0" size="0.009 0.003 0.042" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_lug_fr_0" type="box" pos="0.0550 0 0.0000" euler="0 -0.0000 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fr_1" type="box" pos="0.0275 0 0.0476" euler="0 -1.0472 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fr_2" type="box" pos="-0.0275 0 0.0476" euler="0 -2.0944 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fr_3" type="box" pos="-0.0550 0 0.0000" euler="0 -3.1416 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fr_4" type="box" pos="-0.0275 0 -0.0476" euler="0 -4.1888 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_fr_5" type="box" pos="0.0275 0 -0.0476" euler="0 -5.2360 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
       </body>
       <body name="scout_wheel_rl" pos="-0.085 0.118 0.0">
         <joint name="scout_j_rl" type="hinge" axis="0 1 0" damping="0.08" armature="0.005"/>
         <geom name="scout_w_rl" type="cylinder" size="0.058 0.020" zaxis="0 1 0" mass="0.35" material="wheel_rubber_mat" contype="4" conaffinity="1" friction="1.4 0.01 0.005"/>
-        <geom name="scout_hub_rl" type="box" pos="0 0.021 0" size="0.038 0.002 0.010" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_hub_rl" type="box" pos="0 0.022 0" size="0.042 0.003 0.009" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_hub_rl_b" type="box" pos="0 0.022 0" size="0.009 0.003 0.042" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_lug_rl_0" type="box" pos="0.0550 0 0.0000" euler="0 -0.0000 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rl_1" type="box" pos="0.0275 0 0.0476" euler="0 -1.0472 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rl_2" type="box" pos="-0.0275 0 0.0476" euler="0 -2.0944 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rl_3" type="box" pos="-0.0550 0 0.0000" euler="0 -3.1416 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rl_4" type="box" pos="-0.0275 0 -0.0476" euler="0 -4.1888 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rl_5" type="box" pos="0.0275 0 -0.0476" euler="0 -5.2360 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
       </body>
       <body name="scout_wheel_rr" pos="-0.085 -0.118 0.0">
         <joint name="scout_j_rr" type="hinge" axis="0 1 0" damping="0.08" armature="0.005"/>
         <geom name="scout_w_rr" type="cylinder" size="0.058 0.020" zaxis="0 1 0" mass="0.35" material="wheel_rubber_mat" contype="4" conaffinity="1" friction="1.4 0.01 0.005"/>
-        <geom name="scout_hub_rr" type="box" pos="0 -0.021 0" size="0.038 0.002 0.010" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_hub_rr" type="box" pos="0 -0.022 0" size="0.042 0.003 0.009" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_hub_rr_b" type="box" pos="0 -0.022 0" size="0.009 0.003 0.042" contype="0" conaffinity="0" rgba="0.25 0.90 0.50 1"/>
+        <geom name="scout_lug_rr_0" type="box" pos="0.0550 0 0.0000" euler="0 -0.0000 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rr_1" type="box" pos="0.0275 0 0.0476" euler="0 -1.0472 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rr_2" type="box" pos="-0.0275 0 0.0476" euler="0 -2.0944 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rr_3" type="box" pos="-0.0550 0 0.0000" euler="0 -3.1416 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rr_4" type="box" pos="-0.0275 0 -0.0476" euler="0 -4.1888 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="scout_lug_rr_5" type="box" pos="0.0275 0 -0.0476" euler="0 -5.2360 0" size="0.005 0.022 0.009" contype="0" conaffinity="0" rgba="0.28 0.30 0.34 1"/>
       </body>
     </body>
 
   </worldbody>
   <equality>
     <!-- Bidirectional Rigid Mechanical Latch Constraints (activated when docking cone locks into rear strike bar) -->
-    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.008 1.0"/>
-    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.008 1.0"/>
+    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.04 1.0"/>
+    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.04 1.0"/>
   </equality>
   <actuator>
     
@@ -195,6 +341,14 @@
     <position name="scout_dock_pitch_act" joint="scout_dock_pitch" kp="35.0" ctrllimited="true" ctrlrange="-0.20 0.45"/>
     <position name="scout_latch_act" joint="scout_latch_j" kp="15.0" ctrllimited="true" ctrlrange="0.0 0.65"/>
     <position name="scout_spade_act" joint="scout_spade_j" kp="20.0" ctrllimited="true" ctrlrange="0.0 0.85"/>
+
+    <!-- Homogeneous Farming Tool Actuators: Vertical Seed/Soil Dibber Plunger & Underbelly Rotary Weeders (ctrl 14..19) -->
+    <position name="planter_dibber_act" joint="planter_dibber_j" kp="30.0" ctrllimited="true" ctrlrange="-0.052 0.010"/>
+    <velocity name="planter_weeder_l_act" joint="planter_weeder_jl" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>
+    <velocity name="planter_weeder_r_act" joint="planter_weeder_jr" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>
+    <position name="scout_dibber_act" joint="scout_dibber_j" kp="30.0" ctrllimited="true" ctrlrange="-0.052 0.010"/>
+    <velocity name="scout_weeder_l_act" joint="scout_weeder_jl" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>
+    <velocity name="scout_weeder_r_act" joint="scout_weeder_jr" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>
 
   </actuator>
   <sensor>

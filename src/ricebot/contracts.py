@@ -123,11 +123,36 @@ class PlantFeedback:
 
 
 @dataclass(frozen=True)
+class RecoveryFeedback:
+    """Physics-confirmed peer rescue outcome reported by SimulationPort (never faked by planner)."""
+
+    helper_robot_id: str
+    target_robot_id: str
+    task_id: str
+    latched: bool
+    extracted: bool
+    victim_displacement_m: float
+    observed_at_s: float
+    phase: str = ""
+
+    def __post_init__(self) -> None:
+        _finite(self.victim_displacement_m, self.observed_at_s)
+        if (
+            not self.helper_robot_id
+            or not self.target_robot_id
+            or self.observed_at_s < 0
+            or self.victim_displacement_m < 0
+        ):
+            raise ValueError("invalid recovery feedback")
+
+
+@dataclass(frozen=True)
 class ObservationFrame:
     episode_id: str
     time_s: float
     robots: tuple[RobotObservation, ...]
     plant_feedback: tuple[PlantFeedback, ...] = ()
+    recovery_feedback: tuple[RecoveryFeedback, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.episode_id:
@@ -140,12 +165,15 @@ class ObservationFrame:
             raise ValueError("frame and robot clock must match")
         if any(f.observed_at_s > self.time_s for f in self.plant_feedback):
             raise ValueError("feedback cannot come from the future")
+        if any(f.observed_at_s > self.time_s for f in self.recovery_feedback):
+            raise ValueError("recovery feedback cannot come from the future")
 
 
 class TaskMode(str, Enum):
     SAMPLE = "sample"
     PLANT = "plant"
     HOLD = "hold"
+    RESCUE = "rescue"
 
 
 @dataclass(frozen=True)
@@ -156,14 +184,17 @@ class TaskIntent:
     issued_at_s: float
     expires_at_s: float
     target_site_id: str | None = None
+    target_robot_id: str | None = None
     reason: str = ""
 
     def __post_init__(self) -> None:
         _finite(self.issued_at_s, self.expires_at_s)
         if not self.robot_id or not self.task_id or self.expires_at_s <= self.issued_at_s:
             raise ValueError("invalid task TTL or actor")
-        if self.mode != TaskMode.HOLD and not self.target_site_id:
+        if self.mode in (TaskMode.SAMPLE, TaskMode.PLANT) and not self.target_site_id:
             raise ValueError("active tasks require a site")
+        if self.mode == TaskMode.RESCUE and not (self.target_robot_id or self.target_site_id):
+            raise ValueError("rescue tasks require a target robot or rendezvous site")
 
 
 @dataclass(frozen=True)
@@ -176,11 +207,29 @@ class RobotCommand:
     angular_rad_s: float = 0.0
     release_seed: bool = False
     target_site_id: str | None = None
+    recovery_target_id: str | None = None
+    dock_pitch_rad: float = 0.0
+    latch_rad: float = 0.0
+    spade_rad: float = 0.0
 
     def __post_init__(self) -> None:
-        _finite(self.issued_at_s, self.expires_at_s, self.linear_m_s, self.angular_rad_s)
+        _finite(
+            self.issued_at_s,
+            self.expires_at_s,
+            self.linear_m_s,
+            self.angular_rad_s,
+            self.dock_pitch_rad,
+            self.latch_rad,
+            self.spade_rad,
+        )
         if not self.robot_id or self.expires_at_s <= self.issued_at_s:
             raise ValueError("invalid command TTL or actor")
+        if not (-0.20 <= self.dock_pitch_rad <= 0.15):
+            raise ValueError("dock_pitch_rad out of safe grounded bounds [-0.20, 0.15]")
+        if not (0.0 <= self.latch_rad <= 0.65):
+            raise ValueError("latch_rad out of bounds [0.0, 0.65]")
+        if not (0.0 <= self.spade_rad <= 0.85):
+            raise ValueError("spade_rad out of bounds [0.0, 0.85]")
         if self.release_seed and (not self.target_site_id or not self.task_id or self.linear_m_s or self.angular_rad_s):
             raise ValueError("plant release needs target and zero drive")
 
