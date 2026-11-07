@@ -11,6 +11,24 @@
 5. **Independent result:** measured success/failure, baseline comparison and one honest hard case.
 6. **Limits:** distinguish simulation, mock, replay and hardware. State real latency/expense only when measured.
 
+## Rice flood-response demo storyboard — proposal, not recorded
+
+**Single continuous ≤60-second physics-simulator recording**, with robot movement and its **actual sensor** plus selected task/drive action visible side-by-side. A simple water-flow/level visual may be labelled **synthetic**. The exact recording sequence and timings below are a *target*, not existing performance.
+
+| Approx. elapsed video | What judge sees | What it proves |
+| --- | --- | --- |
+| 0–10s | service-bank rover and paddy outlet; fixed station reports an abnormal water-level observation; robot's front-range reading and current goal displayed | credible inspection beneficiary, sensor provenance, initial task |
+| 10–24s | rover travels to investigate using bounded local control; live range/odometry and command values change | physics-actuated, observation-driven movement |
+| 24–35s | new obstacle is injected **while recording**; sensor subsequently detects it; planned course becomes unsafe | surprise is an actual world change, not hand-picked second clip |
+| 35–50s | local controller reroutes/repositions or holds safely, with trace of changed decision and observed progress | adaptation and failure handling without cloud motor-loop dependence |
+| 50–60s | independent success/failure reading and, **only if genuinely implemented**, a visibly actuated outlet gate with subsequent water-proxy measurement | measured outcome and honest limits; without gate, clearly pitch **inspection/triage**, not autonomous flood prevention |
+
+**Best-case future demo:** the scout distinguishes real rising water from a false sensor alarm, dispatches an appropriate gate actor, gate joint moves and independent synthetic hydrology responds. Add a stuck-scout/helper case only if physics and traces prove real assistance. Do not force all extensions into one fragile recording.
+
+**Judge-facing question:** “When the rice-field drainage warning might be wrong, can a robot physically gather evidence, adapt to a surprise and trigger only justified flood mitigation?” Compare the same episode against a fixed route/static alarm and a competent reactive inspection controller; mention a more capable belief/active-sensing baseline when tested.
+
+**What cannot be claimed:** no verified hydrology, seedling health/yield, field hardware, functional robot rescue, online/offline deployment or simulator runtime until actual run evidence. A dashboard with a moving icon is not embodied action. The user-selected direction and the five-person implementation split are documented; the human robot-design lead must confirm the rover body/sensor/actuator feasibility first.
+
 ## DeepMind presentation guidance — not the official judging rubric
 
 **Source:** attendee photographs of the Google DeepMind AgentVerse presentation, 7 November 2026. Presenter described a 10-second first impression and an effective **30-second working moment**. Practical application to a Robotics entry:
@@ -27,13 +45,13 @@
 
 | Item | Value |
 | --- | --- |
-| Beneficiary and goal | TBD |
+| Beneficiary and goal | Rice growers/drainage operators: investigate an abnormal outlet/water rise and avoid harmful or unnecessary intervention (**working proposal; benefit unmeasured**) |
 | Entry point and exact command | TBD |
 | Test fixture/scene, seed and reset | TBD |
 | Expected action/effect | TBD |
 | Independent pass signal | TBD |
 | Measured baseline | TBD |
-| One surprising edge case | TBD |
+| One surprising edge case | Obstacle appears mid-rover inspection; sensors cause reroute or safe hold (**not yet recorded**) |
 | Observed live-demo result/commit | TBD |
 | Fallback recording or deterministic replay (clearly labelled) | TBD |
 | Operator and handover | TBD |
