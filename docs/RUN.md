@@ -6,11 +6,24 @@
 
 ## Recovery integration gate (separate from existing MuJoCo mechanical test)
 
+## Current minimum working rescue integration assignment
+
+**Owner:** human integrator + existing robot/mechanics owner; keep other authors' source unchanged. Verify the branch and inspect the real actuator IDs and model before implementation. The following is a **test requirement, not a claim it works**:
+
+1. In the **existing** MuJoCo field, issue bounded drive/turn commands to a rover doing a real rice task. After measurable motion, inject a reproducible terrain/traction stall or physically immobilise it; record each issued command, pose, yaw and valid sensor status. Separately demonstrate a missing range sensor and a legitimate HOLD **do not** cause rescue.
+2. From that evidence, compare the three actions **dispatch, defer, abstain** using a numerical risk baseline (approach safety, remaining task value and secondary-casualty risk). A model may interpret qualitative context but must not create raw wheel torques or override deterministic force limits.
+3. Couple the approved rigid docking/cam-latch/pitch-lift mechanism through a **bounded typed recovery skill**, not a string masquerading as an action or a teleport of the victim. Verify physical contact and **independent** target displacement and helper safety; test failure/abort.
+4. Continue at least one local mapping/seed task after successful extraction, or show a reasoned safe-stop and task reallocation if rescue is unsafe. Record the same continuous episode with seeded logs and distinguish *full mission* evidence from the separate already working scripted latch test.
+5. Run `python scripts/check_repo.py`, `python scripts/sync_skills.py --check` and `python -m unittest discover -s tests -v` after installing `requirements-mujoco.txt`. For GUI separately launch `python scripts/run_mujoco_paddypatch.py --dashboard` on an actual graphical host; GitHub Actions is **headless** and does not validate a desktop rendering session.
+
+**Current limitation:** the repo still has only an isolated scripted physical extraction test and rescue triage, not an integrated validated rescue skill or finished continuous demo. Prefer real falsifiable results over a more complex GUI or a second physics engine.
+
+
 To claim the full product, demonstrate a **real detected fault**, contextual rescue/abstain decision, bounded command driving the merged `paddy_ant_rigid_rescue.xml` / `update_rigid_dock_latch` mechanism, independently checked target displacement/helper safety and continued actual fieldwork. The current `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` is scripted contact/extraction, not end-to-end. Research pooled offline inference only on verified hardware and trusted network; no public llama.cpp RPC or cloud charges without approval.
 
 ## New teammate or agent onboarding
 
-For **any fresh Windows/macOS/Linux machine**, start with [WORKSTATION-SETUP](WORKSTATION-SETUP.md): inspect/clone safely, create local `.venv`, run actual kernel checks, optionally verify a toy MuJoCo joint with `scripts/smoke_mujoco.py` **or run the now-merged PaddyPatch MuJoCo prototype**, verify Antigravity/Gemini access, and gate Isaac Sim on compatible hardware and permissions. Do not copy another teammate's private keys or assume their local prototype exists on this machine. Isaac Sim remains the selected target; **MuJoCo is already the approved active development prototype**. Porting to Isaac still requires tests. [COMPONENTS](COMPONENTS.md) owns world vs robot vs single Isaac integration writer and the module README standard.
+For **any fresh Windows/macOS/Linux machine**, start with [WORKSTATION-SETUP](WORKSTATION-SETUP.md): inspect/clone safely, create local `.venv`, run actual kernel checks, optionally verify a toy MuJoCo joint with `scripts/smoke_mujoco.py` **or run the now-merged PaddyPatch MuJoCo prototype**, verify Antigravity/Gemini access, and gate Isaac Sim on compatible hardware and permissions. Do not copy another teammate's private keys or assume their local prototype exists on this machine. MuJoCo is the approved, actually exercised current rescue backend; **Isaac Sim is an unverified optional translation target**, not the first development task. Porting to Isaac still requires tests. [COMPONENTS](COMPONENTS.md) owns world vs robot vs single Isaac integration writer and the module README standard.
 
 ## Implemented core check (no Isaac Sim required)
 
@@ -22,9 +35,9 @@ python -m unittest discover -s tests -p 'test_ricebot_foundation.py' -v
 
 These use **scripted observations only**. Full discovery additionally runs MuJoCo physics tests and requires Python 3.11+ and `requirements-mujoco.txt`. Neither level proves Isaac Sim or farm performance.
 
-**Next coding agent:** implement the actual Isaac Sim `SimulationPort` against `src/ricebot/contracts.py`; first a real wheel-driven rover and range sensor, then an **actual rigid-body seed drop and landing/contact feedback**. Use the installed Isaac version; report exact host/VRAM/driver, commands, physics traces and failures. The physical bridge must refuse expired/invalid drive and drop commands independently. Keep the hidden true soil field out of the observations.
+**Next coding agent:** use existing **MuJoCo** and the merged rigid rescue chassis. Connect a genuine observed immobilisation event to the supervisor's risk/abstain decision, then a typed bounded physical docking/extraction skill and independent recovery/outcome check. Avoid creating a second runtime or changing the robot lead's docking geometry without coordination. The conservative central planner now rejects missing-range-only rescue claims; its sensor/command tests passing is **not** proof of physical rescue. Keep both nominal rice-field work and an incident in the **same** episode.
 
-**Scope cap:** about 3–6 planting sites, two simple rovers, a few synthetic local soil/stand readings, one physical drop, and one mid-run changed obstacle/site. No full farm, crop growth, flood mitigation or robot rescue.
+**Scope cap:** two existing MuJoCo rovers, one real simulated seed/sensor mission, one induced fault, one risk-informed rescue or abstention and independently measured mission continuation. No extra mud/planting simulator, full crop lifecycle, new RF hardware, distributed LLM or unreviewed winch.
 
 ## MuJoCo Rapid-Prototyping SimulationPort & Isaac Sim Translation Protocol
 
@@ -58,7 +71,7 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 ## Isaac Sim preflight — chosen target, not yet proven
 
-**Use NVIDIA Isaac Sim** for the actual USD scene, physically actuated rover wheels and hopper, rigid-body seed proxies, raycast/range/contact/odometry and second scout. Start from [official Isaac Sim requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html), [current sensor docs](https://docs.isaacsim.omniverse.nvidia.com/latest/sensors/isaacsim_sensors_physics_raycast.html), [Python API](https://docs.isaacsim.omniverse.nvidia.com/latest/py/index.html). **Do not pin a version from these links**: confirm and pin the *actually installed* build and its supported API; versions differ.
+**Optional later Isaac Sim translation only (not current rescue P0):** if selected by the human team on suitable hardware, use NVIDIA Isaac Sim for an additional USD scene, physically actuated rover wheels and hopper, rigid-body seed proxies, raycast/range/contact/odometry and second scout. Start from [official Isaac Sim requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html), [current sensor docs](https://docs.isaacsim.omniverse.nvidia.com/latest/sensors/isaacsim_sensors_physics_raycast.html), [Python API](https://docs.isaacsim.omniverse.nvidia.com/latest/py/index.html). **Do not pin a version from these links**: confirm and pin the *actually installed* build and its supported API; versions differ.
 
 **Hardware reality:** official Isaac Sim guidance specifies 32 GB system RAM and 16 GB GPU VRAM minimum for supported workstation operation; some teammates' reported laptops with 8 GB VRAM are below that. Check each actual machine's CPU/system RAM, GPU model + **VRAM**, driver, OS, free disk and run the Isaac Sim Compatibility Checker. If one machine already runs it reliably, use that as the physics host and connect other PCs through a bounded, logged network layer **only if their permissions/network work**. A GPU cloud host is possible only after verifying allocation, cost/credits, security, streaming and explicit spending/deployment approval. The Linux-only container build, assets network requirements and RTX constraints may affect the choice. Keep a headless/low-sensor-count scene to reduce rendering load. **The already approved MuJoCo prototype can continue independently**; do not call it Isaac. If Isaac preflight fails, report logs and ask the human team whether to retain MuJoCo for the final demo.
 
@@ -66,36 +79,7 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 ## Next agent first integration task — Isaac Sim planting-first skeleton (not yet implemented)
 
-**Read:** [PRODUCT](PRODUCT.md), [ARCHITECTURE](ARCHITECTURE.md), proposed [rice.v1 seam](CONTRACTS.md), [TEAM five-role ownership](TEAM.md#selected-rice-project-five-human-work-split-proposed-not-yet-assigned-by-name) and the smallest matching `embodied-loop` / `contracts-first` agent skills. One human integrator owns the first branch and contracts; human robotics owner approves rover body, wheeled drivetrain, probe position, seed dropper geometry and viable traversable field lanes.
-
-**Copy-paste first coding assignment:**
-```text
-Implement the FIRST EXECUTABLE ISAAC SIM PADDYPATCH SKELETON.
-Use the latest main and read AGENTS, PRODUCT, ARCHITECTURE, CONTRACTS,
-RUN, and matching skills. Own one isolated branch/worktree.
-Inspect installed Isaac Sim version, compatibility and existing robot assets
-before writing version-specific imports; never invent a successful launch.
-Create a tiny OpenUSD/PhysX field, one wheel-driven rover articulation,
-an actual physics range sensor and bounded local drive commands.
-Provide deterministic reset/step and an independently sampled observation;
-insert an obstacle after motion starts and react from range/odometry only.
-Then implement the earliest feasible physical planting proof: one simple
-hopper/release action spawns/releases a rigid-body seed proxy from the rover
-at a marked site, and the contact/landing is measured by the simulator.
-A PLANT text event or placing a seed directly at the goal is NOT enough.
-Do not build an LLM, a shared swarm cloud, flood mitigation, rescue/towing,
-or a polished dashboard. Keep UI read-only and expose typed rice.v1 fixture
-and runner for later map/scout/planner owners. Record exact startup/install
-commands, asset licence, tested SHA, actual sensor/action/seed-contact trace,
-hardware usage, failures and what remains undone. Do not merge automatically,
-expose secrets, spend credits or submit.
-```
-
-**First PR acceptance (P0a plus earliest P0b physical action):** physically driven rover; real sampled sensor changes as the scene changes; mid-run obstacle avoidance or safe hold; real rigid-body seed release/contact/landing; no phantom inventory decrement; trace and actual launch/test commands. If Isaac cannot launch, publish its real diagnostics and *do not fabricate a simulated result*. The integrator may split the motion/sensor fixture and seed-drop fixture into **two small sequential PRs**, but physical planting is the **next priority**, not long-term framework abstraction.
-
-**After first seam:** other owners independently build (a) second rover and locally sampled stand/soil proxy, (b) shared map estimation, (c) site selection and two-robot routing, (d) grader/baselines/video, all consuming the same tested contract. P0 still requires a complete physical rice planting mission and surprise-driven replanning. Separate time-permitting rescue and flood-gate work **only after** end-to-end physical placement and scoring are safe.
-
-**Target future command shape only (NOT implemented):** `./python.sh scripts/run_paddypatch.py --scenario patchy-stand --seed 7 --headless` if using an Isaac Sim workstation install; exact startup depends on verified installation, OS and pinned version. Replace with actually tested command in this file.
+**Historical anchor only; superseded by D-0009 rescue-first.** Older contributor links may point here. Do **not** execute the prior planting-first task or ask another teammate to install Isaac Sim merely to meet current P0. Its complete original specification is retained in Git history. The active demo backend is the already merged MuJoCo rover/seed/rigid-dock physics stack; optional Isaac translation is a separate future preflight.
 
 ## Fill immediately after selecting the product stack
 
