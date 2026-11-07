@@ -1,5 +1,7 @@
 # Component ownership, replaceability and audit standard
 
+**Alternative versions and reconciliation:** See [SIMULATOR-VARIANTS](SIMULATOR-VARIANTS.md) for the pinned feature-source catalog and workflow to port useful capabilities from other team branches or independent frontends. This guide continues to own **module boundaries and contracts**; the variant registry owns **where alternative implementations live**. A source branch is not a replacement for a module contract or a second canonical runtime. For any world, robot, controller or GUI feature migration, use the [simulation/perception/viewer audit](audits/2026-11-07-simulation-perception-viewer.md) as a current-SHA-verification checklist, not as timeless test results.
+
 **Applies to all meaningful PaddyPatch modules and future features.** This is the canonical guide for **program sections** (world, robot, mapping, controls, evaluation), not Git branches. [TEAM](TEAM.md) governs Git collaboration; [CONTRACTS](CONTRACTS.md) defines the real `rice.v1` data model. Read only the relevant section and component README for the task. Do **not** add an agent file per function or a new framework for documentation.
 
 ## Current source versus proposed functionality
