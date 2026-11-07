@@ -47,7 +47,11 @@ from ricebot.control import ControlLimits, LocalController
 from ricebot.mission import MeasuredFieldMap, SimpleMissionPlanner
 from ricebot.mujoco_sim.adapter import DEFAULT_CAPABILITIES, DEFAULT_SITES, MujocoPaddySimulation
 from ricebot.runtime import EpisodeRunner, MissionCore
-from ricebot.world import DEFAULT_HIDDEN_SOIL_TRUTH, UNEXPECTED_BAD_SOIL_TRUTH
+from ricebot.world import (
+    DEFAULT_HIDDEN_SOIL_TRUTH,
+    UNEXPECTED_BAD_SOIL_TRUTH,
+    generate_hidden_soil_truth,
+)
 
 
 class TelemetryRecorder:
@@ -284,7 +288,7 @@ def run_demo(
     single_rover_only: bool = False,
 ) -> dict[str, object]:
     inject_at = 1.6 if scenario == "obstacle" else None
-    truth = UNEXPECTED_BAD_SOIL_TRUTH if scenario == "bad_soil" else DEFAULT_HIDDEN_SOIL_TRUTH
+    truth = generate_hidden_soil_truth(scenario, seed)
     sim = MujocoPaddySimulation(
         sites=DEFAULT_SITES,
         probe_radius_m=0.28,
@@ -502,8 +506,8 @@ def export_multi_scenario_dashboard(output_path: str | Path, seed: int = 7) -> P
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scenario", choices=("nominal", "obstacle", "bad_soil"), default="nominal")
-    parser.add_argument("--policy", choices=("mycelial", "centralized"), default="mycelial")
+    parser.add_argument("--scenario", choices=("nominal", "obstacle", "bad_soil", "shifted_moisture", "sensor_degraded"), default="nominal")
+    parser.add_argument("--policy", choices=("mycelial", "centralized", "single_rover"), default="mycelial")
     parser.add_argument("--comms", choices=("normal", "intermittent", "isolated"), default="normal")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--steps", type=int, default=140)
@@ -525,7 +529,7 @@ def main() -> int:
 
         launch_live_dashboard(
             scenario=args.scenario,
-            comms=args.comms,
+            comms=args.comms, policy=args.policy,
             seed=args.seed,
             auto_play=True,
         )

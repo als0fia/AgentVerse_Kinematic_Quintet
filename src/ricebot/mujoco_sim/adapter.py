@@ -56,7 +56,7 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
   <option timestep="0.004" gravity="0 0 -9.81" integrator="implicitfast"/>
 
   <visual>
-    <global offwidth="960" offheight="720" azimuth="115" elevation="-34"/>
+    <global offwidth="1280" offheight="960" azimuth="115" elevation="-34"/>
     <headlight ambient="0.38 0.38 0.38" diffuse="0.65 0.65 0.62" specular="0.2 0.2 0.2"/>
     <map znear="0.02" zfar="25.0"/>
   </visual>
