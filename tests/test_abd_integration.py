@@ -87,7 +87,12 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         """Phase 1: Existing Policy A (centralized) and Policy B (mycelial) remain functional on nominal fieldwork."""
         res_a = run_demo(scenario="nominal", policy="centralized", seed=7, steps=140)
         res_b = run_demo(scenario="nominal", policy="mycelial", seed=7, steps=140)
-        self.assertEqual(res_a["viable_seed_placements"], 2)
+        self.assertEqual(
+            res_a["viable_seed_placements"], 2,
+            msg=f"Centralized nominal regression: drops={res_a['completed_seed_drops']}; "
+                f"travel={res_a['travel_distance_m']}; "
+                f"estimates={res_a['site_estimates']}; events={res_a['key_events'][-12:]}"
+        )
         self.assertEqual(
             res_b["viable_seed_placements"], 2,
             msg=f"Mycelial nominal regression: drops={res_b['completed_seed_drops']}; "
