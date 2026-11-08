@@ -1,13 +1,26 @@
-# Antenna application core (rice.v1 + existing MuJoCo physics)
+# Antenna application source
 
-The `src/ricebot/` package is the canonical **Antenna** runtime boundary. Its contracts, map/planner/controller and MissionCore are standard-library Python; [the MuJoCo adapter](ricebot/mujoco_sim/README.md) already provides **tested physical rover/soil/seed physics**, and the robot module provides a **separate scripted rigid-docking extraction test**. Neither proves a full autonomous mission-driven rescue. Isaac Sim translation remains unimplemented.
+**Authoritative submission runtime: [ricebot/](ricebot/).** The Antenna simulation uses the single MuJoCo world and EpisodeSession observation/action loop. The older seasonal farming prototype [riceswarm_ai/](riceswarm_ai/) is retained for historical provenance and existing regression tests; it is not part of the demonstrated autonomous rescue runtime.
 
-- `contracts.py`: typed site, local sample, robot observation, task, bounded motion and seed feedback messages.
-- `mission.py`: deduplicated **measured** local sample map and deterministic sample/plant/hold baseline.
-- `control.py`: conservative local motion and release intentions, safe stops for missing range, stale tasks or protected straight-line routes.
-- `runtime.py`: `SimulationPort` (reset/step), `ReadOnlyView`, and `MissionCore` coordinating one observation/action tick.
+## Main modules
 
-**Next developer:** implement one bounded **physical rescue** skill with the integrator and human mechanical owner in the **same** MuJoCo reset/step runtime. Consume a real sustained fault indication (not missing range or deliberate HOLD), choose a risk/abstain strategy, invoke the existing rigid latch/pitch-lift safely, verify physical victim displacement/helper risk and resume site/seed work. The new central planner detector now receives actual bounded motor commands through MissionCore and tests safe stops; it still does not command extraction or prove recovery. Do not duplicate the simulator or silently modify shared robot geometry. See [current RUN assignment](../docs/RUN.md#current-minimum-working-rescue-integration-assignment).
+- **ricebot/contracts.py** — typed observation, soil sample, task, bounded command and recovery feedback contracts.
+- **ricebot/world/** — deterministic field/soil generator, randomized hazards, scalable physical field layout and planting sites.
+- **ricebot/robot/** — articulated MuJoCo rover specification and rigid recovery mechanism assets.
+- **ricebot/mujoco_sim/** — the one physical simulator, collision/contact, planting proxy and physical docking/extraction feedback.
+- **ricebot/runtime.py** — EpisodeConfig and EpisodeSession, selected acting policy, reset and reproducible event loop.
+- **ricebot/agent/** — CooperativeSwarmPlanner, DecentralizedMycelialRuntime with local maps/gossip, incident assessment, deterministic baseline, safety gate and optional explicitly enabled LLM backend.
+- **ricebot/evaluation.py** — independent grading of observed physical outcomes against synthetic hidden soil truth.
+- **ricebot/viewer/** — 3D MuJoCo plus 2D belief inspector, with a factual judge-facing Presentation Mode.
 
+**Current demo:** the cooperative golden rescue fixture verifies simulated docking, victim extraction and resumed seed work; high-risk abstention is a separate refusal case. The expanded Mycelial fleet is tested with up to six robots, but recovery is scenario-dependent and collisions/secondary casualties occur in some study runs. The controller cannot read the evaluator's hidden soil truth.
 
-Run `python -m unittest discover -s tests -p 'test_ricebot_foundation.py' -v` from the repo root. These tests are **scripted contract checks**, not physical planting proof. See [RUN](../docs/RUN.md), [CONTRACTS](../docs/CONTRACTS.md) and [TEAM](../docs/TEAM.md).
+From the repository root:
+
+~~~powershell
+python -m pip install -r requirements-mujoco.txt
+python scripts/run_mujoco_paddypatch.py --presentation --scenario golden_rescue --policy cooperative --seed 7
+python -m unittest discover -s tests -v
+~~~
+
+Read the [current project README](../README.md), [architecture](../docs/ARCHITECTURE.md), [launch instructions](../docs/RUN.md), [test evidence](../docs/TESTING.md) and [provenance](../docs/PROVENANCE.md). Historical agent scopes in earlier commits are no longer the current implementation.
