@@ -6,6 +6,7 @@ import unittest
 
 from ricebot.agent import DecentralizedMycelialRuntime
 from ricebot.runtime import EpisodeConfig, create_mujoco_episode_session
+from ricebot.evaluation import run_canonical_episode
 from ricebot.world import build_field_layout, generate_hidden_soil_truth
 
 
@@ -59,6 +60,44 @@ class ScaledFieldIntegrationTest(unittest.TestCase):
         self.assertEqual(len(session.reset(3).robots), 3)
         for _ in range(3):
             session.step_once()
+
+
+    def test_six_rovers_have_distinct_poses_and_active_work(self) -> None:
+        cfg = EpisodeConfig(scenario="nominal", policy="mycelial",
+                            seed=8, steps=7, num_rovers=6, map_scale=1.6)
+        session = create_mujoco_episode_session(cfg)
+        frame = session.reset(8)
+        self.assertEqual(len(frame.robots), 6)
+        self.assertGreater(len(session.sim.sites), 12)
+        self.assertEqual(len(session.policy.nodes), 6)
+        self.assertEqual(
+            session.policy.nodes["planter"].local_map.continuous_grid.x_bounds,
+            session.sim.layout.x_bounds,
+        )
+        task_ids = set()
+        for _ in range(7):
+            tick = session.step_once()
+            for task in tick.decision.intents:
+                if task.mode.value != "hold":
+                    task_ids.add(task.robot_id)
+        self.assertGreaterEqual(len(task_ids), 4, "Rover count alone is not useful swarm work")
+
+    def test_evaluator_preserves_full_config_and_reports_acting_controller(self) -> None:
+        cfg = EpisodeConfig(
+            scenario="nominal", policy="mycelial", seed=7, steps=4,
+            num_rovers=4, map_scale=1.6, gossip_delay_s=0.8,
+            orchestrator_model="gemini-2.5-flash",
+            enable_live_llm=False,
+        )
+        record = run_canonical_episode(cfg)
+        self.assertEqual(record.num_rovers, 4)
+        self.assertAlmostEqual(record.map_scale, 1.6)
+        self.assertEqual(record.active_policy_type, "DecentralizedMycelialRuntime")
+        self.assertEqual(record.gossip_source, "active")
+        self.assertEqual(set(record.distance_m_by_rover), {"planter", "scout", "planter_2", "scout_2"})
+        self.assertEqual(record.llm_requests_sent, 0)
+        self.assertEqual(record.orchestrator_model, "gemini-2.5-flash")
+
 
 
 if __name__ == "__main__":
