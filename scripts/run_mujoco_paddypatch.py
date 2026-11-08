@@ -569,6 +569,7 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--steps", type=int, default=140)
     parser.add_argument("--headless", action="store_true", help="Run without launching interactive viewer")
+    parser.add_argument("--viewer", action="store_true", help="Launch interactive 3D MuJoCo viewer window")
     parser.add_argument("--viewer-seconds", type=float, default=0.0, help="Launch interactive 3D MuJoCo viewer for N seconds")
     parser.add_argument("--compare-policies", action="store_true", help="Run the Policy A vs Policy B evaluation matrix")
     parser.add_argument("--export-dashboard", type=str, default=None, help="Export interactive top-down HTML belief & terramechanics dashboard to path")
@@ -602,7 +603,7 @@ def main() -> int:
         print(json.dumps(matrix, indent=2))
         return 0
 
-    v_sec = 0.0 if args.headless else args.viewer_seconds
+    v_sec = 0.0 if args.headless else (args.viewer_seconds if args.viewer_seconds > 0 else (25.0 if args.viewer else 0.0))
     summary = run_demo(
         scenario=args.scenario,
         policy=args.policy,

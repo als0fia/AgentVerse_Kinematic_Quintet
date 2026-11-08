@@ -418,6 +418,34 @@ class GeminiRESTBackend:
             return None
 
 
+class ModalSLMBackend:
+    """Deliberative backend routing swarm telemetry to the fine-tuned Qwen-0.5B ReAct SLM on Modal."""
+
+    def __init__(self, app_name: str = "antenna-swarm-slm-service", cls_name: str = "SwarmOrchestratorModel"):
+        self.app_name = app_name
+        self.cls_name = cls_name
+        self._service = None
+
+    def _get_service(self):
+        if self._service is None:
+            try:
+                import modal
+                ModelCls = modal.Cls.from_name(self.app_name, self.cls_name)
+                self._service = ModelCls()
+            except Exception:
+                return None
+        return self._service
+
+    def call(self, prompt: str) -> str | None:
+        service = self._get_service()
+        if service is None:
+            return None
+        try:
+            return service.infer.remote(prompt)
+        except Exception:
+            return None
+
+
 class DeterministicReasoner:
     """Fast (0.002s) calibrated reasoning backend with Pareto optimization for offline/CI execution."""
 

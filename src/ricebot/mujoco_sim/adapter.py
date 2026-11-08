@@ -666,10 +666,11 @@ class MujocoPaddySimulation:
                     for gid in self._wheel_geom_ids.get(target_id, ()):
                         if gid >= 0:
                             self.model.geom_friction[gid, 0] = 1.4
-                    self.data.ctrl[h_pitch_id] = min(0.15, max(0.08, active_rescue_cmd.dock_pitch_rad))
+                    self.data.ctrl[h_pitch_id] = min(0.15, max(-0.20, active_rescue_cmd.dock_pitch_rad))
                     self.data.ctrl[h_spade_id] = 0.0
-                    w_rev_h = compute_4wheel_skid_steer(helper_spec, -0.40, 0.0)
-                    w_rev_t = compute_4wheel_skid_steer(target_spec, -0.40, 0.0)
+                    rev_speed = active_rescue_cmd.linear_m_s if active_rescue_cmd.linear_m_s < -0.05 else -0.40
+                    w_rev_h = compute_4wheel_skid_steer(helper_spec, rev_speed, 0.0)
+                    w_rev_t = compute_4wheel_skid_steer(target_spec, rev_speed, 0.0)
                     self.data.ctrl[h_offset : h_offset + 4] = w_rev_h
                     self.data.ctrl[t_offset : t_offset + 4] = w_rev_t
 
