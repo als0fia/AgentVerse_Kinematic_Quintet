@@ -44,3 +44,7 @@ node_modules/
 # Playwright CLI captures
 .playwright-cli/
 
+\
+
+!assets/media/showcase_4k/*.mp4
+!assets/media/showcase_4k/*.zip
