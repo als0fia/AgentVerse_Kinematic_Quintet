@@ -6,8 +6,8 @@ from ricebot.viewer.presentation import presentation_cue
 
 
 def cue(*, bogged=True, intents=(), verdict=None, helper="planter",
-        veto=False, feedback=(), recoveries=(), assessments=None):
-    frame = NS(robots=(NS(robot_id="scout", is_bogged=bogged),
+        veto=False, feedback=(), recoveries=(), assessments=None, speed=0.0):
+    frame = NS(robots=(NS(robot_id="scout", is_bogged=bogged, true_speed_m_s=speed),
                        NS(robot_id="planter", is_bogged=False)),
                recovery_feedback=feedback)
     orders = {} if verdict is None else {
@@ -74,9 +74,11 @@ class TestPresentationCues(unittest.TestCase):
         self.assertEqual(cue(bogged=False, recoveries=(rec,),
                              intents=(other,)).label, "Extraction verified")
         self.assertEqual(cue(bogged=False, recoveries=(rec,),
-                             intents=(scout,)).label, "Fieldwork resumed")
-        self.assertEqual(cue(bogged=True, recoveries=(rec,),
                              intents=(scout,)).label, "Extraction verified")
+        self.assertEqual(cue(bogged=False, recoveries=(rec,),
+                             intents=(scout,), speed=0.06).label, "Fieldwork resumed")
+        self.assertEqual(cue(bogged=True, recoveries=(rec,),
+                             intents=(scout,), speed=0.06).label, "Extraction verified")
 
 
 if __name__ == "__main__":
