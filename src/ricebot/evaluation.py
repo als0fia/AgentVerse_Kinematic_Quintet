@@ -163,6 +163,11 @@ class EpisodeEvaluationRecord:
     gossip_source: str
     distance_m_by_rover: dict[str, float]
     active_task_ticks_by_rover: dict[str, int]
+    orchestrator_model: str
+    llm_requests_sent: int
+    llm_responses_received: int
+    llm_unavailable_calls: int
+    llm_total_elapsed_ms: float
 
     # Canonical verdict for schemas/episode.schema.json & scripts/evaluate.py
     success: bool
@@ -230,6 +235,8 @@ def run_canonical_episode(
         map_scale=config.map_scale,
         gossip_delay_s=config.gossip_delay_s,
         active_mycelial_in_rescue=config.active_mycelial_in_rescue,
+        orchestrator_model=config.orchestrator_model,
+        orchestrator_timeout_s=config.orchestrator_timeout_s,
     )
 
     eff_label = policy_label or (
@@ -548,6 +555,17 @@ def run_canonical_episode(
         rid: round(meters, 4) for rid, meters in distance_m_by_rover.items()
     }
 
+    active_orchestrator = getattr(session.policy, "orchestrator", None)
+    if active_orchestrator is None:
+        active_orchestrator = getattr(getattr(session.policy, "planner", None), "orchestrator", None)
+    model_backend = getattr(active_orchestrator, "backend", None)
+    llm_requests_sent = int(getattr(model_backend, "total_calls", 0))
+    llm_responses_received = int(getattr(model_backend, "responses_received", 0))
+    llm_unavailable_calls = int(getattr(model_backend, "unavailable_calls", 0))
+    llm_total_elapsed_ms = round(
+        1000.0 * float(getattr(model_backend, "total_elapsed_s", 0.0)), 3
+    )
+
     # Objective physical + agronomic + safety verdict
     failure_reason: str | None = None
     if wasted_mud_drops > 0:
@@ -676,6 +694,11 @@ def run_canonical_episode(
         gossip_source=gossip_source,
         distance_m_by_rover=distance_m_by_rover,
         active_task_ticks_by_rover=active_task_ticks_by_rover,
+        orchestrator_model=cfg.orchestrator_model,
+        llm_requests_sent=llm_requests_sent,
+        llm_responses_received=llm_responses_received,
+        llm_unavailable_calls=llm_unavailable_calls,
+        llm_total_elapsed_ms=llm_total_elapsed_ms,
         success=success,
         failure_reason=failure_reason,
         yield_only_success=yield_only_success,
