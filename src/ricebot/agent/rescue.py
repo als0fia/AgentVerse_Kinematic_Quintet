@@ -29,6 +29,8 @@ from math import atan2, degrees, hypot, pi
 from ..contracts import (
     ObservationFrame,
     Pose2D,
+    RescueAssessment,
+    RescueVerdict,
     RobotObservation,
     Site,
     TaskMode,
@@ -84,17 +86,6 @@ class MechanicalRescueTechnique(str, Enum):
     SPADE_ANCHOR_ROLLOVER_HOLD = "spade_anchor_rollover_hold"  # Cut wheels (0 rad/s) + deploy rear spades (+0.85 rad) to prevent ditch slide
 
 
-class RescueVerdict(str, Enum):
-    """Agentic triage decision for whether a stranded/faulted robot is worth saving."""
-
-    HEALTHY = "healthy"
-    SELF_RECOVER = "self_recover"  # Bounded local self-recovery before requesting peer help
-    INVESTIGATE_PERIMETER = "investigate_perimeter"  # Probe safe adjacent site first when trap odds unknown
-    RESCUE_NOW = "rescue_now"  # Peer diverts immediately to save stranded robot
-    DEFER_RESCUE = "defer_rescue"  # Peer finishes high-value planting first, then rescues (beacon mode)
-    ABANDON_ESCALATE = "abandon_escalate"  # Not worth risking/diverting peer; safe HOLD for human
-
-
 @dataclass(frozen=True)
 class MechanicalActuatorSetpoint:
     """Low-level actuator commands for `src/ricebot/robot/rovers.py` (ctrl indices 0..19)."""
@@ -127,57 +118,6 @@ class DistressSignal:
     needs_peer_assistance: bool
     summary_text: str
     residual_weights: tuple[float, ...] = ()
-
-
-@dataclass(frozen=True)
-class RescueAssessment:
-    """Complete cost-benefit, failure diagnosis, trap-odds, and mechanical recovery assessment."""
-
-    stranded_robot_id: str
-    verdict: RescueVerdict
-    failure_mode: FailureMode = FailureMode.UNKNOWN_TERRAIN_TRAP
-    recovery_action: RecoveryAction = RecoveryAction.INVESTIGATE_PERIMETER
-    mechanical_technique: MechanicalRescueTechnique = MechanicalRescueTechnique.NONE
-    nearest_site_id: str | None = None
-    perimeter_probe_site_id: str | None = None
-    rescue_benefit: float = 0.0
-    opportunity_cost: float = 0.0
-    hazard_risk: float = 0.0
-    trap_probability: float = 0.0
-    expected_trap_loss: float = 0.0
-    net_rescue_value: float = 0.0
-    required_pull_n: float = 0.0
-    trap_odds_uncertain: bool = False
-    active_compute_nodes: int = 1
-    helper_robot_id: str | None = None
-    reason: str = ""
-    rescuer_robot_id: str | None = None
-    expected_saved_benefit: float = 0.0
-    rescue_opportunity_cost: float = 0.0
-    net_rescue_utility: float = 0.0
-    rationale: str = ""
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "stranded_robot_id": self.stranded_robot_id,
-            "verdict": self.verdict.value,
-            "failure_mode": self.failure_mode.value,
-            "recovery_action": self.recovery_action.value,
-            "mechanical_technique": self.mechanical_technique.value,
-            "nearest_site_id": self.nearest_site_id,
-            "perimeter_probe_site_id": self.perimeter_probe_site_id,
-            "rescue_benefit": self.rescue_benefit,
-            "opportunity_cost": self.opportunity_cost,
-            "hazard_risk": self.hazard_risk,
-            "trap_probability": self.trap_probability,
-            "expected_trap_loss": self.expected_trap_loss,
-            "net_rescue_value": self.net_rescue_value,
-            "required_pull_n": self.required_pull_n,
-            "trap_odds_uncertain": self.trap_odds_uncertain,
-            "active_compute_nodes": self.active_compute_nodes,
-            "helper_robot_id": self.helper_robot_id,
-            "reason": self.reason,
-        }
 
 
 def compute_mechanical_recovery_setpoint(

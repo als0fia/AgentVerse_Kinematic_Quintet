@@ -19,17 +19,16 @@ REQUIRED = [
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
 
 
-def _ignored(path: Path, root: Path) -> bool:
-    rel_parts = path.relative_to(root).parts
-    return any(p in {".venv", "venv", ".git", "__pycache__"} for p in rel_parts)
-
-
 def find_errors(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     for path in REQUIRED:
         if not (root / path).is_file():
             errors.append(f"missing: {path}")
-    skill_files = [p for p in sorted(root.rglob("SKILL.md")) if not _ignored(p, root)]
+    ignored_dirs = {"node_modules", ".playwright-cli", ".git", "dist", "build"}
+    skill_files = [
+        p for p in sorted(root.rglob("SKILL.md"))
+        if not any(part in ignored_dirs for part in p.relative_to(root).parts)
+    ]
     for path in skill_files:
         content = path.read_text(encoding="utf-8")
         if not content.startswith("---\n") or not re.search(r"(?m)^name: [a-z][a-z0-9-]+$", content) or not re.search(r"(?m)^description: .{20,}$", content):
@@ -47,7 +46,7 @@ def find_errors(root: Path = ROOT) -> list[str]:
         except ValueError as exc:
             errors.append(f"invalid episode schema JSON: {exc}")
     for md in sorted(root.rglob("*.md")):
-        if _ignored(md, root):
+        if any(part in ignored_dirs for part in md.relative_to(root).parts):
             continue
         for match in LINK.finditer(md.read_text(encoding="utf-8")):
             href = match.group(1).strip().split(" ", 1)[0].strip("<>")

@@ -134,7 +134,12 @@ class MujocoPaddySimulationTests(unittest.TestCase):
         for _ in range(195):
             decision = core.decide(frame)
             p_obs = next(r for r in frame.robots if r.robot_id == "planter")
-            if p_obs.is_bogged and p_obs.front_range_m is not None and p_obs.front_range_m > 0.35:
+            p_ev = planner.last_fault_evidence.get("planter")
+            if (
+                (p_obs.is_bogged or (p_ev is not None and p_ev.is_commanded_motion_stall))
+                and p_obs.front_range_m is not None
+                and p_obs.front_range_m > 0.35
+            ):
                 observed_bogged_with_valid_lidar = True
             assessment = planner.last_rescue_assessments.get("planter")
             if assessment is not None and assessment.verdict == RescueVerdict.RESCUE_NOW:

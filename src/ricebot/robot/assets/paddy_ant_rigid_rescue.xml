@@ -25,14 +25,30 @@
     <!-- ========================================================================= -->
     <body name="planter_body" pos="0.400 0.000 0.068">
       <freejoint name="planter_free"/>
-      <!-- Sealed IP68 Waterproof Hull (270 x 190 x 64 mm) + Hydrodynamic Belly Skid -->
-      <geom name="planter_chassis" type="box" pos="0 0 0.015" size="0.135 0.095 0.032" mass="2.45" contype="2" conaffinity="5" rgba="0.16 0.46 0.86 1"/>
+      <!-- Sealed IP68 Waterproof Hull Monocoque (270 x 190 x 64 mm) + Hydrodynamic Belly Skid -->
+      <geom name="planter_chassis" type="box" pos="0 0 0.015" size="0.135 0.095 0.032" mass="0.66" contype="2" conaffinity="5" rgba="0.16 0.46 0.86 1"/>
       <geom name="planter_belly_skid" type="box" pos="0 0 -0.019" size="0.115 0.078 0.005" mass="0.08" contype="0" conaffinity="0" rgba="0.22 0.24 0.27 1"/>
       <geom name="planter_deck" type="box" pos="-0.010 0 0.052" size="0.105 0.078 0.008" mass="0.10" contype="0" conaffinity="0" rgba="0.90 0.93 0.96 1"/>
 
-      <!-- BeiDou RTK-GNSS Receiver Mast & Status Beacon -->
-      <geom name="planter_rtk_mast" type="cylinder" pos="-0.088 0.058 0.095" size="0.007 0.036" mass="0.01" contype="0" conaffinity="0" rgba="0.82 0.84 0.88 1"/>
-      <geom name="planter_rtk_dome" type="sphere" pos="-0.088 0.058 0.135" size="0.018" mass="0.01" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
+      <!-- 6S3P High-Density 21700 Li-Ion Battery Pack (21.6V / 15Ah / 324Wh, 18x Samsung 50S, 1.35 kg IP67 Cartridge) -->
+      <!-- Centered low on the chassis floor (x=0, y=0, z=0.005) for neutral 50/50 axle balance to prevent mud sinkage -->
+      <geom name="planter_battery_pack" type="box" pos="0 0 0.005" size="0.070 0.050 0.021" mass="1.35" contype="0" conaffinity="0" rgba="0.15 0.20 0.25 1"/>
+
+      <!-- Top-Deck Monocrystalline Solar Panel Skin (15W SunPower Maxeon Tile, 0.18 kg, +85Wh/day daylight harvesting) -->
+      <geom name="planter_solar_deck" type="box" pos="-0.010 0 0.061" size="0.102 0.075 0.002" mass="0.18" contype="0" conaffinity="0" rgba="0.08 0.12 0.28 1"/>
+
+      <!-- Onboard Edge AI Compute Module & Heatsink (Jetson Orin Nano / Pi 5 + Carrier Board, 0.22 kg) -->
+      <geom name="planter_compute_pack" type="box" pos="0.040 0 0.024" size="0.045 0.038 0.012" mass="0.22" contype="0" conaffinity="0" rgba="0.28 0.32 0.36 1"/>
+
+      <!-- BeiDou BDS-3 RTK-GNSS Receiver Mast & Status Dome (0.055 kg total: mast 0.020 kg + dome 0.035 kg) -->
+      <geom name="planter_rtk_mast" type="cylinder" pos="-0.088 0.058 0.095" size="0.007 0.036" mass="0.020" contype="0" conaffinity="0" rgba="0.82 0.84 0.88 1"/>
+      <geom name="planter_rtk_dome" type="sphere" pos="-0.088 0.058 0.135" size="0.018" mass="0.035" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
+
+      <!-- Dual UWB DWM3000 Ranging & Wi-Fi HaLow / LoRa Swarm Transceiver Module (0.040 kg) -->
+      <geom name="planter_uwb_transceiver" type="box" pos="-0.088 -0.058 0.068" size="0.012 0.012 0.015" mass="0.040" contype="0" conaffinity="0" rgba="0.30 0.32 0.38 1"/>
+
+      <!-- 6-Axis IMU & Flight Controller / Power Management Board (0.035 kg) -->
+      <geom name="planter_imu_board" type="box" pos="0 0 0.028" size="0.025 0.025 0.004" mass="0.035" contype="0" conaffinity="0" rgba="0.12 0.45 0.22 1"/>
 
       <!-- FARMING TOOL 1: Conformal Seed Hopper Funnel + Seed Sight-Glass + Bottom Drop Chute -->
       <geom name="planter_hopper_outer" type="cylinder" pos="0.034 0 0.076" size="0.042 0.024" mass="0.06" contype="0" conaffinity="0" rgba="0.95 0.74 0.12 1"/>
@@ -76,13 +92,13 @@
       <geom name="planter_whisker_l" type="capsule" pos="0.142 0.086 0.018" euler="0 1.57 0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
       <geom name="planter_whisker_r" type="capsule" pos="0.142 -0.086 0.018" euler="0 1.57 -0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
 
-      <!-- Front Optical Surroundings Perception Camera (Ego-View: 14 deg downward pitch for crop stand, mud sinkhole & peer docking view) -->
-      <geom name="planter_cam_housing" type="box" pos="0.126 0 0.070" size="0.010 0.018 0.010" mass="0.015" contype="0" conaffinity="0" rgba="0.12 0.14 0.16 1"/>
-      <geom name="planter_cam_lens" type="cylinder" pos="0.137 0 0.070" zaxis="1 0 0" size="0.007 0.002" mass="0.005" contype="0" conaffinity="0" rgba="0.05 0.75 0.95 1"/>
+      <!-- Front Optical Surroundings Perception Camera (Ego-View: 14 deg downward pitch, 0.065 kg: housing 0.050 kg + optics 0.015 kg) -->
+      <geom name="planter_cam_housing" type="box" pos="0.126 0 0.070" size="0.010 0.018 0.010" mass="0.050" contype="0" conaffinity="0" rgba="0.12 0.14 0.16 1"/>
+      <geom name="planter_cam_lens" type="cylinder" pos="0.137 0 0.070" zaxis="1 0 0" size="0.007 0.002" mass="0.015" contype="0" conaffinity="0" rgba="0.05 0.75 0.95 1"/>
       <camera name="planter_front_camera" pos="0.139 0 0.070" xyaxes="0 -1 0  0.24 0 0.97" fovy="62" mode="fixed"/>
 
-      <!-- Front LiDAR / Rangefinder Turret (3-ray fan: center, +18 deg left, -18 deg right) -->
-      <geom name="planter_lidar_pod" type="cylinder" pos="0.112 0 0.056" size="0.020 0.013" mass="0.02" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
+      <!-- Front LiDAR / Rangefinder Turret (3-ray fan: center, +18 deg left, -18 deg right, 0.045 kg) -->
+      <geom name="planter_lidar_pod" type="cylinder" pos="0.112 0 0.056" size="0.020 0.013" mass="0.045" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
       <site name="planter_range_c" pos="0.140 0.00 0.050" zaxis="1 0 0" size="0.008" rgba="1 0.2 0.2 1"/>
       <site name="planter_range_l" pos="0.138 0.04 0.050" zaxis="0.951 0.309 0" size="0.006" rgba="1 0.2 0.2 1"/>
       <site name="planter_range_r" pos="0.138 -0.04 0.050" zaxis="0.951 -0.309 0" size="0.006" rgba="1 0.2 0.2 1"/>
@@ -173,14 +189,30 @@
     <!-- ========================================================================= -->
     <body name="scout_body" pos="0.820 0.000 0.056">
       <freejoint name="scout_free"/>
-      <!-- Sealed IP68 Waterproof Hull (270 x 190 x 64 mm) + Hydrodynamic Belly Skid -->
-      <geom name="scout_chassis" type="box" pos="0 0 0.015" size="0.135 0.095 0.032" mass="2.45" contype="4" conaffinity="5" rgba="0.18 0.72 0.36 1"/>
+      <!-- Sealed IP68 Waterproof Hull Monocoque (270 x 190 x 64 mm) + Hydrodynamic Belly Skid -->
+      <geom name="scout_chassis" type="box" pos="0 0 0.015" size="0.135 0.095 0.032" mass="0.66" contype="4" conaffinity="5" rgba="0.18 0.72 0.36 1"/>
       <geom name="scout_belly_skid" type="box" pos="0 0 -0.019" size="0.115 0.078 0.005" mass="0.08" contype="0" conaffinity="0" rgba="0.22 0.24 0.27 1"/>
       <geom name="scout_deck" type="box" pos="-0.010 0 0.052" size="0.105 0.078 0.008" mass="0.10" contype="0" conaffinity="0" rgba="0.90 0.93 0.96 1"/>
 
-      <!-- BeiDou RTK-GNSS Receiver Mast & Status Beacon -->
-      <geom name="scout_rtk_mast" type="cylinder" pos="-0.088 0.058 0.095" size="0.007 0.036" mass="0.01" contype="0" conaffinity="0" rgba="0.82 0.84 0.88 1"/>
-      <geom name="scout_rtk_dome" type="sphere" pos="-0.088 0.058 0.135" size="0.018" mass="0.01" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
+      <!-- 6S3P High-Density 21700 Li-Ion Battery Pack (21.6V / 15Ah / 324Wh, 18x Samsung 50S, 1.35 kg IP67 Cartridge) -->
+      <!-- Centered low on the chassis floor (x=0, y=0, z=0.005) for neutral 50/50 axle balance to prevent mud sinkage -->
+      <geom name="scout_battery_pack" type="box" pos="0 0 0.005" size="0.070 0.050 0.021" mass="1.35" contype="0" conaffinity="0" rgba="0.15 0.20 0.25 1"/>
+
+      <!-- Top-Deck Monocrystalline Solar Panel Skin (15W SunPower Maxeon Tile, 0.18 kg, +85Wh/day daylight harvesting) -->
+      <geom name="scout_solar_deck" type="box" pos="-0.010 0 0.061" size="0.102 0.075 0.002" mass="0.18" contype="0" conaffinity="0" rgba="0.08 0.12 0.28 1"/>
+
+      <!-- Onboard Edge AI Compute Module & Heatsink (Jetson Orin Nano / Pi 5 + Carrier Board, 0.22 kg) -->
+      <geom name="scout_compute_pack" type="box" pos="0.040 0 0.024" size="0.045 0.038 0.012" mass="0.22" contype="0" conaffinity="0" rgba="0.28 0.32 0.36 1"/>
+
+      <!-- BeiDou BDS-3 RTK-GNSS Receiver Mast & Status Dome (0.055 kg total: mast 0.020 kg + dome 0.035 kg) -->
+      <geom name="scout_rtk_mast" type="cylinder" pos="-0.088 0.058 0.095" size="0.007 0.036" mass="0.020" contype="0" conaffinity="0" rgba="0.82 0.84 0.88 1"/>
+      <geom name="scout_rtk_dome" type="sphere" pos="-0.088 0.058 0.135" size="0.018" mass="0.035" contype="0" conaffinity="0" rgba="0.96 0.96 0.98 1"/>
+
+      <!-- Dual UWB DWM3000 Ranging & Wi-Fi HaLow / LoRa Swarm Transceiver Module (0.040 kg) -->
+      <geom name="scout_uwb_transceiver" type="box" pos="-0.088 -0.058 0.068" size="0.012 0.012 0.015" mass="0.040" contype="0" conaffinity="0" rgba="0.30 0.32 0.38 1"/>
+
+      <!-- 6-Axis IMU & Flight Controller / Power Management Board (0.035 kg) -->
+      <geom name="scout_imu_board" type="box" pos="0 0 0.028" size="0.025 0.025 0.004" mass="0.035" contype="0" conaffinity="0" rgba="0.12 0.45 0.22 1"/>
 
       <!-- FARMING TOOL 1: Conformal Seed Hopper Funnel + Seed Sight-Glass + Bottom Drop Chute -->
       <geom name="scout_hopper_outer" type="cylinder" pos="0.034 0 0.076" size="0.042 0.024" mass="0.06" contype="0" conaffinity="0" rgba="0.95 0.74 0.12 1"/>
@@ -224,13 +256,13 @@
       <geom name="scout_whisker_l" type="capsule" pos="0.142 0.086 0.018" euler="0 1.57 0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
       <geom name="scout_whisker_r" type="capsule" pos="0.142 -0.086 0.018" euler="0 1.57 -0.42" size="0.003 0.026" contype="0" conaffinity="0" rgba="0.95 0.85 0.20 1"/>
 
-      <!-- Front Optical Surroundings Perception Camera (Ego-View: 14 deg downward pitch for crop stand, mud sinkhole & peer docking view) -->
-      <geom name="scout_cam_housing" type="box" pos="0.126 0 0.070" size="0.010 0.018 0.010" mass="0.015" contype="0" conaffinity="0" rgba="0.12 0.14 0.16 1"/>
-      <geom name="scout_cam_lens" type="cylinder" pos="0.137 0 0.070" zaxis="1 0 0" size="0.007 0.002" mass="0.005" contype="0" conaffinity="0" rgba="0.05 0.75 0.95 1"/>
+      <!-- Front Optical Surroundings Perception Camera (Ego-View: 14 deg downward pitch, 0.065 kg: housing 0.050 kg + optics 0.015 kg) -->
+      <geom name="scout_cam_housing" type="box" pos="0.126 0 0.070" size="0.010 0.018 0.010" mass="0.050" contype="0" conaffinity="0" rgba="0.12 0.14 0.16 1"/>
+      <geom name="scout_cam_lens" type="cylinder" pos="0.137 0 0.070" zaxis="1 0 0" size="0.007 0.002" mass="0.015" contype="0" conaffinity="0" rgba="0.05 0.75 0.95 1"/>
       <camera name="scout_front_camera" pos="0.139 0 0.070" xyaxes="0 -1 0  0.24 0 0.97" fovy="62" mode="fixed"/>
 
-      <!-- Front LiDAR / Rangefinder Turret (3-ray fan: center, +18 deg left, -18 deg right) -->
-      <geom name="scout_lidar_pod" type="cylinder" pos="0.112 0 0.056" size="0.020 0.013" mass="0.02" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
+      <!-- Front LiDAR / Rangefinder Turret (3-ray fan: center, +18 deg left, -18 deg right, 0.045 kg) -->
+      <geom name="scout_lidar_pod" type="cylinder" pos="0.112 0 0.056" size="0.020 0.013" mass="0.045" contype="0" conaffinity="0" rgba="0.18 0.18 0.20 1"/>
       <site name="scout_range_c" pos="0.140 0.00 0.050" zaxis="1 0 0" size="0.008" rgba="0.2 1.0 0.4 1"/>
       <site name="scout_range_l" pos="0.138 0.04 0.050" zaxis="0.951 0.309 0" size="0.006" rgba="0.2 1.0 0.4 1"/>
       <site name="scout_range_r" pos="0.138 -0.04 0.050" zaxis="0.951 -0.309 0" size="0.006" rgba="0.2 1.0 0.4 1"/>

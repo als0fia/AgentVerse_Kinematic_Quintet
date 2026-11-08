@@ -23,6 +23,31 @@ Owns the physical rover embodiment (`RoverChassisSpec`), 4-wheel differential sk
 5. **Perception & Navigation Suite:**
    - **Forward 3-Ray LiDAR / Rangefinder Turret (`{id}_lidar_pod`, `{id}_range_c`, `{id}_range_l`, `{id}_range_r`):** Elevated at `x=+0.112..0.140 m, z=0.048 m` (clear above the front docking cone), casting a 3-beam horizontal fan (`0°` center, `+18°` left, `-18°` right, `4.0 m` cutoff) for deterministic obstacle stops (`<= 0.32–0.35 m`).
    - **BeiDou (BDS-3) RTK GNSS Mast & Odometry Site (`{id}_rtk_mast`, `{id}_rtk_dome`, `{id}_odom_site`):** Top-mounted mast (`z=0.135 m`) providing `Pose2D(x_m, y_m, yaw_rad)` odometry.
+   - **Ego-Camera Computer Vision Ramp Detection & Visual Servoing (`{id}_front_camera`, `detect_ramp_and_compute_visual_servo`):**
+     - Fixed forward RGB-D camera (`pos="0.139 0 0.070"`, `fovy="62"`, `14?` downward pitch) rendered in real time via `mujoco.Renderer`.
+     - **Stage 1 (Chromatic + Luminance Ramp Segmentation):** Segments the warm terracotta earthen ramp and high-contrast amber guide rails (`R > G > B`) within the forward trapezoid ROI (`v ? [12%, 94%]`) against dark flooded mud and green rice canopy.
+     - **Stage 2 (3D Pinhole Back-Projection & Depth-Gradient Slope Estimation):** Computes weighted image centroid `(u_c, v_c)`, horizontal bearing error `? = -atan2(u_c - c_x, f_x)`, lateral offset `y_off = d_m * tan(?)`, and surface inclination `?_slope` from the upper-vs-lower depth gradient.
+     - **Stage 3 (4-Phase Closed-Loop Visual Servoing):**
+       - `SEARCHING_FOR_RAMP`: Slow yaw scan when the ramp is outside the camera FOV (`pixel_count < 25`).
+       - `ORIENTING_TO_RAMP` (`|?| > 0.14 rad` / `8?`): Proportional yaw steering (`? = clamp(2.4 * ?, -1.25, +1.25) rad/s`) at reduced approach speed (`0.16 m/s`) to rotate the rover onto the ramp centerline before the front wheels touch the slope toe.
+       - `ALIGNED_APPROACH` (`|?| <= 0.14 rad`): Straightens into the ramp entry at `0.36 m/s` while keeping the visual centroid locked on `c_x = 80 px`.
+       - `CLIMBING_INCLINE` (`|pitch| > 0.07 rad` or `z > 0.11 m`): Boosts 4-wheel torque (`v = 0.42 m/s`, `1.55x` incline wheel boost) while damping yaw drift up the `22?` slope until `CRESTED_UPPER_TIER` (`z >= 0.325 m`).
+
+6. **Center-of-Gravity (CG) Stability & 40° Incline Anti-Tip Analysis:**
+   - **Rigid Fixed Low-CG Floorpan Mounting (Rejection of Moving Battery):**
+     - Active shifting of the heavy 1.35 kg 21.6V Li-ion battery via internal rails was **explicitly rejected** due to critical safety hazards in wet agricultural robotics: cyclic copper wiring fatigue leading to short circuits and thermal runaway, mechanical rail jamming from silt/condensation, and degradation of the IP68 sealed hull.
+     - The battery cartridge (`_battery_pack`, 1.35 kg) is permanently potted and bolted flat against the aluminum bottom floorpan at `(x=0.0, y=0.0, z=0.005 m)`, serving as low ballast, structural stiffener, and conductive heatsink.
+   - **50/50 Axle Balance for Mud Flotation:**
+     - Horizontal alignment with the geometric midpoint between front and rear axles (`wx = +-0.085 m`) guarantees an exact 50/50 front/rear ground load distribution on flat paddy terrain, preventing nose sinkage or tail drag in liquid silt.
+   - **70.5° Geometric Anti-Tip Margin on Steep Slopes:**
+     - With total robot height of only 64 mm and floor-mounted powertrain, the effective center-of-gravity height is `h_cg approx 30 mm` over a 170 mm wheelbase (`L/2 = 85 mm`).
+     - The static backward rollover threshold is:
+       $$\theta_{\text{flip}} = \arctan\left(\frac{L/2}{h_{\text{cg}}}\right) = \arctan\left(\frac{85\text{ mm}}{30\text{ mm}}\right) \approx \mathbf{70.5^\circ}$$
+     - On a steep **40° earthen ramp or bund**, the gravity vector displacement is `h_cg * tan(40°) = 30 mm * 0.839 = 25.2 mm`, remaining well within the 85 mm support footprint. The robot cannot tip over backwards.
+   - **Active Front Boom Counter-Pitch Ballast:**
+     - On steep climbs, the front pitch-lift docking boom (`_dock_pitch`, range -0.20 to +0.45 rad) drops downward against the incline toe, acting as an active anti-wheelie brace that forces front-wheel traction into the slope.
+   - **Traction Management:**
+     - Incline ascents are traction-limited rather than tipping-limited; 6 radial herringbone grouser lugs per wheel bite into the earthen surface while the skid-steer controller commands an automatic 1.55x incline wheel torque boost.
 
 ## 2. Public Entry Points
 - `RoverChassisSpec`, `PLANTER_SPEC`, `SCOUT_SPEC`, `DEFAULT_CAPABILITIES`, `make_homogeneous_rover_spec` in [`src/ricebot/robot/rovers.py`](rovers.py)
@@ -30,6 +55,8 @@ Owns the physical rover embodiment (`RoverChassisSpec`), 4-wheel differential sk
 - `build_rovers_and_seeds_xml() -> (bodies_xml, actuators_xml, sensors_xml)` (composed by `src/ricebot/mujoco_sim/adapter.py`)
 - `build_rigid_docking_rescue_mjcf() -> str` & `update_rigid_dock_latch(model, data, rescuer_id, target_id) -> bool`
 - `export_robot_mjcf_assets(output_dir=None) -> (single_unit_xml_path, tandem_rescue_xml_path)`
+- `RampVisionDetection` & `detect_ramp_and_compute_visual_servo(rgb_image, depth_image, ...)` in [`src/ricebot/robot/rovers.py`](rovers.py)
+- Standalone MuJoCo CV Ramp Simulation: [`scripts/simulate_terrace_incline.py`](../../../scripts/simulate_terrace_incline.py)
 
 ## 3. Standalone MJCF Assets
 - [`src/ricebot/robot/assets/paddy_ant_unit.xml`](assets/paddy_ant_unit.xml): Single homogeneous Paddy Ant unit with all 7 actuators (4 wheels + front pitch-lift boom + rotary cam-latch + rear hardpan anchor spades) and 3-ray LiDAR fan.

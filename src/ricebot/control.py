@@ -11,6 +11,19 @@ def _wrap(angle: float) -> float:
     return (angle + pi) % (2 * pi) - pi
 
 
+def clamp_recovery_actuators(
+    dock_pitch_rad: float,
+    latch_rad: float,
+    spade_rad: float,
+) -> tuple[float, float, float]:
+    """Clamp recovery actuator targets to grounded M4 RobotCommand safety bounds."""
+    return (
+        max(-0.20, min(0.15, float(dock_pitch_rad))),
+        max(0.0, min(0.65, float(latch_rad))),
+        max(0.0, min(0.85, float(spade_rad))),
+    )
+
+
 @dataclass(frozen=True)
 class ControlLimits:
     speed_m_s: float = 0.25
@@ -61,13 +74,33 @@ class LocalController:
 
         # 1. IMU Tip-Over Halt: If pitch or roll exceeds limit (>20 deg), cut drive immediately
         if abs(robot.pitch_rad) > self.limits.max_pitch_roll_rad or abs(robot.roll_rad) > self.limits.max_pitch_roll_rad:
-            return RobotCommand(robot.robot_id, issued_at_s=robot.time_s, expires_at_s=robot.time_s + 0.2,
-                                task_id=task.task_id, linear_m_s=0.0, angular_rad_s=0.0, release_seed=False)
+            spade = 0.85 if task.recovery_technique == "spade_anchor_rollover_hold" else 0.0
+            return RobotCommand(
+                robot.robot_id,
+                issued_at_s=robot.time_s,
+                expires_at_s=robot.time_s + 0.2,
+                task_id=task.task_id,
+                linear_m_s=0.0,
+                angular_rad_s=0.0,
+                release_seed=False,
+                spade_rad=spade,
+                recovery_technique=task.recovery_technique,
+            )
 
         # 2. Bogged-Down / Mud Sink Trap: Freeze motion to prevent deep digging and await tow/triage
         if robot.is_bogged:
-            return RobotCommand(robot.robot_id, issued_at_s=robot.time_s, expires_at_s=robot.time_s + 0.2,
-                                task_id=task.task_id, linear_m_s=0.0, angular_rad_s=0.0, release_seed=False)
+            spade = 0.85 if task.recovery_technique == "spade_anchor_rollover_hold" else 0.0
+            return RobotCommand(
+                robot.robot_id,
+                issued_at_s=robot.time_s,
+                expires_at_s=robot.time_s + 0.2,
+                task_id=task.task_id,
+                linear_m_s=0.0,
+                angular_rad_s=0.0,
+                release_seed=False,
+                spade_rad=spade,
+                recovery_technique=task.recovery_technique,
+            )
 
         # 3. UWB Swarm Anti-Collision Brake: Emergency stop if peer distance < min_peer_distance_m
         #    (Exempts an authorized RESCUE helper docking with its designated target_robot_id)
@@ -92,6 +125,20 @@ class LocalController:
                 heading_error = _wrap(atan2(delta_y, delta_x) - robot.pose.yaw_rad)
                 angular = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, heading_error * 1.8))
                 linear = min(self.limits.speed_m_s, max(0.08, distance * 0.65)) if abs(heading_error) < 0.7 else 0.0
+                technique = task.recovery_technique or "direct_pry_and_pull"
+                if technique == "dynamic_yaw_shear_and_pitch_pump":
+                    raw_pitch = 0.12 if distance <= 0.36 else 0.0
+                    raw_latch = 0.58
+                    raw_spade = 0.35 if distance <= 0.30 else 0.0
+                elif technique == "pitch_match_nose_down_recovery":
+                    raw_pitch = 0.14 if distance <= 0.36 else 0.06
+                    raw_latch = 0.58
+                    raw_spade = 0.25 if distance <= 0.30 else 0.0
+                else:
+                    raw_pitch = 0.08 if distance <= 0.36 else 0.0
+                    raw_latch = 0.55
+                    raw_spade = 0.0
+                dock_pitch, latch_rad, spade_rad = clamp_recovery_actuators(raw_pitch, raw_latch, raw_spade)
                 return RobotCommand(
                     robot.robot_id,
                     issued_at_s=robot.time_s,
@@ -102,9 +149,10 @@ class LocalController:
                     release_seed=False,
                     target_site_id=task.target_site_id,
                     recovery_target_id=task.target_robot_id,
-                    dock_pitch_rad=0.08 if distance <= 0.36 else 0.0,
-                    latch_rad=0.55,
-                    spade_rad=0.0,
+                    dock_pitch_rad=dock_pitch,
+                    latch_rad=latch_rad,
+                    spade_rad=spade_rad,
+                    recovery_technique=technique,
                 )
 
         linear = angular = 0.0

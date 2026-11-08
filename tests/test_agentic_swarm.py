@@ -143,10 +143,23 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
     def test_rescue_triage_worth_saving_vs_defer_vs_abandon(self):
         """Verify all 3 agentic rescue verdicts: RESCUE_NOW, DEFER_RESCUE, ABANDON_ESCALATE."""
         fmap = MeasuredFieldMap(SITES)
-        planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS)
+        planner = CooperativeSwarmPlanner(
+            HOMOGENEOUS_CAPS,
+            stuck_ticks_threshold=1,
+            rescue_policy="numerical_triage",
+        )
 
-        # Case 1: RESCUE_NOW — rover-1 reports a simulated bogged condition with 2 needed seeds,
+        # Case 1: RESCUE_NOW — rover-1 experiences commanded-vs-observed stall with 2 needed seeds,
         # while healthy rover-2 has 0 seeds left. Saving rover-1 is essential!
+        planner.decide(
+            frame(
+                0.9,
+                robot("rover-1", 0.1, 0.0, 0.9, seeds=2),
+                robot("rover-2", 1.4, 0.0, 0.9, seeds=0),
+            ),
+            fmap,
+        )
+        planner.record_commands((RobotCommand("rover-1", 0.9, 1.1, linear_m_s=0.25),))
         f_rescue_now = frame(
             1.0,
             robot("rover-1", 0.1, 0.0, 1.0, bogged=True, seeds=2),
@@ -164,6 +177,7 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
 
         # Case 2: DEFER_RESCUE — rover-1 is stranded with seeds, but rover-2 has its own
         # seeds AND a confirmed eligible gap at 'b' right next to it -> plant 'b' first!
+        planner.record_commands((RobotCommand("rover-1", 1.9, 2.1, linear_m_s=0.25),))
         f_defer = frame(
             2.0,
             robot("rover-1", 0.1, 0.0, 2.0, bogged=True, seeds=1),
@@ -179,6 +193,15 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
 
         # Case 3: ABANDON_ESCALATE — rover-1 is stranded inside a hazardous no-go area
         # (or has 0 seeds while rover-2 has plenty) -> not worth risking rover-2!
+        planner.decide(
+            frame(
+                2.9,
+                robot("rover-1", 1.5, 1.15, 2.9, seeds=2),
+                robot("rover-2", 1.5, 0.0, 2.9, seeds=3),
+            ),
+            fmap,
+        )
+        planner.record_commands((RobotCommand("rover-1", 2.9, 3.1, linear_m_s=0.25),))
         f_hazard = frame(
             3.0,
             robot("rover-1", 1.5, 1.15, 3.0, bogged=True, seeds=2),
@@ -257,7 +280,20 @@ class HomogeneousSwarmPlannerTests(unittest.TestCase):
                 }
 
         fmap = MeasuredFieldMap(SITES)
-        planner = CooperativeSwarmPlanner(HOMOGENEOUS_CAPS, advisor=UnsafeAdvisor())
+        planner = CooperativeSwarmPlanner(
+            HOMOGENEOUS_CAPS,
+            advisor=UnsafeAdvisor(),
+            stuck_ticks_threshold=1,
+        )
+        planner.decide(
+            frame(
+                0.9,
+                robot("rover-1", 0.1, 0.0, 0.9, seeds=2),
+                robot("rover-2", 1.4, 0.0, 0.9, seeds=0),
+            ),
+            fmap,
+        )
+        planner.record_commands((RobotCommand("rover-1", 0.9, 1.1, linear_m_s=0.25),))
         intents = planner.decide(
             frame(
                 1.0,

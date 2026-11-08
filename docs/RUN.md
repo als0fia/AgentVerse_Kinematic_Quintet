@@ -85,20 +85,27 @@ Google's current API documentation confirms the `gemini-4-argon` and `gemini-3.8
 
 **Historical anchor only; superseded by D-0009 rescue-first.** Older contributor links may point here. Do **not** execute the prior planting-first task or ask another teammate to install Isaac Sim merely to meet current P0. Its complete original specification is retained in Git history. The active demo backend is the already merged MuJoCo rover/seed/rigid-dock physics stack; optional Isaac translation is a separate future preflight.
 
-## Fill immediately after selecting the product stack
+## Verified Integrated Baseline Startup & Demo Commands (`integration/abd-canonical-rescue`)
 
 | Action | Exact command / requirement |
 | --- | --- |
-| Supported OS/platform | TBD |
-| Minimum CPU/GPU and optional hardware | TBD; do not assume NVIDIA or a robot |
-| Clean install / pinned dependency versions | TBD |
-| Offline or no-secrets mode | TBD |
-| Secrets configuration **names only** | TBD; never record values |
-| Start the actual system | TBD |
-| One deterministic smoke-demo with seed | TBD |
-| Unit and integration tests | TBD |
-| Independent baseline run and evaluator export | TBD |
-| Reset simulator/robot and recover from errors | TBD |
-| Troubleshooting/log location | TBD |
+| Supported OS/platform | Windows 11 / Linux / macOS with Python 3.11+ (tested on Windows 11 with Python 3.13 in `.venv` and MuJoCo 4.0.0) |
+| Minimum CPU/GPU and optional hardware | Standard CPU + OpenGL for MuJoCo 3D viewer and Tkinter GUI (no NVIDIA GPU or physical robot required) |
+| Clean install / pinned dependency versions | `.\.venv\Scripts\python.exe -m pip install -r requirements-mujoco.txt` |
+| Offline or no-secrets mode | Works 100% offline by default via `DeterministicReasoner` fallback (`SwarmOrchestratorAgent` requires no API key) |
+| Secrets configuration **names only** | Optional `GEMINI_API_KEY` (only if live Gemini API calls are explicitly enabled; never required for baseline) |
+| Start the actual GUI system | `.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --dashboard --scenario golden_rescue --seed 7` |
+| Start 3D MuJoCo passive viewer | `.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --scenario golden_rescue --policy cooperative --rescue-policy react_orchestrator --seed 7 --viewer-seconds 12` |
+| Preset 1 — Successful Rescue (headless JSON) | `.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --scenario golden_rescue --policy cooperative --rescue-policy react_orchestrator --seed 7 --headless` |
+| Preset 2 — Safe Refusal / Abstain (headless JSON) | `.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --scenario high_risk_abstain --policy cooperative --rescue-policy react_orchestrator --seed 7 --headless` |
+| Preset 3 — Sensor / Comms Failure (headless JSON) | `.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --scenario sensor_degraded --policy mycelial --comms intermittent --seed 7 --headless` |
+| Matched-scenario baseline comparison | `.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --compare-baselines --seed 7` |
+| Unit and integration tests (102 tests) | `.\.venv\Scripts\python.exe -m unittest discover -s tests -v` |
+| Repository & skill integrity checks | `.\.venv\Scripts\python.exe scripts\check_repo.py` and `.\.venv\Scripts\python.exe scripts\sync_skills.py --check` |
+| Reset simulator/robot and recover from errors | Click `↺ Reset` or `🎲 Random Scenario` in the GUI toolbar, or call `session.reset(seed)` |
 
-A team member who did **not** develop the project should be able to reproduce the minimum demo from this file. Record commands actually validated on a clean environment and link the tested commit. For physical hardware, add an operator stop/abort procedure and a simulator-only or replay fallback.
+### Known Limitations of the Integrated Baseline
+1. **Analytical Bekker–Wong Terramechanics + MuJoCo Rigid Contact:** Mud sinkage and suction drag are modelled via analytical Bekker–Wong terramechanics coupled to MuJoCo rigid-body wheel friction and viscous drag, not full SPH/MPM continuum fluid-soil simulation.
+2. **Offline Deterministic Reasoner Default:** When no external LLM backend is configured or reachable, `SwarmOrchestratorAgent` executes the 4-tool ReAct loop (`inspect_incident`, `probe_perimeter`, `predict_recovery_displacement`, `evaluate_farmer_risk`) using the calibrated offline `DeterministicReasoner` (`fallback_used=True`, explicitly labelled `[FALLBACK:DeterministicReasoner]` in the GUI).
+3. **Single-Tier Paddy Plot Canonical Scene:** Stepped multi-terrace ramp navigation from `feat/agent-c-sensing-world` (`63c72af`) is parked outside the canonical rescue baseline so the 2-rover rigid-docking recovery loop remains deterministic and reliable.
+4. **Local Workstation Communication:** Peer-to-peer UWB/HaLow gossip and blackout windows are simulated in-process within `DecentralizedMycelialRuntime`; physical radio hardware and Isaac Sim 5.1/6.2 migration remain separate follow-up issues.
