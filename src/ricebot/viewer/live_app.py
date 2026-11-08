@@ -1844,6 +1844,27 @@ class LiveSwarmDashboardApp:
         self.step_count = self.session.tick_index
         for r in self.frame.robots:
             self.trajectories.setdefault(r.robot_id, []).append((r.pose.x_m, r.pose.y_m))
+        # A helper's approach line is constructed from actual poses acquired
+        # after an actual assignment, never from fabricated path waypoints.
+        cue = presentation_cue(
+            self.frame, self.decision,
+            fault_evidence=self.session.fault_evidence,
+            rescue_assessments=self.session.rescue_assessments,
+            orchestrator_decisions=self.session.orchestrator_decisions,
+            completed_recoveries=self.sim.completed_recoveries,
+        )
+        if cue.victim_id and cue.helper_id and cue.phase in (
+            "assigned", "approach", "docking", "extracting", "extracted", "resumed"
+        ):
+            for robot in self.frame.robots:
+                if robot.robot_id == cue.helper_id:
+                    track = self.rescue_approach_tracks.setdefault(
+                        (cue.victim_id, cue.helper_id), []
+                    )
+                    track.append((robot.pose.x_m, robot.pose.y_m))
+                    if len(track) > 480:
+                        del track[:-480]
+                    break
         self._update_visual_camera_discoveries()
         if self._gl_viewer is not None and self._gl_viewer.is_running():
             self._gl_viewer.user_scn.ngeom = 0
@@ -2195,6 +2216,34 @@ class LiveSwarmDashboardApp:
                         collar_rgba,
                     )
 
+        if self.presentation_mode:
+            # Real physical robots stay in the MuJoCo scene. Highlight only
+            # observed bogging, chosen helpers, and locally discovered hazards.
+            for robot in self.frame.robots:
+                if robot.is_bogged:
+                    add_sphere([robot.pose.x_m, robot.pose.y_m, 0.29], 0.065,
+                               [1.0, 0.12, 0.10, 0.93])
+                if robot.robot_id == self.presentation_cue.helper_id:
+                    add_sphere([robot.pose.x_m, robot.pose.y_m, 0.28], 0.055,
+                               [1.0, 0.72, 0.12, 0.90])
+            seen_hazards: set[tuple[int, int]] = set()
+            for node in self.runtime.nodes.values():
+                for key, cell in node.local_map.slam.cells.items():
+                    if key in seen_hazards:
+                        continue
+                    seen_hazards.add(key)
+                    add_box(
+                        [cell.x_m, cell.y_m, 0.025], [0.075, 0.075, 0.015],
+                        [1.0, 0.20, 0.12, 0.62] if cell.kind == "obstacle"
+                        else [0.75, 0.20, 0.92, 0.55]
+                    )
+            for track in self.rescue_approach_tracks.values():
+                for (x1, y1), (x2, y2) in zip(track[-70:-1], track[-69:]):
+                    if hypot(x2 - x1, y2 - y1) > 0.004:
+                        add_line([x1, y1, 0.06], [x2, y2, 0.06],
+                                 0.007, [1.0, 0.67, 0.10, 0.92])
+            return
+
         # 3. Render split dual-rover 3D belief spheres above each patch
         planter_node = self.runtime.nodes.get("planter")
         scout_node = self.runtime.nodes.get("scout")
@@ -2224,7 +2273,7 @@ class LiveSwarmDashboardApp:
 
         # 5. Render UWB / Wi-Fi HaLow gossip link beams across active rover pairs
         seen_pairs: set[tuple[str, str]] = set()
-        for pkt in self.runtime.gossip_history[-15:]:
+        for pkt in (() if self.presentation_mode else self.runtime.gossip_history[-15:]):
             if abs(self.frame.time_s - pkt.sent_at_s) <= 0.6:
                 pair = (min(pkt.sender_id, pkt.receiver_id), max(pkt.sender_id, pkt.receiver_id))
                 if pair not in seen_pairs and pair[0] in obs_by_id and pair[1] in obs_by_id:
@@ -2274,7 +2323,9 @@ class LiveSwarmDashboardApp:
 
     def _render_3d_view(self) -> None:
         self._upload_hfield_if_needed()
-        cam_choice = self.camera_var.get()
+        if self.presentation_mode:
+            self._position_presentation_camera()
+        cam_choice = "isometric" if self.presentation_mode else self.camera_var.get()
         if cam_choice == "wheel_closeup":
             sel = self.selected_robot_var.get()
             try:
@@ -2297,6 +2348,22 @@ class LiveSwarmDashboardApp:
         self._tk_3d_img = tk.PhotoImage(data=ppm_bytes)
         self.canvas_3d.delete("all")
         self.canvas_3d.create_image(0, 0, anchor=tk.NW, image=self._tk_3d_img)
+
+        if self.presentation_mode:
+            self.canvas_3d.create_rectangle(
+                8, 8, min(self.RENDER_W - 8, 570), 60,
+                fill="#09131f", outline="#233d54"
+            )
+            self.canvas_3d.create_text(
+                18, 23, anchor="w",
+                text=f"PHYSICAL SIMULATION  ·  {self.frame.time_s:04.1f} s",
+                fill="#cbd5e1", font=("Segoe UI", 10, "bold")
+            )
+            self.canvas_3d.create_text(
+                18, 45, anchor="w", text=self.presentation_cue.label,
+                fill="#fbbf24", font=("Segoe UI", 13, "bold")
+            )
+            return
 
         # Overlay live 3D sinkage & slip telemetry badge directly on the 3D view
         sel = self.selected_robot_var.get()
@@ -2374,8 +2441,8 @@ class LiveSwarmDashboardApp:
         c = self.canvas_2d
         c.delete("all")
 
-        view_mode = self.belief_view_var.get()
-        layer = self.layer_var.get()
+        view_mode = "fused" if self.presentation_mode else self.belief_view_var.get()
+        layer = "traversability_risk" if self.presentation_mode else self.layer_var.get()
         layer_title, vmin, vmax, palette = LAYER_META.get(
             layer, ("Field Layer", 0.0, 1.0, "moisture")
         )
@@ -2430,7 +2497,9 @@ class LiveSwarmDashboardApp:
             for cell in node.local_map.slam.cells.values():
                 sx, sy = self._world_to_canvas(cell.x_m, cell.y_m)
                 col = "#ef4444" if cell.kind == "obstacle" else "#c084fc"
-                c.create_rectangle(sx - 6, sy - 6, sx + 6, sy + 6, outline=col, width=2)
+                radius = 10 if self.presentation_mode else 6
+                c.create_rectangle(sx - radius, sy - radius, sx + radius, sy + radius,
+                                   outline=col, width=3 if self.presentation_mode else 2)
 
         # 3. Draw injected physical obstacle if active
         if self.sim.obstacle_injected:
@@ -2496,7 +2565,7 @@ class LiveSwarmDashboardApp:
         # 5. Draw UWB / Wi-Fi HaLow wireless links between active rovers with recent gossip
         obs_by_id = {r.robot_id: r for r in self.frame.robots}
         seen_pairs_2d: set[tuple[str, str]] = set()
-        for pkt in self.runtime.gossip_history[-15:]:
+        for pkt in (() if self.presentation_mode else self.runtime.gossip_history[-15:]):
             if abs(self.frame.time_s - pkt.sent_at_s) <= 0.6:
                 pair = (min(pkt.sender_id, pkt.receiver_id), max(pkt.sender_id, pkt.receiver_id))
                 if pair not in seen_pairs_2d and pair[0] in obs_by_id and pair[1] in obs_by_id:
@@ -2512,6 +2581,17 @@ class LiveSwarmDashboardApp:
                         font=("Consolas", 7, "bold"),
                     )
 
+        # Orange: observed helper approach since assignment. No route or
+        # navigation waypoints are inferred from the task destination.
+        if self.presentation_mode:
+            for track in self.rescue_approach_tracks.values():
+                coords: list[float] = []
+                for x_m, y_m in track[-160:]:
+                    cx, cy = self._world_to_canvas(x_m, y_m)
+                    coords.extend([cx, cy])
+                if len(coords) >= 4:
+                    c.create_line(*coords, fill="#fbbf24", width=4)
+
         # 6. Draw Rover Trajectories, Forward Camera FOV Cones & Clickable Rover Icons
         intents_by_rid = {i.robot_id: i for i in self.decision.intents}
         for rid, r_obs in obs_by_id.items():
@@ -2519,7 +2599,7 @@ class LiveSwarmDashboardApp:
             pts = self.trajectories.get(rid, [])
             if len(pts) >= 2:
                 flat_coords: list[float] = []
-                for tx, ty in pts[-55:]:
+                for tx, ty in (pts[-160:] if self.presentation_mode else pts[-55:]):
                     cx, cy = self._world_to_canvas(tx, ty)
                     flat_coords.extend([cx, cy])
                 c.create_line(
@@ -2539,20 +2619,29 @@ class LiveSwarmDashboardApp:
                 wy = r_obs.pose.y_m + CAMERA_RANGE_M * sin(ang)
                 cx_w, cy_w = self._world_to_canvas(wx, wy)
                 cone_pts.extend([cx_w, cy_w])
-            c.create_polygon(
-                *cone_pts,
-                fill="",
-                outline="#fef08a" if is_selected else rover_col,
-                width=1,
-                dash=(3, 3),
-            )
+            if not self.presentation_mode:
+                c.create_polygon(
+                    *cone_pts,
+                    fill="",
+                    outline="#fef08a" if is_selected else rover_col,
+                    width=1,
+                    dash=(3, 3),
+                )
 
-            if is_selected:
+            if is_selected and not self.presentation_mode:
                 c.create_oval(
                     rx - 20, ry - 20, rx + 20, ry + 20, outline="#fef08a", width=3
                 )
 
             status_tag, fill_col, plan_sentence = self._format_robot_plan_sentence(rid)
+            if self.presentation_mode and (
+                r_obs.is_bogged or rid == self.presentation_cue.victim_id
+            ):
+                c.create_oval(rx - 24, ry - 24, rx + 24, ry + 24,
+                             outline="#ef4444", width=4)
+            if self.presentation_mode and rid == self.presentation_cue.helper_id:
+                c.create_oval(rx - 23, ry - 23, rx + 23, ry + 23,
+                             outline="#fbbf24", width=4)
             c.create_oval(rx - 12, ry - 12, rx + 12, ry + 12, fill=fill_col, outline="#ffffff", width=2)
             hx = rx + 18 * cos(r_obs.pose.yaw_rad)
             hy = ry - 18 * sin(r_obs.pose.yaw_rad)
@@ -2568,27 +2657,38 @@ class LiveSwarmDashboardApp:
                 tx_c, ty_c = self._world_to_canvas(tsite.center.x_m, tsite.center.y_m)
                 c.create_line(rx, ry, tx_c, ty_c, fill=fill_col, width=2, dash=(4, 3))
 
-            c.create_text(
-                rx,
-                ry + 22,
-                text=f"{rid.upper()} [{status_tag}]",
-                fill="#fef08a" if is_selected else "#f8fafc",
-                font=("Segoe UI", 9, "bold"),
-            )
-            c.create_text(
-                rx,
-                ry + 35,
-                text=plan_sentence,
-                fill="#cbd5e1",
-                font=("Consolas", 8),
-            )
+            if self.presentation_mode:
+                role = (
+                    "STRANDED" if r_obs.is_bogged else
+                    "HELPER" if rid == self.presentation_cue.helper_id else
+                    "ROVER"
+                )
+                c.create_text(rx, ry + 24, text=f"{rid.upper()} · {role}",
+                              fill="#ffffff", font=("Segoe UI", 10, "bold"))
+            else:
+                c.create_text(
+                    rx, ry + 22,
+                    text=f"{rid.upper()} [{status_tag}]",
+                    fill="#fef08a" if is_selected else "#f8fafc",
+                    font=("Segoe UI", 9, "bold"),
+                )
+                c.create_text(
+                    rx, ry + 35,
+                    text=plan_sentence,
+                    fill="#cbd5e1",
+                    font=("Consolas", 8),
+                )
 
         c.create_rectangle(6, 4, self.MAP_W - 6, 23, fill="#0b131e", outline="#1f3247")
         c.create_text(
             12,
             13,
             anchor="w",
-            text=f"View: {view_mode.upper()}  |  Layer: {layer_title} [{vmin:.2f} .. {vmax:.2f}]  (Click any of the {len(obs_by_id)} rovers on map to inspect)",
+            text=(
+                "FUSED SENSOR ESTIMATE   ·   solid = observed track   ·   dashed = target, NOT a route"
+                if self.presentation_mode else
+                f"View: {view_mode.upper()}  |  Layer: {layer_title} [{vmin:.2f} .. {vmax:.2f}]  (Click any of the {len(obs_by_id)} rovers on map to inspect)"
+            ),
             fill="#38bdf8",
             font=("Consolas", 8, "bold"),
         )
