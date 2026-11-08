@@ -621,7 +621,7 @@ def create_mujoco_episode_session(
 ) -> EpisodeSession:
     """Canonical factory constructing one authoritative MuJoCo SimulationPort + PolicyRuntime session."""
     from .agent import CooperativeSwarmPlanner, DecentralizedMycelialRuntime
-    from .agent.orchestrator import GeminiRESTBackend, SwarmOrchestratorAgent
+    from .agent.orchestrator import GeminiRESTBackend, OfflineLLMBackend, SwarmOrchestratorAgent
     from .mujoco_sim.adapter import DEFAULT_SITES, MujocoPaddySimulation
     from .robot import make_fleet_specs
     from .world import build_field_layout, generate_hidden_soil_truth
@@ -727,6 +727,7 @@ def create_mujoco_episode_session(
             field_bounds=(layout.x_bounds, layout.y_bounds) if layout.scale > 1.0 else None,
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
+            orchestrator=SwarmOrchestratorAgent(backend=OfflineLLMBackend()),
         )
 
     return EpisodeSession(
