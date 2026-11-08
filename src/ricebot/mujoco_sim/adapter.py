@@ -15,8 +15,9 @@ Architectural Composition per `docs/COMPONENTS.md` & `docs/ARCHITECTURE.md`:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import asin, atan2, cos, hypot, pi, sin
+import random
 
 import mujoco
 import numpy as np
@@ -95,7 +96,7 @@ def compose_paddypatch_mjcf(
 
   <worldbody>
     {world_terrain_xml}
-    <geom name="paddy_relief_mesh" type="hfield" hfield="paddy_micro_relief" pos="1.35 0.0 -0.016" rgba="0.41 0.33 0.22 0.46" group="2" contype="0" conaffinity="0"/>
+    <geom name="paddy_relief_mesh" type="hfield" hfield="paddy_micro_relief" pos="1.35 0.0 -0.016" rgba="0.39 0.31 0.21 0.88" group="2" contype="0" conaffinity="0"/>
     {rovers_bodies_xml}
   </worldbody>
 
@@ -331,6 +332,13 @@ class MujocoPaddySimulation:
         self.latest_terrain_points: dict[str, ContinuousTerrainPoint] = {}
         self.latest_terramechanics: dict[str, TerramechanicsSinkageState] = {}
         self.latest_slip_ratios: dict[str, float] = {s.robot_id: 0.08 for s in self.rover_specs}
+        self.latest_wheel_heights: dict[str, tuple[float, float, float, float]] = {}
+        self.latest_wheel_sinkages: dict[str, tuple[float, float, float, float]] = {}
+        self.latest_induced_tilt: dict[str, tuple[float, float]] = {}
+        self._smoothed_pose_3d: dict[str, tuple[float, float, float]] = {}
+        self._physics_z_quat: dict[str, tuple[float, list[float]]] = {}
+        self._latest_physics_yaw: dict[str, float] = {}
+        self._latest_front_range_m: dict[str, float | None] = {}
         self.mud_rut_history: list[tuple[str, float, float, float, float]] = []
 
         self._seed: int = 7
@@ -342,7 +350,9 @@ class MujocoPaddySimulation:
         self._completed_drops: list[SeedDropEvent] = []
         self._completed_recoveries: list[RecoveryFeedback] = []
         self._obstacle_injected: bool = False
+        self._hfield_dirty: bool = True
         self._populate_hfield_from_continuous_terrain()
+        self._sync_3d_terrain_visuals_from_world()
         self._bogged_origins: dict[str, tuple[float, float]] = {}
         self._sensed_bogged_robots: set[str] = set()
         self._wheel_spin_stall_ticks: dict[str, int] = {s.robot_id: 0 for s in self.rover_specs}
@@ -388,6 +398,88 @@ class MujocoPaddySimulation:
         span = max(1e-5, z_max - z_min)
         norm_grid = (grid - z_min) / span
         self.model.hfield_data[:] = norm_grid.flatten()
+        self._hfield_dirty = True
+
+    def _sync_3d_terrain_visuals_from_world(self) -> None:
+        """Synchronize 3D `bed_patch_a..f` and `puddle_patch_a..f` geoms with `self.world._hidden_site_truth`."""
+        base_xy_by_suffix: dict[str, tuple[float, float]] = {
+            "a": (0.85, -0.50),
+            "b": (1.60, -0.50),
+            "c": (2.35, -0.50),
+            "d": (1.60, 0.45),
+            "e": (1.22, -0.02),
+            "f": (1.98, -0.02),
+        }
+        if self._ground_geom_id >= 0:
+            self.model.geom_group[self._ground_geom_id] = 2
+
+        for idx, (suffix, default_xy) in enumerate(base_xy_by_suffix.items()):
+            patch_id = f"patch_{suffix}"
+            if patch_id in self.sites:
+                cx = float(self.sites[patch_id].center.x_m)
+                cy = float(self.sites[patch_id].center.y_m)
+            else:
+                cx, cy = default_xy
+
+            pt = self.world.continuous_terrain.evaluate(cx, cy)
+            truth = self.world._hidden_site_truth.get(patch_id)
+            if truth is not None:
+                moisture = float(truth[SensorKind.MOISTURE])
+                firmness = float(truth[SensorKind.FIRMNESS])
+            else:
+                moisture = float(pt.moisture)
+                firmness = float(pt.firmness)
+
+            rng = random.Random(int(self._seed) * 37 + idx * 13)
+            jx = rng.uniform(-0.018, 0.018)
+            jy = rng.uniform(-0.018, 0.018)
+            bed_radius = 0.24 + 0.025 * max(0.0, moisture - 0.50) + rng.uniform(-0.008, 0.008)
+
+            is_active_trap = self.trap_robot_id is not None and patch_id == self.trap_site_id
+            is_mud = (moisture > 0.80) or (firmness < 0.25) or is_active_trap
+
+            bed_gid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"bed_patch_{suffix}")
+            puddle_gid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"puddle_patch_{suffix}")
+            ring_sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f"ring_patch_{suffix}")
+
+            if bed_gid >= 0:
+                self.model.geom_group[bed_gid] = 2
+                self.model.geom_matid[bed_gid] = -1
+                if is_mud:
+                    self.model.geom_rgba[bed_gid] = [0.20, 0.14, 0.09, 0.95]
+                    self.model.geom_pos[bed_gid] = [cx + 0.35 * jx, cy + 0.35 * jy, 0.003]
+                else:
+                    self.model.geom_rgba[bed_gid] = [0.46, 0.37, 0.25, 0.92]
+                    self.model.geom_pos[bed_gid] = [cx + 0.25 * jx, cy + 0.25 * jy, 0.003]
+                self.model.geom_size[bed_gid, 0] = round(bed_radius, 4)
+                self.model.geom_size[bed_gid, 1] = 0.003
+
+            if puddle_gid >= 0:
+                self.model.geom_group[puddle_gid] = 2
+                self.model.geom_matid[puddle_gid] = -1
+                if is_mud:
+                    puddle_r = max(
+                        0.14,
+                        min(
+                            0.24,
+                            0.12 + 0.07 * moisture + 0.14 * pt.mud_depth_m + rng.uniform(-0.010, 0.010),
+                        ),
+                    )
+                    self.model.geom_rgba[puddle_gid] = [0.14, 0.42, 0.54, 0.68]
+                    self.model.geom_pos[puddle_gid] = [cx + jx, cy + jy, 0.0022]
+                    self.model.geom_size[puddle_gid, 0] = round(puddle_r, 4)
+                    self.model.geom_size[puddle_gid, 1] = 0.002
+                else:
+                    self.model.geom_rgba[puddle_gid] = [0.14, 0.42, 0.54, 0.0]
+                    self.model.geom_pos[puddle_gid] = [cx, cy, -1.0]
+                    self.model.geom_size[puddle_gid, 0] = 0.05
+                    self.model.geom_size[puddle_gid, 1] = 0.001
+
+            if ring_sid >= 0:
+                if not is_mud and patch_id in self.world._hidden_site_truth:
+                    self.model.site_rgba[ring_sid] = [0.85, 0.72, 0.25, 0.55]
+                else:
+                    self.model.site_rgba[ring_sid] = [0.85, 0.72, 0.25, 0.0]
 
     @property
     def completed_drops(self) -> tuple[SeedDropEvent, ...]:
@@ -404,11 +496,17 @@ class MujocoPaddySimulation:
         return self._obstacle_injected
 
     def _update_rover_terramechanics(self) -> None:
-        """Evaluate ContinuousPaddyTerrain and Bekker-Wong wheel-mud sinkage at each rover's live 3D pose."""
+        """Evaluate ContinuousPaddyTerrain and 4-wheel Bekker-Wong mud sinkage at each rover's live 3D pose."""
+        wx = 0.085  # Half-wheelbase (m)
         for spec in self.rover_specs:
             rid = spec.robot_id
             r_xyz = self.data.sensor(f"{rid}_pos").data
+            r_quat = self.data.sensor(f"{rid}_quat").data
             rx, ry = float(r_xyz[0]), float(r_xyz[1])
+            yaw = _quat_to_yaw(r_quat)
+            cos_y, sin_y = cos(yaw), sin(yaw)
+            ht = spec.half_track_m
+
             pt = self.world.evaluate_continuous_point(rx, ry)
             # Local physical wheel slip ratio increases continuously with mud moisture & softness
             local_slip = max(
@@ -429,21 +527,102 @@ class MujocoPaddySimulation:
                 wheel_radius_override_m=self.robot_wheel_radius_m.get(rid, spec.wheel_radius_m),
                 wheel_width_override_m=self.robot_wheel_width_m.get(rid, 0.040),
             )
+
+            is_bogged = rid in self._bogged_origins or sink_state.bellied_out
+            wheel_offsets = (
+                (wx, ht),    # fl
+                (wx, -ht),   # fr
+                (-wx, ht),   # rl
+                (-wx, -ht),  # rr
+            )
+            wheel_heights: list[float] = []
+            wheel_sinkages: list[float] = []
+            for w_idx, (dx, dy) in enumerate(wheel_offsets):
+                wx_w = rx + dx * cos_y - dy * sin_y
+                wy_w = ry + dx * sin_y + dy * cos_y
+                w_pt = self.world.evaluate_continuous_point(wx_w, wy_w)
+                depth_ratio = w_pt.mud_depth_m / max(0.03, pt.mud_depth_m)
+                base_w_sink = sink_state.sinkage_z_m * depth_ratio
+                if is_bogged:
+                    bog_extra = 0.016 + 0.035 * w_pt.mud_depth_m
+                    pocket_asym = 0.0055 * sin(3.9 * wx_w - 3.1 * wy_w + 0.85 * w_idx + 0.3 * self._seed)
+                else:
+                    bog_extra = 0.012 * max(0.0, w_pt.moisture - 0.75) * (1.0 - w_pt.firmness)
+                    pocket_asym = 0.0020 * w_pt.moisture * sin(3.9 * wx_w - 3.1 * wy_w + 0.85 * w_idx)
+                w_sink = max(0.001, base_w_sink + bog_extra + pocket_asym)
+                z_wheel = w_pt.elevation_m - w_sink
+                wheel_sinkages.append(round(w_sink, 5))
+                wheel_heights.append(round(z_wheel, 5))
+
+            z_fl, z_fr, z_rl, z_rr = wheel_heights
+            raw_pitch = atan2((z_rl + z_rr) * 0.5 - (z_fl + z_fr) * 0.5, 2.0 * wx)
+            raw_roll = atan2((z_fl + z_rl) * 0.5 - (z_fr + z_rr) * 0.5, 2.0 * ht)
+            default_m = 4.2 if spec.can_plant else 3.6
+            is_custom_sizing = (
+                abs(self.robot_mass_kg.get(rid, default_m) - default_m) > 0.3
+                or abs(self.robot_wheel_radius_m.get(rid, 0.058) - 0.058) > 0.003
+            )
+            pitch_cap = 0.22 if is_custom_sizing else 0.11
+            induced_pitch = max(-pitch_cap, min(pitch_cap, raw_pitch))
+            induced_roll = max(-0.22, min(0.22, raw_roll))
+
+            if is_custom_sizing or is_bogged:
+                weight_transfer = max(
+                    0.72,
+                    1.0 - 0.18 * abs(induced_pitch) - 0.18 * abs(induced_roll),
+                )
+                local_slip = min(0.96, local_slip / weight_transfer)
+                sink_state = replace(
+                    sink_state,
+                    max_thrust_n=round(sink_state.max_thrust_n * weight_transfer, 2),
+                    speed_penalty_factor=round(sink_state.speed_penalty_factor * weight_transfer, 4),
+                )
             if sink_state.bellied_out:
                 local_slip = 0.96
+
             self.latest_terrain_points[rid] = pt
             self.latest_terramechanics[rid] = sink_state
             self.latest_slip_ratios[rid] = round(local_slip, 4)
+            self.latest_wheel_heights[rid] = (z_fl, z_fr, z_rl, z_rr)
+            self.latest_wheel_sinkages[rid] = (
+                wheel_sinkages[0],
+                wheel_sinkages[1],
+                wheel_sinkages[2],
+                wheel_sinkages[3],
+            )
+            self.latest_induced_tilt[rid] = (round(induced_roll, 4), round(induced_pitch, 4))
 
-    def _apply_3d_terrain_and_mud_sinkage_pose(self) -> None:
-        """Keep physics qpos stable for horizontal LiDAR rays unless rover is bellied out in deep mud."""
+    def _apply_3d_terrain_and_mud_sinkage_pose(self, *, snap: bool = False) -> None:
+        """Apply 4-wheel mud sinkage (z < 0) and chassis pitch/roll tilt to qpos for 3D viewer and IMU observations."""
+        alpha = 1.0 if snap else 0.45
         for spec in self.rover_specs:
             rid = spec.robot_id
             qadr = self._qpos_adrs[rid]
             sink = self.latest_terramechanics.get(rid)
-            if sink is not None and sink.bellied_out:
-                # Visually sink chassis down into the mud trap when bellied out (S1 immobilized)
-                self.data.qpos[qadr + 2] = max(0.042, spec.initial_xyz[2] - 0.55 * sink.sinkage_z_m)
+            w_heights = self.latest_wheel_heights.get(rid)
+            induced_roll, induced_pitch = self.latest_induced_tilt.get(rid, (0.0, 0.0))
+            is_bogged = rid in self._bogged_origins or (sink is not None and sink.bellied_out)
+
+            if w_heights is not None:
+                z_wheels_mean = 0.25 * sum(w_heights)
+                if is_bogged:
+                    target_z = max(0.036, min(0.068, spec.initial_xyz[2] + 0.45 * z_wheels_mean - 0.008))
+                else:
+                    target_z = max(0.040, min(0.068, spec.initial_xyz[2] + 0.40 * z_wheels_mean))
+            elif sink is not None and sink.bellied_out:
+                target_z = max(0.036, spec.initial_xyz[2] - 0.55 * sink.sinkage_z_m)
+            else:
+                target_z = spec.initial_xyz[2]
+
+            prev_z, prev_r, prev_p = self._smoothed_pose_3d.get(rid, (target_z, induced_roll, induced_pitch))
+            z_now = prev_z + alpha * (target_z - prev_z)
+            roll_now = prev_r + alpha * (induced_roll - prev_r)
+            pitch_now = prev_p + alpha * (induced_pitch - prev_p)
+            self._smoothed_pose_3d[rid] = (z_now, roll_now, pitch_now)
+
+            _, _, current_yaw = _quat_to_rpy(self.data.qpos[qadr + 3 : qadr + 7])
+            self.data.qpos[qadr + 2] = round(z_now, 5)
+            self.data.qpos[qadr + 3 : qadr + 7] = _rpy_to_quat(roll_now, pitch_now, current_yaw)
 
     def reset(self, seed: int) -> ObservationFrame:
         self._seed = int(seed)
@@ -464,6 +643,7 @@ class MujocoPaddySimulation:
             self.inject_obstacle_at_s = rand_spec.inject_obstacle_at_s
         self.world.reset(self._seed)
         self._populate_hfield_from_continuous_terrain()
+        self._sync_3d_terrain_visuals_from_world()
         self._seeds_remaining = {
             s.robot_id: s.initial_seeds for s in self.rover_specs
         }
@@ -472,6 +652,8 @@ class MujocoPaddySimulation:
         self._completed_recoveries = []
         self._obstacle_injected = False
         self.mud_rut_history = []
+        self._smoothed_pose_3d = {}
+        self._physics_z_quat = {}
         self._bogged_origins = {}
         self._sensed_bogged_robots = set()
         self._wheel_spin_stall_ticks = {s.robot_id: 0 for s in self.rover_specs}
@@ -497,11 +679,16 @@ class MujocoPaddySimulation:
                 r_quat = _rpy_to_quat(0.0, 0.0, pose_override.yaw_rad)
             qadr = self._qpos_adrs[rid]
             self.data.qpos[qadr : qadr + 7] = [rx, ry, rz, *r_quat]
+            self._physics_z_quat[rid] = (float(rz), list(r_quat))
         self.data.mocap_pos[0] = [self.obstacle_xy[0], self.obstacle_xy[1], -5.0]
         self._sync_carried_seeds()
         mujoco.mj_forward(self.model, self.data)
+        for spec in self.rover_specs:
+            rid = spec.robot_id
+            self._latest_physics_yaw[rid] = _quat_to_yaw(self.data.sensor(f"{rid}_quat").data)
+            self._latest_front_range_m[rid] = self._read_min_front_range_m(rid)
         self._update_rover_terramechanics()
-        self._apply_3d_terrain_and_mud_sinkage_pose()
+        self._apply_3d_terrain_and_mud_sinkage_pose(snap=True)
         mujoco.mj_forward(self.model, self.data)
         return self._build_observation_frame(plant_feedback=(), recovery_feedback=())
 
@@ -579,6 +766,16 @@ class MujocoPaddySimulation:
     def step(self, commands: tuple[RobotCommand, ...]) -> ObservationFrame:
         now_s = round(float(self.data.time), 4)
         cmd_by_robot = {c.robot_id: c for c in commands}
+
+        if self._physics_z_quat:
+            for spec in self.rover_specs:
+                rid = spec.robot_id
+                if rid in self._physics_z_quat:
+                    qadr = self._qpos_adrs[rid]
+                    pz, pquat = self._physics_z_quat[rid]
+                    self.data.qpos[qadr + 2] = pz
+                    self.data.qpos[qadr + 3 : qadr + 7] = pquat
+            mujoco.mj_forward(self.model, self.data)
 
         if (
             self.inject_obstacle_at_s is not None
@@ -737,7 +934,12 @@ class MujocoPaddySimulation:
         for substep_i in range(self.substeps_per_tick):
             self._sync_carried_seeds()
             if substep_i % 5 == 0:
-                self._apply_3d_terrain_and_mud_sinkage_pose()
+                for spec in self.rover_specs:
+                    rid = spec.robot_id
+                    sink = self.latest_terramechanics.get(rid)
+                    if sink is not None and sink.bellied_out:
+                        qadr = self._qpos_adrs[rid]
+                        self.data.qpos[qadr + 2] = max(0.042, spec.initial_xyz[2] - 0.55 * sink.sinkage_z_m)
 
             # Apply physical mud suction drag force to any unlatched bogged rover while allowing wheel spin
             for bog_id in list(self._bogged_origins.keys()):
@@ -957,6 +1159,17 @@ class MujocoPaddySimulation:
                     still_falling.append(drop)
             self._active_drops = still_falling
 
+        mujoco.mj_forward(self.model, self.data)
+        for spec in self.rover_specs:
+            rid = spec.robot_id
+            qadr = self._qpos_adrs[rid]
+            self._physics_z_quat[rid] = (
+                float(self.data.qpos[qadr + 2]),
+                [float(x) for x in self.data.qpos[qadr + 3 : qadr + 7]],
+            )
+            self._latest_physics_yaw[rid] = _quat_to_yaw(self.data.sensor(f"{rid}_quat").data)
+            self._latest_front_range_m[rid] = self._read_min_front_range_m(rid)
+
         self._update_rover_terramechanics()
         self._apply_3d_terrain_and_mud_sinkage_pose()
         mujoco.mj_forward(self.model, self.data)
@@ -1026,8 +1239,14 @@ class MujocoPaddySimulation:
             sname = f"{prefix}_range_{suffix}"
             sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, sname)
             if sid >= 0:
-                pnt = self.data.site_xpos[sid]
-                vec = self.data.site_xmat[sid].reshape(3, 3)[:, 2]
+                raw_pnt = self.data.site_xpos[sid]
+                raw_vec = self.data.site_xmat[sid].reshape(3, 3)[:, 2]
+                horiz = hypot(float(raw_vec[0]), float(raw_vec[1]))
+                if horiz > 1e-6:
+                    vec = np.array([float(raw_vec[0]) / horiz, float(raw_vec[1]) / horiz, 0.0], dtype=np.float64)
+                else:
+                    vec = np.array(raw_vec, dtype=np.float64)
+                pnt = np.array([float(raw_pnt[0]), float(raw_pnt[1]), 0.118], dtype=np.float64)
                 raw = float(
                     mujoco.mj_ray(
                         self.model,
@@ -1060,7 +1279,8 @@ class MujocoPaddySimulation:
             rid = spec.robot_id
             r_xyz = self.data.sensor(f"{rid}_pos").data
             r_quat = self.data.sensor(f"{rid}_quat").data
-            roll, pitch, yaw = _quat_to_rpy(r_quat)
+            roll, pitch, raw_yaw = _quat_to_rpy(r_quat)
+            yaw = self._latest_physics_yaw.get(rid, raw_yaw)
             rpy_by_id[rid] = (roll, pitch, yaw)
             poses_by_id[rid] = Pose2D(
                 round(float(r_xyz[0]), 4),
@@ -1121,7 +1341,7 @@ class MujocoPaddySimulation:
                     robot_id=rid,
                     pose=pose,
                     time_s=sim_t,
-                    front_range_m=self._read_min_front_range_m(rid),
+                    front_range_m=self._latest_front_range_m.get(rid, self._read_min_front_range_m(rid)),
                     seeds_remaining=self._seeds_remaining[rid],
                     samples=self.world.sample_local_soil(rid, pose, sim_t),
                     link_ok=True,

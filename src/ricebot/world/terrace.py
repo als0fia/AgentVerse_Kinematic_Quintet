@@ -665,15 +665,15 @@ def _build_seedling_clumps_xml() -> str:
                 x, y = cx + dx, cy + dy
                 lines.append(
                     f'<geom name="rice_{prefix}_{idx}_a" type="capsule" fromto="{x:.3f} {y:.3f} 0.01 {x-0.025:.3f} {y+0.015:.3f} 0.15" '
-                    f'size="0.009" contype="0" conaffinity="0" rgba="0.18 0.68 0.22 1"/>'
+                    f'size="0.009" group="2" contype="0" conaffinity="0" rgba="0.18 0.68 0.22 1"/>'
                 )
                 lines.append(
                     f'<geom name="rice_{prefix}_{idx}_b" type="capsule" fromto="{x:.3f} {y:.3f} 0.01 {x+0.025:.3f} {y-0.018:.3f} 0.16" '
-                    f'size="0.008" contype="0" conaffinity="0" rgba="0.25 0.76 0.26 1"/>'
+                    f'size="0.008" group="2" contype="0" conaffinity="0" rgba="0.25 0.76 0.26 1"/>'
                 )
                 lines.append(
                     f'<geom name="rice_{prefix}_{idx}_c" type="capsule" fromto="{x:.3f} {y:.3f} 0.01 {x+0.005:.3f} {y+0.028:.3f} 0.14" '
-                    f'size="0.008" contype="0" conaffinity="0" rgba="0.14 0.58 0.18 1"/>'
+                    f'size="0.008" group="2" contype="0" conaffinity="0" rgba="0.14 0.58 0.18 1"/>'
                 )
     return "\n    ".join(lines)
 
@@ -688,8 +688,8 @@ def build_world_terrain_xml(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
     <camera name="terrace_iso" pos="-0.65 -1.95 1.55" xyaxes="0.82 -0.57 0 0.32 0.46 0.83"/>
     <camera name="top_overview" pos="1.35 -0.02 3.10" xyaxes="1 0 0 0 1 0"/>
 
-    <!-- Main Paddy Field Ground Plane (collision group 1) -->
-    <geom name="field_ground" type="plane" size="5 5 0.1" material="paddy_soil_mat" contype="1" conaffinity="7" friction="1.2 0.01 0.005"/>
+    <!-- Main Paddy Field Ground Plane (group 2 excluded from forward LiDAR raycasts) -->
+    <geom name="field_ground" type="plane" size="5 5 0.1" material="paddy_soil_mat" group="2" contype="1" conaffinity="7" friction="1.2 0.01 0.005"/>
 
     <!-- Raised Perimeter Rice Terrace Bunds / Field Ridges (田埂) -->
     <geom name="bund_north" type="box" pos="1.35 1.05 0.05" size="1.85 0.12 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
@@ -701,26 +701,36 @@ def build_world_terrain_xml(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
     <geom name="irrigation_canal_water" type="box" pos="-0.72 0.00 0.008" size="0.16 1.15 0.008" material="canal_water_mat" contype="0" conaffinity="0"/>
 
     <!-- Subtle Row Guide Furrows across the Paddy Plot -->
-    <geom name="furrow_1" type="box" pos="1.55 -0.75 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
-    <geom name="furrow_2" type="box" pos="1.55 -0.25 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
-    <geom name="furrow_3" type="box" pos="1.55 0.20 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
-    <geom name="furrow_4" type="box" pos="1.55 0.70 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
+    <geom name="furrow_1" type="box" pos="1.55 -0.75 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" group="2" contype="0" conaffinity="0"/>
+    <geom name="furrow_2" type="box" pos="1.55 -0.25 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" group="2" contype="0" conaffinity="0"/>
+    <geom name="furrow_3" type="box" pos="1.55 0.20 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" group="2" contype="0" conaffinity="0"/>
+    <geom name="furrow_4" type="box" pos="1.55 0.70 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" group="2" contype="0" conaffinity="0"/>
 
-    <!-- 6 Field Patches (Visual Terrain Beds: Mud Hazard vs Viable Stand-Gap Loam vs Living Rice Stand) -->
-    <geom name="bed_patch_a" type="cylinder" pos="0.85 -0.50 0.003" size="0.25 0.003" material="mud_hazard_mat" contype="0" conaffinity="0"/>
-    <geom name="puddle_patch_a" type="cylinder" pos="0.85 -0.50 0.005" size="0.18 0.002" material="canal_water_mat" contype="0" conaffinity="0"/>
+    <!-- 6 Dynamic Field Patch Beds & Water Puddles (updated per-seed from hidden soil truth & continuous terrain) -->
+    <geom name="bed_patch_a" type="cylinder" pos="0.85 -0.50 0.003" size="0.25 0.003" rgba="0.20 0.14 0.09 0.95" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_a" type="cylinder" pos="0.85 -0.50 0.0022" size="0.18 0.002" rgba="0.14 0.42 0.54 0.68" group="2" contype="0" conaffinity="0"/>
+    <site name="ring_patch_a" type="cylinder" pos="0.85 -0.50 0.006" size="0.16 0.002" rgba="0.85 0.72 0.25 0.0"/>
 
-    <geom name="bed_patch_b" type="cylinder" pos="1.60 -0.50 0.003" size="0.25 0.003" material="viable_loam_mat" contype="0" conaffinity="0"/>
+    <geom name="bed_patch_b" type="cylinder" pos="1.60 -0.50 0.003" size="0.25 0.003" rgba="0.46 0.37 0.25 0.92" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_b" type="cylinder" pos="1.60 -0.50 -1.0" size="0.05 0.001" rgba="0.14 0.42 0.54 0.0" group="2" contype="0" conaffinity="0"/>
     <site name="ring_patch_b" type="cylinder" pos="1.60 -0.50 0.006" size="0.16 0.002" rgba="0.85 0.72 0.25 0.55"/>
 
-    <geom name="bed_patch_c" type="cylinder" pos="2.35 -0.50 0.003" size="0.25 0.003" material="viable_loam_mat" contype="0" conaffinity="0"/>
+    <geom name="bed_patch_c" type="cylinder" pos="2.35 -0.50 0.003" size="0.25 0.003" rgba="0.46 0.37 0.25 0.92" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_c" type="cylinder" pos="2.35 -0.50 -1.0" size="0.05 0.001" rgba="0.14 0.42 0.54 0.0" group="2" contype="0" conaffinity="0"/>
     <site name="ring_patch_c" type="cylinder" pos="2.35 -0.50 0.006" size="0.16 0.002" rgba="0.85 0.72 0.25 0.55"/>
 
-    <geom name="bed_patch_d" type="cylinder" pos="1.60 0.45 0.003" size="0.25 0.003" material="mud_hazard_mat" contype="0" conaffinity="0"/>
-    <geom name="puddle_patch_d" type="cylinder" pos="1.60 0.45 0.005" size="0.17 0.002" material="canal_water_mat" contype="0" conaffinity="0"/>
+    <geom name="bed_patch_d" type="cylinder" pos="1.60 0.45 0.003" size="0.25 0.003" rgba="0.20 0.14 0.09 0.95" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_d" type="cylinder" pos="1.60 0.45 0.0022" size="0.17 0.002" rgba="0.14 0.42 0.54 0.68" group="2" contype="0" conaffinity="0"/>
+    <site name="ring_patch_d" type="cylinder" pos="1.60 0.45 0.006" size="0.16 0.002" rgba="0.85 0.72 0.25 0.0"/>
 
-    <geom name="bed_crop_nw" type="cylinder" pos="0.85 0.45 0.004" size="0.27 0.004" material="crop_bed_mat" contype="0" conaffinity="0"/>
-    <geom name="bed_crop_ne" type="cylinder" pos="2.35 0.45 0.004" size="0.27 0.004" material="crop_bed_mat" contype="0" conaffinity="0"/>
+    <geom name="bed_patch_e" type="cylinder" pos="1.22 -0.02 0.0025" size="0.22 0.0025" rgba="0.46 0.37 0.25 0.92" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_e" type="cylinder" pos="1.22 -0.02 -1.0" size="0.05 0.001" rgba="0.14 0.42 0.54 0.0" group="2" contype="0" conaffinity="0"/>
+
+    <geom name="bed_patch_f" type="cylinder" pos="1.98 -0.02 0.0025" size="0.22 0.0025" rgba="0.46 0.37 0.25 0.92" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_f" type="cylinder" pos="1.98 -0.02 -1.0" size="0.05 0.001" rgba="0.14 0.42 0.54 0.0" group="2" contype="0" conaffinity="0"/>
+
+    <geom name="bed_crop_nw" type="cylinder" pos="0.85 0.45 0.004" size="0.27 0.004" material="crop_bed_mat" group="2" contype="0" conaffinity="0"/>
+    <geom name="bed_crop_ne" type="cylinder" pos="2.35 0.45 0.004" size="0.27 0.004" material="crop_bed_mat" group="2" contype="0" conaffinity="0"/>
     {_build_seedling_clumps_xml()}
 
     <!-- Mid-episode obstacle (fallen irrigation crate parked below ground until surprise injection) -->
