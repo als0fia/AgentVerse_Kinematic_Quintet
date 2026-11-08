@@ -88,7 +88,12 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         res_a = run_demo(scenario="nominal", policy="centralized", seed=7, steps=140)
         res_b = run_demo(scenario="nominal", policy="mycelial", seed=7, steps=140)
         self.assertEqual(res_a["viable_seed_placements"], 2)
-        self.assertEqual(res_b["viable_seed_placements"], 2)
+        self.assertEqual(
+            res_b["viable_seed_placements"], 2,
+            msg=f"Mycelial nominal regression: drops={res_b['completed_seed_drops']}; "
+                f"travel={res_b['travel_distance_m']}; "
+                f"estimates={res_b['site_estimates']}; events={res_b['key_events'][-12:]}"
+        )
 
     def test_sensor_only_fault_detection_and_negative_controls(self) -> None:
         """Phase 3: Sensor-only FaultEvidence detects mud stall when expose_bogged_flag=False; obstacle & null-range do not false-trigger."""
