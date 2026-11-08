@@ -21,7 +21,7 @@ def presentation_cue(frame: Any, decision: Any, *, fault_evidence: Any,
     victim = next((r.robot_id for r in frame.robots if r.is_bogged), None)
     order = None
     for rid, value in orchestrator_decisions.items():
-        if rid in robots:
+        if rid in robots and (victim is None or rid == victim):
             victim, order = rid, value
             break
     helper = getattr(order, "helper_robot_id", None)
@@ -36,7 +36,7 @@ def presentation_cue(frame: Any, decision: Any, *, fault_evidence: Any,
             r.is_bogged and (
                 r.robot_id != recovery.target_robot_id
                 or getattr(fault_evidence.get(r.robot_id), "observed_at_s", -1.0)
-                > recovery.observed_at_s
+                > getattr(recovery, "observed_at_s", float("inf"))
             )
             for r in frame.robots
         )
