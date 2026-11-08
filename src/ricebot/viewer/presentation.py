@@ -44,6 +44,7 @@ def presentation_cue(frame: Any, decision: Any, *, fault_evidence: Any,
             victim, helper = recovery.target_robot_id, recovery.helper_robot_id
             resumed = (
                 victim in robots and not robots[victim].is_bogged
+                and (getattr(robots[victim], "true_speed_m_s", 0.0) or 0.0) > 0.025
                 and any(i.robot_id == victim
                         and getattr(i.mode, "value", i.mode) in ("sample", "plant")
                         for i in decision.intents)
