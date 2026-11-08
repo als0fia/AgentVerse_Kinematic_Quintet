@@ -88,7 +88,7 @@ def presentation_cue(frame: Any, decision: Any, *, fault_evidence: Any,
                                        victim, helper, "approach")
             return PresentationCue("Helper assigned", f"{helper.upper()} selected",
                                    victim, helper, "assigned")
-    if rescue_assessments:
+    if rescue_assessments and (victim is None or victim in rescue_assessments):
         assessed = victim or next(iter(rescue_assessments))
         return PresentationCue("Risk assessed", f"Options evaluated for {assessed.upper()}",
                                assessed, helper, "assessed")
