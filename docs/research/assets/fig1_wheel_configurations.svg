@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0d1520; }
+      .title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 16px; font-weight: bold; fill: #f8fafc; }
+      .subtitle { font-family: 'DM Sans', sans-serif; font-size: 12px; fill: #94a3b8; }
+      .box-bg { fill: #172230; stroke: #26354a; stroke-width: 1.5; rx: 10px; }
+      .label { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; font-weight: bold; fill: #f1f5f9; text-anchor: middle; }
+      .sublabel { font-family: 'DM Sans', sans-serif; font-size: 11px; fill: #94a3b8; text-anchor: middle; }
+      .wheel-rim { stroke: #94a3b8; stroke-width: 3; fill: #1e293b; }
+      .wheel-hub { fill: #f59e0b; stroke: #b45309; stroke-width: 2; }
+      .mud-line { stroke: #78350f; stroke-width: 3; stroke-dasharray: 6 3; }
+      .mud-fill { fill: rgba(120, 53, 15, 0.25); }
+    </style>
+  </defs>
+
+  <rect width="900" height="380" class="bg" rx="12"/>
+  <text x="30" y="35" class="title">FIGURE 1: Comparative Schematics of Agricultural Wheel Topologies in Saturated Paddy Soil</text>
+  <text x="30" y="55" class="subtitle">Structural profile, sinkage behavior, and soil interaction across four wheel configurations</text>
+
+  <rect x="20" y="240" width="860" height="110" class="mud-fill"/>
+  <line x1="20" y1="240" x2="880" y2="240" class="mud-line"/>
+  <text x="860" y="232" font-family="DM Sans" font-size="10" fill="#d97706" text-anchor="end">Paddy Silt Surface (c = 2.5 kPa)</text>
+  <text x="860" y="340" font-family="DM Sans" font-size="10" fill="#78350f" text-anchor="end">Hardpan Layer (-35 cm)</text>
+
+  <!-- WHEEL 1: Standard Smooth Wheel -->
+  <g transform="translate(120, 170)">
+    <rect x="-85" y="-105" width="170" height="280" class="box-bg"/>
+    <circle cx="0" cy="80" r="50" class="wheel-rim"/>
+    <circle cx="0" cy="80" r="14" class="wheel-hub"/>
+    <line x1="-70" y1="70" x2="70" y2="70" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <text x="0" y="-80" class="label">(A) Standard Smooth</text>
+    <text x="0" y="-62" class="sublabel">Conventional Rigid Rim</text>
+    <text x="0" y="152" font-family="JetBrains Mono" font-size="11" fill="#ef4444" text-anchor="middle">Sinkage: 13.5 cm</text>
+    <text x="0" y="167" font-family="DM Sans" font-size="10" fill="#94a3b8" text-anchor="middle">Severe slip (&gt;65%)</text>
+  </g>
+
+  <!-- WHEEL 2: Fixed Lugged Steel Wheel -->
+  <g transform="translate(330, 170)">
+    <rect x="-85" y="-105" width="170" height="280" class="box-bg"/>
+    <circle cx="0" cy="55" r="48" class="wheel-rim"/>
+    <path d="M 0 3 L 0 -5 M 37 18 L 43 13 M 48 55 L 56 55 M 37 92 L 43 97 M 0 107 L 0 115 M -37 92 L -43 97 M -48 55 L -56 55 M -37 18 L -43 13" stroke="#e2e8f0" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="0" cy="55" r="14" class="wheel-hub"/>
+    <text x="0" y="-80" class="label">(B) Fixed Lugged Steel</text>
+    <text x="0" y="-62" class="sublabel">Rigid Paddle Wheel</text>
+    <text x="0" y="152" font-family="JetBrains Mono" font-size="11" fill="#f59e0b" text-anchor="middle">Sinkage: 8.2 cm</text>
+    <text x="0" y="167" font-family="DM Sans" font-size="10" fill="#94a3b8" text-anchor="middle">Hardpan damage &amp; clogging</text>
+  </g>
+
+  <!-- WHEEL 3: Archimedes Screw Wheel -->
+  <g transform="translate(540, 170)">
+    <rect x="-85" y="-105" width="170" height="280" class="box-bg"/>
+    <rect x="-42" y="10" width="84" height="75" rx="35" class="wheel-rim"/>
+    <path d="M -38 25 Q 0 35 38 25 M -38 45 Q 0 55 38 45 M -38 65 Q 0 75 38 65" stroke="#38bdf8" stroke-width="3" fill="none"/>
+    <circle cx="0" cy="47" r="12" class="wheel-hub"/>
+    <text x="0" y="-80" class="label">(C) Archimedes Screw</text>
+    <text x="0" y="-62" class="sublabel">Helical Flotation Pontoon</text>
+    <text x="0" y="152" font-family="JetBrains Mono" font-size="11" fill="#38bdf8" text-anchor="middle">Sinkage: 5.8 cm</text>
+    <text x="0" y="167" font-family="DM Sans" font-size="10" fill="#94a3b8" text-anchor="middle">Good glide, poor steering</text>
+  </g>
+
+  <!-- WHEEL 4: ANTENNA Adaptive Wheel (RECOMMENDED) -->
+  <g transform="translate(750, 170)">
+    <rect x="-85" y="-105" width="170" height="280" fill="#172635" stroke="#10b981" stroke-width="2" rx="10"/>
+    <circle cx="0" cy="38" r="48" fill="#1e293b" stroke="#10b981" stroke-width="3"/>
+    <path d="M 0 -14 L 0 -22 M 35 3 L 44 -3 M 48 38 L 58 38 M 35 73 L 44 79 M 0 96 L 0 104 M -35 73 L -44 79 M -48 38 L -58 38 M -35 3 L -44 -3" stroke="#10b981" stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M -30 25 Q 0 15 30 25 M -30 50 Q 0 40 30 50" stroke="#f59e0b" stroke-width="2" fill="none"/>
+    <circle cx="0" cy="38" r="14" class="wheel-hub"/>
+    <text x="0" y="-80" class="label" fill="#10b981">(D) ANTENNA Wheel</text>
+    <text x="0" y="-62" class="sublabel" fill="#a7f3d0">Adaptive Transformable</text>
+    <text x="0" y="152" font-family="JetBrains Mono" font-size="11" fill="#10b981" text-anchor="middle">Sinkage: 4.2 cm (Optimal)</text>
+    <text x="0" y="167" font-family="DM Sans" font-size="10" fill="#a7f3d0" text-anchor="middle">High traction, zero clogging</text>
+  </g>
+</svg>

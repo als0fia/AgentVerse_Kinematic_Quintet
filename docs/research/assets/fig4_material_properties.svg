@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 380" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0d1520; }
+      .title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 16px; font-weight: bold; fill: #f8fafc; }
+      .subtitle { font-family: 'DM Sans', sans-serif; font-size: 12px; fill: #94a3b8; }
+      .th { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; font-weight: bold; fill: #f59e0b; text-transform: uppercase; }
+      .td { font-family: 'DM Sans', sans-serif; font-size: 12px; fill: #e2e8f0; }
+      .td-mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; fill: #38bdf8; }
+      .badge-excel { fill: #10b981; font-weight: bold; }
+      .badge-good { fill: #f59e0b; }
+    </style>
+  </defs>
+
+  <rect width="850" height="380" class="bg" rx="12"/>
+  <text x="30" y="35" class="title">FIGURE 4: Quantitative Engineering Material Selection Matrix for Paddy Swarm Wheels</text>
+  <text x="30" y="55" class="subtitle">Evaluated across yield strength, density, mud friction coefficient, corrosion resistance, and component role</text>
+
+  <rect x="30" y="80" width="790" height="35" fill="#172230" rx="6"/>
+  <text x="50" y="102" class="th">Material Candidate</text>
+  <text x="210" y="102" class="th">Yield Strength</text>
+  <text x="320" y="102" class="th">Density (g/cm³)</text>
+  <text x="440" y="102" class="th">Wet Mud Friction (μ)</text>
+  <text x="580" y="102" class="th">Corrosion Immunity</text>
+  <text x="730" y="102" class="th">Assigned Role</text>
+
+  <line x1="30" y1="150" x2="820" y2="150" stroke="#1e293b"/>
+  <text x="50" y="137" class="td font-bold" fill="#f1f5f9">Aluminum 7075-T6</text>
+  <text x="210" y="137" class="td-mono">505 MPa</text>
+  <text x="320" y="137" class="td-mono">2.81 g/cm³</text>
+  <text x="440" y="137" class="td-mono">0.38 (High)</text>
+  <text x="580" y="137" class="td badge-good">Good (Anodized)</text>
+  <text x="730" y="137" class="td font-semibold" fill="#f59e0b">Hub &amp; Chassis Core</text>
+
+  <line x1="30" y1="195" x2="820" y2="195" stroke="#1e293b"/>
+  <text x="50" y="182" class="td font-bold" fill="#f1f5f9">UHMWPE Polymer</text>
+  <text x="210" y="182" class="td-mono">25 MPa</text>
+  <text x="320" y="182" class="td-mono">0.94 g/cm³</text>
+  <text x="440" y="182" class="td-mono" fill="#10b981">0.12 (Ultra-Low)</text>
+  <text x="580" y="182" class="td badge-excel">Immune (100%)</text>
+  <text x="730" y="182" class="td font-semibold" fill="#10b981">Outer Rim Shell</text>
+
+  <line x1="30" y1="240" x2="820" y2="240" stroke="#1e293b"/>
+  <text x="50" y="227" class="td font-bold" fill="#f1f5f9">TPU 95A Elastomer</text>
+  <text x="210" y="227" class="td-mono">45 MPa</text>
+  <text x="320" y="227" class="td-mono">1.21 g/cm³</text>
+  <text x="440" y="227" class="td-mono">0.28 (Medium)</text>
+  <text x="580" y="227" class="td badge-excel">Immune (100%)</text>
+  <text x="730" y="227" class="td font-semibold" fill="#38bdf8">Adaptive Lugs &amp; Seals</text>
+
+  <line x1="30" y1="285" x2="820" y2="285" stroke="#1e293b"/>
+  <text x="50" y="272" class="td font-bold" fill="#f1f5f9">316 Stainless Steel</text>
+  <text x="210" y="272" class="td-mono">290 MPa</text>
+  <text x="320" y="272" class="td-mono" fill="#ef4444">8.00 g/cm³</text>
+  <text x="440" y="272" class="td-mono">0.42 (High)</text>
+  <text x="580" y="272" class="td badge-excel">Immune (Marine Grade)</text>
+  <text x="730" y="272" class="td font-semibold" fill="#94a3b8">Axles &amp; Fasteners</text>
+
+  <rect x="30" y="310" width="790" height="45" fill="rgba(16, 185, 129, 0.1)" stroke="#10b981" stroke-width="1" rx="8"/>
+  <text x="45" y="337" font-family="DM Sans" font-size="12" fill="#a7f3d0">
+    <tspan font-weight="bold">Hybrid Material Strategy:</tspan> UHMWPE outer shell eliminates mud adhesion/clogging, Aluminum 7075 hub maintains structural rigidity, and TPU 95A flexible lug tips provide dynamic ground adaptation.
+  </text>
+</svg>

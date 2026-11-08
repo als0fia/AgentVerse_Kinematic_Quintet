@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0d1520; }
+      .title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 16px; font-weight: bold; fill: #f8fafc; }
+      .subtitle { font-family: 'DM Sans', sans-serif; font-size: 12px; fill: #94a3b8; }
+      .callout-line { stroke: #f59e0b; stroke-width: 1.5; }
+      .callout-box { fill: #172230; stroke: #f59e0b; stroke-width: 1.5; rx: 6px; }
+      .callout-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 12px; font-weight: bold; fill: #f59e0b; }
+      .callout-desc { font-family: 'DM Sans', sans-serif; font-size: 11px; fill: #e2e8f0; }
+      .dim-line { stroke: #38bdf8; stroke-width: 1.5; stroke-dasharray: 4 2; }
+      .dim-text { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #38bdf8; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect width="900" height="500" class="bg" rx="12"/>
+  <text x="30" y="35" class="title">FIGURE 6: Engineering Assembly Schematic of the ANTENNA Wheel (Adaptive Terramechanic Wheel)</text>
+  <text x="30" y="55" class="subtitle">Annotated mechanical cross-section showing Archimedes chevron contouring, TPU 95A adaptive lugs, IP68 dynamic seals, and hub locking core</text>
+
+  <g transform="translate(450, 260)">
+    <circle cx="0" cy="0" r="140" fill="#1e293b" stroke="#10b981" stroke-width="4"/>
+    <circle cx="0" cy="0" r="110" fill="#172230" stroke="#334155" stroke-width="2"/>
+    <path d="M -90 -60 Q 0 -90 90 -60 M -105 0 Q 0 -30 105 0 M -90 60 Q 0 30 90 60" stroke="#f59e0b" stroke-width="2.5" fill="none"/>
+
+    <circle cx="0" cy="0" r="50" fill="#334155" stroke="#f59e0b" stroke-width="3"/>
+    <circle cx="0" cy="0" r="22" fill="#0f172a" stroke="#94a3b8" stroke-width="2"/>
+    <rect x="-5" y="-22" width="10" height="8" fill="#f59e0b"/>
+
+    <path d="M -12 -140 L 0 -172 L 12 -140 Z" fill="#10b981" stroke="#059669" stroke-width="2"/>
+    <path d="M 88 -88 L 121 -121 L 100 -76 Z" fill="#10b981" stroke="#059669" stroke-width="2"/>
+    <path d="M 140 -12 L 172 0 L 140 12 Z" fill="#10b981" stroke="#059669" stroke-width="2"/>
+    <path d="M 88 88 L 121 121 L 100 76 Z" fill="#10b981" stroke="#059669" stroke-width="2"/>
+    <path d="M -12 140 L 0 172 L 12 140 Z" fill="#10b981" stroke="#059669" stroke-width="2"/>
+    <path d="M -88 88 L -121 121 L -100 76 Z" fill="#10b981" stroke="#059669" stroke-width="2"/>
+    <path d="M -140 -12 L -172 0 L -140 12 Z" fill="#10b981" stroke="#059669" stroke-width="2"/>
+    <path d="M -88 -88 L -121 -121 L -100 -76 Z" fill="#10b981" stroke="#059669" stroke-width="2"/>
+
+    <circle cx="0" cy="-95" r="5" fill="#f59e0b"/>
+    <circle cx="95" cy="0" r="5" fill="#f59e0b"/>
+    <circle cx="0" cy="95" r="5" fill="#f59e0b"/>
+    <circle cx="-95" cy="0" r="5" fill="#f59e0b"/>
+  </g>
+
+  <line x1="278" y1="260" x2="622" y2="260" class="dim-line"/>
+  <line x1="278" y1="245" x2="278" y2="275" stroke="#38bdf8" stroke-width="1.5"/>
+  <line x1="622" y1="245" x2="622" y2="275" stroke="#38bdf8" stroke-width="1.5"/>
+  <rect x="400" y="248" width="100" height="24" fill="#0d1520" rx="4"/>
+  <text x="450" y="264" class="dim-text">D = 280 mm</text>
+
+  <polyline points="450,88 380,100 250,100" class="callout-line"/>
+  <circle cx="450" cy="88" r="4" fill="#f59e0b"/>
+  <g transform="translate(40, 75)">
+    <rect width="200" height="55" class="callout-box"/>
+    <text x="12" y="22" class="callout-title">1. Adaptive TPU 95A Lugs</text>
+    <text x="12" y="38" class="callout-desc">h_l = 32mm, 30° chevron slope</text>
+    <text x="12" y="48" class="callout-desc">Passive spring retraction on hardpan</text>
+  </g>
+
+  <polyline points="310,260 220,220 220,200" class="callout-line"/>
+  <circle cx="310" cy="260" r="4" fill="#f59e0b"/>
+  <g transform="translate(40, 150)">
+    <rect width="200" height="55" class="callout-box"/>
+    <text x="12" y="22" class="callout-title">2. UHMWPE Rim Shell</text>
+    <text x="12" y="38" class="callout-desc">Width b = 120mm, μ = 0.12</text>
+    <text x="12" y="48" class="callout-desc">Prevents mud buildup &amp; clogging</text>
+  </g>
+
+  <polyline points="450,260 550,380 650,380" class="callout-line"/>
+  <circle cx="450" cy="260" r="4" fill="#f59e0b"/>
+  <g transform="translate(650, 355)">
+    <rect width="210" height="55" class="callout-box"/>
+    <text x="12" y="22" class="callout-title">3. Al 7075 Hub &amp; IP68 Seals</text>
+    <text x="12" y="38" class="callout-desc">Double lip Viton radial seal</text>
+    <text x="12" y="48" class="callout-desc">Protects bearings from abrasive silt</text>
+  </g>
+
+  <polyline points="540,200 620,150 650,150" class="callout-line"/>
+  <circle cx="540" cy="200" r="4" fill="#f59e0b"/>
+  <g transform="translate(650, 125)">
+    <rect width="210" height="55" class="callout-box"/>
+    <text x="12" y="22" class="callout-title">4. Archimedes Screw Contour</text>
+    <text x="12" y="38" class="callout-desc">Helix angle α = 22°</text>
+    <text x="12" y="48" class="callout-desc">Provides lateral stability in water</text>
+  </g>
+</svg>
