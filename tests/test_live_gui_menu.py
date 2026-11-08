@@ -8,7 +8,10 @@ from ricebot.viewer.live_app import LiveSwarmDashboardApp
 
 class TestLiveGuiMainMenuAndScalableFleet(unittest.TestCase):
     def test_main_menu_fleet_size_map_scale_and_belief_selector(self) -> None:
-        root = tk.Tk()
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(f"Tk display unavailable in headless CI: {exc}")
         root.withdraw()
         try:
             app = LiveSwarmDashboardApp(
