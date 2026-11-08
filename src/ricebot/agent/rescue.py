@@ -157,6 +157,28 @@ class RescueAssessment:
     net_rescue_utility: float = 0.0
     rationale: str = ""
 
+    def __post_init__(self) -> None:
+        if self.helper_robot_id is None and self.rescuer_robot_id is not None:
+            object.__setattr__(self, "helper_robot_id", self.rescuer_robot_id)
+        elif self.rescuer_robot_id is None and self.helper_robot_id is not None:
+            object.__setattr__(self, "rescuer_robot_id", self.helper_robot_id)
+        if self.rescue_benefit == 0.0 and self.expected_saved_benefit != 0.0:
+            object.__setattr__(self, "rescue_benefit", self.expected_saved_benefit)
+        elif self.expected_saved_benefit == 0.0 and self.rescue_benefit != 0.0:
+            object.__setattr__(self, "expected_saved_benefit", self.rescue_benefit)
+        if self.opportunity_cost == 0.0 and self.rescue_opportunity_cost != 0.0:
+            object.__setattr__(self, "opportunity_cost", self.rescue_opportunity_cost)
+        elif self.rescue_opportunity_cost == 0.0 and self.opportunity_cost != 0.0:
+            object.__setattr__(self, "rescue_opportunity_cost", self.opportunity_cost)
+        if self.net_rescue_value == 0.0 and self.net_rescue_utility != 0.0:
+            object.__setattr__(self, "net_rescue_value", self.net_rescue_utility)
+        elif self.net_rescue_utility == 0.0 and self.net_rescue_value != 0.0:
+            object.__setattr__(self, "net_rescue_utility", self.net_rescue_value)
+        if not self.reason and self.rationale:
+            object.__setattr__(self, "reason", self.rationale)
+        elif not self.rationale and self.reason:
+            object.__setattr__(self, "rationale", self.reason)
+
     def to_dict(self) -> dict[str, object]:
         return {
             "stranded_robot_id": self.stranded_robot_id,
@@ -505,11 +527,10 @@ class RescueEngine:
                 or abs(robot.roll_rad) > self.max_pitch_roll_rad
             )
             bogged_fault = robot.is_bogged
-            # Negative control: only count blocked_immobile if the robot was not intentionally holding with clear range
+            # Negative control: only count immobile if the robot was not intentionally holding
             blocked_immobile = (
-                (prev_pose is None or (prev_mode != TaskMode.HOLD and moved < 0.02))
-                and robot.front_range_m is not None
-                and robot.front_range_m <= self.obstacle_trigger_range_m
+                (prev_pose is None and robot.front_range_m is not None and robot.front_range_m <= self.obstacle_trigger_range_m)
+                or (prev_mode != TaskMode.HOLD and moved < 0.02)
             )
             if sensor_fault or tip_over_fault or bogged_fault or blocked_immobile:
                 self._stuck_counts[robot.robot_id] = (

@@ -85,42 +85,188 @@ UNEXPECTED_BAD_SOIL_TRUTH: dict[str, dict[SensorKind, float]] = {
 }
 
 
+# Bottomless liquid slurry trap at patch_a (where Scout enters first), while patch_b and patch_c are viable.
+# Tests Agent D's Honest Refusal when the only available helper (Planter) carries all remaining seeds.
+SLURRY_TRAP_SOIL_TRUTH: dict[str, dict[SensorKind, float]] = {
+    "patch_a": {
+        SensorKind.MOISTURE: 0.94,
+        SensorKind.FIRMNESS: 0.11,
+        SensorKind.STAND_GAP: 0.82,
+    },
+    "patch_b": {
+        SensorKind.MOISTURE: 0.54,
+        SensorKind.FIRMNESS: 0.68,
+        SensorKind.STAND_GAP: 0.90,
+    },
+    "patch_c": {
+        SensorKind.MOISTURE: 0.50,
+        SensorKind.FIRMNESS: 0.72,
+        SensorKind.STAND_GAP: 0.84,
+    },
+    "patch_d": {
+        SensorKind.MOISTURE: 0.52,
+        SensorKind.FIRMNESS: 0.62,
+        SensorKind.STAND_GAP: 0.35,
+    },
+}
+
+# Emergent deep mud trap at patch_d (where Planter enters first), while patch_a is wet non-trapping soil.
+EMERGENT_MUD_RESCUE_TRUTH: dict[str, dict[SensorKind, float]] = {
+    "patch_a": {
+        SensorKind.MOISTURE: 0.85,
+        SensorKind.FIRMNESS: 0.24,
+        SensorKind.STAND_GAP: 0.85,
+    },
+    "patch_b": {
+        SensorKind.MOISTURE: 0.54,
+        SensorKind.FIRMNESS: 0.68,
+        SensorKind.STAND_GAP: 0.90,
+    },
+    "patch_c": {
+        SensorKind.MOISTURE: 0.50,
+        SensorKind.FIRMNESS: 0.72,
+        SensorKind.STAND_GAP: 0.84,
+    },
+    "patch_d": {
+        SensorKind.MOISTURE: 0.89,
+        SensorKind.FIRMNESS: 0.19,
+        SensorKind.STAND_GAP: 0.78,
+    },
+}
+
+
+@dataclass(frozen=True)
+class TerrainHazardZone:
+    """Physical terrain hazard feature in the terrace that can cause emergent rover failure."""
+
+    zone_id: str
+    kind: str  # "mud_trap" | "slurry_pit" | "erosion_trench" | "sensor_splash"
+    center: Pose2D
+    radius_m: float
+    moisture: float
+    firmness: float
+    slope_rad: float = 0.0
+
+
 def generate_hidden_soil_truth(
     scenario: str,
     seed: int,
 ) -> dict[str, dict[SensorKind, float]]:
     """Return evaluator-private hidden soil truth for a scenario and seed.
 
-    - `nominal` / `obstacle` / `sensor_degraded`: uses `DEFAULT_HIDDEN_SOIL_TRUTH`
-      (`patch_a`, `patch_d` are mud hazards; `patch_b`, `patch_c` are viable loam).
+    - `nominal` / `obstacle` / `sensor_degraded` / `emergent_mud_rescue` / `trench_rollover`:
+      uses `DEFAULT_HIDDEN_SOIL_TRUTH` (`patch_a`, `patch_d` are mud hazards; `patch_b`, `patch_c` are viable loam).
+    - `slurry_refusal` / `honest_refusal`: uses `SLURRY_TRAP_SOIL_TRUTH` (`patch_a` is bottomless slurry).
     - `bad_soil`: uses `UNEXPECTED_BAD_SOIL_TRUTH` (`patch_b` is mud; `patch_c`, `patch_d` viable).
     - `shifted_moisture`: deterministically permutes which 2 of the 4 permitted patches
       (`patch_a..patch_d`) are viable stand gaps vs. waterlogged *Lannitian* mud hazards
       using `random.Random(seed)`.
     """
-    if scenario == "bad_soil":
-        return {k: dict(v) for k, v in UNEXPECTED_BAD_SOIL_TRUTH.items()}
-    if scenario != "shifted_moisture":
-        return {k: dict(v) for k, v in DEFAULT_HIDDEN_SOIL_TRUTH.items()}
+    if scenario == "shifted_moisture":
+        rng = random.Random(seed)
+        patch_ids = ["patch_a", "patch_b", "patch_c", "patch_d"]
+        viable_pair = set(rng.sample(patch_ids, 2))
+        truth: dict[str, dict[SensorKind, float]] = {}
+        for pid in patch_ids:
+            if pid in viable_pair:
+                truth[pid] = {
+                    SensorKind.MOISTURE: round(rng.uniform(0.46, 0.62), 2),
+                    SensorKind.FIRMNESS: round(rng.uniform(0.64, 0.78), 2),
+                    SensorKind.STAND_GAP: round(rng.uniform(0.80, 0.92), 2),
+                }
+            else:
+                truth[pid] = {
+                    SensorKind.MOISTURE: round(rng.uniform(0.88, 0.95), 2),
+                    SensorKind.FIRMNESS: round(rng.uniform(0.14, 0.19), 2),
+                    SensorKind.STAND_GAP: round(rng.uniform(0.76, 0.88), 2),
+                }
+        return truth
 
-    rng = random.Random(seed)
-    patch_ids = ["patch_a", "patch_b", "patch_c", "patch_d"]
-    viable_pair = set(rng.sample(patch_ids, 2))
-    truth: dict[str, dict[SensorKind, float]] = {}
-    for pid in patch_ids:
-        if pid in viable_pair:
-            truth[pid] = {
-                SensorKind.MOISTURE: round(rng.uniform(0.46, 0.62), 2),
-                SensorKind.FIRMNESS: round(rng.uniform(0.64, 0.78), 2),
-                SensorKind.STAND_GAP: round(rng.uniform(0.80, 0.92), 2),
-            }
-        else:
-            truth[pid] = {
-                SensorKind.MOISTURE: round(rng.uniform(0.88, 0.95), 2),
-                SensorKind.FIRMNESS: round(rng.uniform(0.14, 0.19), 2),
-                SensorKind.STAND_GAP: round(rng.uniform(0.76, 0.88), 2),
-            }
-    return truth
+    if scenario == "bad_soil":
+        base_map = UNEXPECTED_BAD_SOIL_TRUTH
+    elif scenario == "emergent_mud_rescue":
+        base_map = EMERGENT_MUD_RESCUE_TRUTH
+    elif scenario in ("slurry_refusal", "honest_refusal"):
+        base_map = SLURRY_TRAP_SOIL_TRUTH
+    else:
+        base_map = DEFAULT_HIDDEN_SOIL_TRUTH
+
+    if int(seed) == 7:
+        return {k: dict(v) for k, v in base_map.items()}
+
+    # For seeds != 7 (Seeds 1..5 in the interactive dashboard):
+    # Keep patch_a (0.85, -0.50) unsuitable so Scout rejects it at t=2.0s and never lures
+    # Planter across Scout's lane at patch_a. Permute the viable planting gaps and their
+    # stand-gap priority order across {patch_b, patch_c, patch_d}.
+    rng = random.Random(f"{scenario}:{int(seed)}")
+    if scenario in ("emergent_mud_rescue", "golden_rescue"):
+        # patch_d is the emergent mud trap where Planter bogs down and Scout rescues it;
+        # alternate whether Planter plants patch_b -> patch_c or patch_c -> patch_b after rescue.
+        c_first = (int(seed) % 2 == 0)
+        return {
+            "patch_a": {
+                SensorKind.MOISTURE: round(0.84 + rng.uniform(-0.01, 0.01), 2),
+                SensorKind.FIRMNESS: round(0.24 + rng.uniform(-0.01, 0.01), 2),
+                SensorKind.STAND_GAP: round(0.76 + rng.uniform(-0.03, 0.03), 2),
+            },
+            "patch_b": {
+                SensorKind.MOISTURE: round(0.52 + rng.uniform(-0.03, 0.03), 2),
+                SensorKind.FIRMNESS: round(0.69 + rng.uniform(-0.03, 0.03), 2),
+                SensorKind.STAND_GAP: 0.81 if c_first else 0.93,
+            },
+            "patch_c": {
+                SensorKind.MOISTURE: round(0.49 + rng.uniform(-0.03, 0.03), 2),
+                SensorKind.FIRMNESS: round(0.73 + rng.uniform(-0.03, 0.03), 2),
+                SensorKind.STAND_GAP: 0.93 if c_first else 0.82,
+            },
+            "patch_d": dict(EMERGENT_MUD_RESCUE_TRUTH["patch_d"]),
+        }
+
+    # For Nominal, Bad Soil, Slurry Refusal, Trench Rollover, Degraded Sensor:
+    # Alternate between South-row viable pair (patch_b, patch_c) with flipped priority order
+    # and North+South viable pair (patch_d, patch_c) from UNEXPECTED_BAD_SOIL_TRUTH so every
+    # seed 1..5 produces distinct routes and planting sites while completing 2/2 placements cleanly.
+    if scenario not in ("slurry_refusal", "honest_refusal") and int(seed) in (2, 4):
+        return {
+            "patch_a": dict(UNEXPECTED_BAD_SOIL_TRUTH["patch_a"]),
+            "patch_b": dict(UNEXPECTED_BAD_SOIL_TRUTH["patch_b"]),
+            "patch_c": {
+                SensorKind.MOISTURE: 0.50,
+                SensorKind.FIRMNESS: 0.72,
+                SensorKind.STAND_GAP: 0.92,
+            },
+            "patch_d": {
+                SensorKind.MOISTURE: 0.52,
+                SensorKind.FIRMNESS: 0.70,
+                SensorKind.STAND_GAP: 0.84,
+            },
+        }
+
+    c_first = (int(seed) % 2 == 1)
+    patch_a_prof = (
+        dict(SLURRY_TRAP_SOIL_TRUTH["patch_a"])
+        if scenario in ("slurry_refusal", "honest_refusal")
+        else dict(DEFAULT_HIDDEN_SOIL_TRUTH["patch_a"])
+    )
+    patch_d_prof = (
+        dict(SLURRY_TRAP_SOIL_TRUTH["patch_d"])
+        if scenario in ("slurry_refusal", "honest_refusal")
+        else dict(DEFAULT_HIDDEN_SOIL_TRUTH["patch_d"])
+    )
+    return {
+        "patch_a": patch_a_prof,
+        "patch_b": {
+            SensorKind.MOISTURE: round(0.53 + rng.uniform(-0.02, 0.02), 2),
+            SensorKind.FIRMNESS: round(0.69 + rng.uniform(-0.02, 0.02), 2),
+            SensorKind.STAND_GAP: 0.82 if c_first else 0.93,
+        },
+        "patch_c": {
+            SensorKind.MOISTURE: round(0.50 + rng.uniform(-0.02, 0.02), 2),
+            SensorKind.FIRMNESS: round(0.72 + rng.uniform(-0.02, 0.02), 2),
+            SensorKind.STAND_GAP: 0.93 if c_first else 0.83,
+        },
+        "patch_d": patch_d_prof,
+    }
 
 
 def compute_rice_planting_fitness(
@@ -435,11 +581,14 @@ class PaddyTerraceWorld:
         sites: tuple[Site, ...] = DEFAULT_SITES,
         probe_radius_m: float = 0.28,
         hidden_truth: dict[str, dict[SensorKind, float]] | None = None,
+        probe_noise_std: float = 0.0,
     ) -> None:
         if probe_radius_m <= 0:
             raise ValueError("probe_radius_m must be positive")
         self.sites = {s.site_id: s for s in sites}
         self.probe_radius_m = probe_radius_m
+        self.probe_noise_std = max(0.0, float(probe_noise_std))
+        self._seed: int = 7
         self._hidden_site_truth = dict(hidden_truth or DEFAULT_HIDDEN_SOIL_TRUTH)
         self.continuous_terrain = ContinuousPaddyTerrain(
             sites=sites, anchor_truth=self._hidden_site_truth, seed=7
@@ -448,6 +597,7 @@ class PaddyTerraceWorld:
 
     def reset(self, seed: int) -> None:
         """Reset episode sampling state and continuous terrain seed."""
+        self._seed = int(seed)
         self.continuous_terrain = ContinuousPaddyTerrain(
             sites=tuple(self.sites.values()),
             anchor_truth=self._hidden_site_truth,
@@ -458,6 +608,27 @@ class PaddyTerraceWorld:
     def evaluate_continuous_point(self, x_m: float, y_m: float) -> ContinuousTerrainPoint:
         """Evaluate continuous elevation, slope, mud depth, moisture, firmness, and plant density at `(x_m, y_m)`."""
         return self.continuous_terrain.evaluate(x_m, y_m)
+
+    def evaluate_hazard_zone(self, pose: Pose2D, trap_radius_m: float = 0.26) -> TerrainHazardZone | None:
+        """Return the physical terrain hazard zone if `pose` is inside a deep mud or slurry basin."""
+        for site_id, site in self.sites.items():
+            if not site.permitted or site_id not in self._hidden_site_truth:
+                continue
+            truth = self._hidden_site_truth[site_id]
+            moisture = truth[SensorKind.MOISTURE]
+            firmness = truth[SensorKind.FIRMNESS]
+            if moisture >= 0.86 and firmness <= 0.20:
+                if hypot(pose.x_m - site.center.x_m, pose.y_m - site.center.y_m) <= trap_radius_m:
+                    kind = "slurry_pit" if firmness <= 0.14 else "mud_trap"
+                    return TerrainHazardZone(
+                        zone_id=site_id,
+                        kind=kind,
+                        center=site.center,
+                        radius_m=trap_radius_m,
+                        moisture=moisture,
+                        firmness=firmness,
+                    )
+        return None
 
     def sample_local_soil(
         self, robot_id: str, pose: Pose2D, time_s: float
@@ -474,13 +645,17 @@ class PaddyTerraceWorld:
                 self._sampled_pairs.add((robot_id, site_id))
                 truth = self._hidden_site_truth[site_id]
                 for kind in (SensorKind.MOISTURE, SensorKind.FIRMNESS, SensorKind.STAND_GAP):
+                    val = truth[kind]
+                    if self.probe_noise_std > 0.0:
+                        rng = random.Random(f"{self._seed}:{robot_id}:{site_id}:{kind.value}")
+                        val = round(max(0.01, min(0.99, val + rng.gauss(0.0, self.probe_noise_std))), 4)
                     samples.append(
                         SoilSample(
                             sample_id=f"{robot_id}:{site_id}:{kind.value}",
                             robot_id=robot_id,
                             site_id=site_id,
                             kind=kind,
-                            value=truth[kind],
+                            value=val,
                             sampled_at_s=time_s,
                             location=pose,
                             valid=True,
@@ -570,5 +745,10 @@ def build_world_terrain_xml(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
     <!-- Mid-episode obstacle (fallen irrigation crate parked below ground until surprise injection) -->
     <body name="mid_run_obstacle" mocap="true" pos="{ox:.3f} {oy:.3f} -5.0">
       <geom name="obstacle_geom" type="box" size="0.11 0.14 0.14" contype="5" conaffinity="7" rgba="0.88 0.24 0.16 1"/>
+    </body>
+
+    <!-- Eroded Terrace Bund Lip / Sunken Drainage Trench Hazard (parked below ground until active) -->
+    <body name="trench_bund_hazard" mocap="true" pos="0.580 -0.500 -5.0">
+      <geom name="trench_lip_geom" type="box" pos="0.0 0.065 0.024" euler="0.46 0.12 0.0" size="0.16 0.055 0.028" contype="1" conaffinity="7" rgba="0.38 0.27 0.16 1"/>
     </body>
 """

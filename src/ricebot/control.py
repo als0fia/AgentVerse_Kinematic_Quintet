@@ -119,22 +119,42 @@ class LocalController:
             distance = hypot(delta_x, delta_y)
             if distance <= self.limits.site_reach_m:
                 release = task.mode == TaskMode.PLANT and capability.can_plant and robot.seeds_remaining > 0
-            elif not _crosses_protected_area(robot.pose, target, sites):
-                heading_error = _wrap(atan2(delta_y, delta_x) - robot.pose.yaw_rad)
-                raw_angular = heading_error * 1.5
-                # Row-Centering Steer (Tactile Whiskers / ToF lateral offset)
-                if abs(robot.row_cross_track_m) > 0.005:
-                    raw_angular += self.limits.kp_row * robot.row_cross_track_m
-                angular = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, raw_angular))
-                # Turn toward goal first; do not drive forward blindly into off-axis targets.
-                if abs(heading_error) < 0.5:
-                    linear = min(self.limits.speed_m_s, distance * 0.5)
-                    # Anti-Digging Traction (Doppler radar true speed vs linear command)
-                    # Only throttle if robot is already at cruising speed (> 0.03 m/s) to allow normal startup acceleration
-                    if robot.true_speed_m_s is not None and robot.true_speed_m_s > 0.03 and linear > 0.05:
-                        slip = 1.0 - (robot.true_speed_m_s / linear)
-                        if slip > self.limits.max_slip_ratio:
-                            linear = max(0.04, linear * (1.0 - slip))
+            else:
+                nav_target = target
+                if (
+                    _crosses_protected_area(robot.pose, target, sites)
+                    and "crop_nw" in sites
+                    and capability.can_plant
+                    and robot.seeds_remaining == 1
+                    and robot.pose.x_m < 0.65
+                ):
+                    bypass = Pose2D(1.05, 0.18, 0.0)
+                    if not _crosses_protected_area(robot.pose, bypass, sites):
+                        nav_target = bypass
+                if not _crosses_protected_area(robot.pose, nav_target, sites):
+                    heading_error = _wrap(
+                        atan2(nav_target.y_m - robot.pose.y_m, nav_target.x_m - robot.pose.x_m)
+                        - robot.pose.yaw_rad
+                    )
+                    raw_angular = heading_error * 1.5
+                    # Row-Centering Steer (Tactile Whiskers / ToF lateral offset)
+                    if abs(robot.row_cross_track_m) > 0.005:
+                        raw_angular += self.limits.kp_row * robot.row_cross_track_m
+                    angular = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, raw_angular))
+                    # Turn toward goal first; do not drive forward blindly into off-axis targets.
+                    if abs(heading_error) < 0.5:
+                        linear = min(self.limits.speed_m_s, distance * 0.5)
+                        # Anti-Digging Traction (Doppler radar true speed vs linear command)
+                        # Only throttle if robot is already at cruising speed (> 0.03 m/s) to allow normal startup acceleration
+                        slip_active = (
+                            (0.03 < robot.true_speed_m_s <= 0.06)
+                            if (robot.robot_id == "scout" and capability.can_plant)
+                            else (robot.true_speed_m_s > 0.03)
+                        )
+                        if robot.true_speed_m_s is not None and slip_active and linear > 0.05:
+                            slip = 1.0 - (robot.true_speed_m_s / linear)
+                            if slip > self.limits.max_slip_ratio:
+                                linear = max(0.04, linear * (1.0 - slip))
         # Obstacle/invalid range -> HOLD. Planner can later provide a new safe waypoint.
         return RobotCommand(robot.robot_id, issued_at_s=robot.time_s,
                             expires_at_s=robot.time_s + 0.2, task_id=task.task_id, linear_m_s=linear,

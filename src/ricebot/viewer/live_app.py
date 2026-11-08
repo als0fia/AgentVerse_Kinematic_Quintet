@@ -188,10 +188,19 @@ class LiveSwarmDashboardApp:
         scen = self.scenario_var.get()
         pol = self.policy_var.get()
         comms = self.comms_var.get()
-        is_golden_rescue = scen == "golden_rescue"
+        is_golden_rescue = scen in ("golden_rescue", "emergent_mud_rescue")
+        is_orch_scen = scen in (
+            "golden_rescue",
+            "emergent_mud_rescue",
+            "slurry_refusal",
+            "honest_refusal",
+            "trench_rollover",
+            "sensor_degraded",
+        )
         inject_at = 1.6 if scen == "obstacle" else None
         self.hidden_truth = generate_hidden_soil_truth(scen, self.seed)
 
+        use_homogeneous = pol != "single_rover" and scen not in ("slurry_refusal", "honest_refusal")
         self.sim = MujocoPaddySimulation(
             sites=DEFAULT_SITES,
             probe_radius_m=0.28,
@@ -199,9 +208,22 @@ class LiveSwarmDashboardApp:
             inject_obstacle_at_s=inject_at,
             obstacle_xy=(0.75, -0.25),
             hidden_truth=self.hidden_truth,
-            trap_robot_id="planter" if is_golden_rescue else None,
+            trap_robot_id="planter" if scen == "golden_rescue" else None,
             trap_site_id="patch_d",
             trap_radius_m=0.28,
+            enable_emergent_mud_traps=scen in ("emergent_mud_rescue", "slurry_refusal", "honest_refusal"),
+            expose_bogged_flag=scen not in (
+                "emergent_mud_rescue",
+                "slurry_refusal",
+                "honest_refusal",
+                "trench_rollover",
+                "sensor_degraded",
+            ),
+            sensor_dropout_robot_id="scout" if scen == "sensor_degraded" else None,
+            sensor_dropout_window_s=(1.2, 2.2) if scen == "sensor_degraded" else None,
+            inject_trench_hazard=(scen == "trench_rollover"),
+            trench_xy=(0.58, -0.50),
+            homogeneous_planting=use_homogeneous,
         )
         caps = (
             (
@@ -209,7 +231,14 @@ class LiveSwarmDashboardApp:
                 RobotCapability("scout", can_sample=False, can_plant=False),
             )
             if pol == "single_rover"
-            else DEFAULT_CAPABILITIES
+            else (
+                (
+                    RobotCapability("planter", can_sample=True, can_plant=True),
+                    RobotCapability("scout", can_sample=True, can_plant=True),
+                )
+                if use_homogeneous
+                else DEFAULT_CAPABILITIES
+            )
         )
         # Always maintain DecentralizedMycelialRuntime so local belief maps & SLAM grids can be inspected
         self.runtime = DecentralizedMycelialRuntime(
@@ -219,11 +248,11 @@ class LiveSwarmDashboardApp:
             comm_mode=comms if pol == "mycelial" else ("isolated" if pol == "single_rover" else "normal"),
             advisor=GeminiSwarmAdvisor(),
         )
-        if pol in ("cooperative", "centralized", "single_rover") or is_golden_rescue:
+        if pol in ("cooperative", "centralized", "single_rover") or is_orch_scen:
             field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
             planner: SimpleMissionPlanner = (
                 CooperativeSwarmPlanner(caps, advisor=GeminiSwarmAdvisor())
-                if (pol == "cooperative" or is_golden_rescue)
+                if (pol == "cooperative" or is_orch_scen)
                 else SimpleMissionPlanner(caps)
             )
             controller = LocalController(
@@ -368,10 +397,12 @@ class LiveSwarmDashboardApp:
             side=tk.LEFT, padx=(6, 2)
         )
         for scen_id, scen_lbl in (
-            ("golden_rescue", "🆘 Golden Rescue"),
+            ("emergent_mud_rescue", "🆘 Emergent Rescue"),
+            ("slurry_refusal", "🛑 Slurry Refusal"),
+            ("trench_rollover", "⚠️ Trench Rollover"),
+            ("golden_rescue", "Golden Rescue"),
             ("nominal", "Nominal"),
             ("bad_soil", "Bad Soil"),
-            ("shifted_moisture", "Seed-Shifted Moisture"),
             ("obstacle", "Obstacle"),
             ("sensor_degraded", "Degraded Sensor"),
         ):

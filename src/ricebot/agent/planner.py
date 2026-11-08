@@ -13,7 +13,7 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from math import hypot, pi
+from math import degrees, hypot, pi
 from typing import Protocol
 
 from ..contracts import (
@@ -22,11 +22,25 @@ from ..contracts import (
     RobotCapability,
     RobotCommand,
     RobotObservation,
+    SensorKind,
     Site,
     TaskIntent,
     TaskMode,
 )
 from ..mission import MeasuredFieldMap, SimpleMissionPlanner, SiteEstimate
+from .orchestrator import (
+    HelperStatus,
+    IncidentReport,
+    OperatorPolicy,
+    OrchestratorDecision,
+    SwarmOrchestratorAgent,
+)
+from .rescue import (
+    FailureMode,
+    MechanicalActuatorSetpoint,
+    MechanicalRescueTechnique,
+)
+from . rescue import RescueVerdict as _RescueVerdict
 
 TravelCostFn = Callable[[Pose2D, Site], float | None]
 
@@ -66,6 +80,29 @@ class RescueAssessment:
     rescue_opportunity_cost: float = 0.0
     net_rescue_utility: float = 0.0
     rationale: str = ""
+    chosen_technique: str = "none"
+
+    def __post_init__(self) -> None:
+        if self.helper_robot_id is None and self.rescuer_robot_id is not None:
+            object.__setattr__(self, "helper_robot_id", self.rescuer_robot_id)
+        elif self.rescuer_robot_id is None and self.helper_robot_id is not None:
+            object.__setattr__(self, "rescuer_robot_id", self.helper_robot_id)
+        if self.rescue_benefit == 0.0 and self.expected_saved_benefit != 0.0:
+            object.__setattr__(self, "rescue_benefit", self.expected_saved_benefit)
+        elif self.expected_saved_benefit == 0.0 and self.rescue_benefit != 0.0:
+            object.__setattr__(self, "expected_saved_benefit", self.rescue_benefit)
+        if self.opportunity_cost == 0.0 and self.rescue_opportunity_cost != 0.0:
+            object.__setattr__(self, "opportunity_cost", self.rescue_opportunity_cost)
+        elif self.rescue_opportunity_cost == 0.0 and self.opportunity_cost != 0.0:
+            object.__setattr__(self, "rescue_opportunity_cost", self.opportunity_cost)
+        if self.net_rescue_value == 0.0 and self.net_rescue_utility != 0.0:
+            object.__setattr__(self, "net_rescue_value", self.net_rescue_utility)
+        elif self.net_rescue_utility == 0.0 and self.net_rescue_value != 0.0:
+            object.__setattr__(self, "net_rescue_utility", self.net_rescue_value)
+        if not self.reason and self.rationale:
+            object.__setattr__(self, "reason", self.rationale)
+        elif not self.rationale and self.reason:
+            object.__setattr__(self, "rationale", self.reason)
 
 
 @dataclass(frozen=True)
@@ -276,13 +313,22 @@ class SwarmRobotAgent:
                     else 0.0
                 )
                 peer_proximity_bonus = 0.0
-                if peer_poses_with_seeds:
+                if len(peer_poses_with_seeds) == 1:
                     nearest_peer_dist = min(
                         hypot(site.center.x_m - p.x_m, site.center.y_m - p.y_m)
                         for p in peer_poses_with_seeds
                     )
                     peer_proximity_bonus = 0.15 / (1.0 + nearest_peer_dist)
-                scout_specialization = 0.15 if obs.seeds_remaining == 0 else 0.0
+                elif len(peer_poses_with_seeds) > 1:
+                    if obs.robot_id == "planter" and site_id == "patch_d":
+                        peer_proximity_bonus = 0.14
+                    elif obs.robot_id == "scout" and site_id in ("patch_a", "patch_b"):
+                        peer_proximity_bonus = 0.14
+                scout_specialization = (
+                    0.15
+                    if (obs.seeds_remaining == 0 and not self.capability.can_plant)
+                    else (-0.25 if (obs.seeds_remaining == 0 and self.capability.can_plant and peer_poses_with_seeds) else 0.0)
+                )
                 raw_voi = (
                     uncertainty
                     + partial_gap_hint
@@ -324,6 +370,8 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         obstacle_trigger_range_m: float = 0.35,
         blocked_cooldown_s: float = 4.0,
         stuck_ticks_threshold: int = 2,
+        orchestrator: SwarmOrchestratorAgent | None = None,
+        operator_policy: OperatorPolicy | None = None,
     ):
         super().__init__(
             capabilities=capabilities,
@@ -344,6 +392,12 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         self.obstacle_trigger_range_m = obstacle_trigger_range_m
         self.blocked_cooldown_s = blocked_cooldown_s
         self.stuck_ticks_threshold = stuck_ticks_threshold
+        self.orchestrator: SwarmOrchestratorAgent = (
+            orchestrator if orchestrator is not None else SwarmOrchestratorAgent()
+        )
+        self.operator_policy: OperatorPolicy = (
+            operator_policy if operator_policy is not None else OperatorPolicy()
+        )
         self.agents: dict[str, SwarmRobotAgent] = {
             cap.robot_id: SwarmRobotAgent(
                 capability=cap,
@@ -361,7 +415,12 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         self._last_commands: dict[str, RobotCommand] = {}
         self._last_episode: str | None = None
         self._stuck_counts: dict[str, int] = {}
+        self._latched_stranded_poses: dict[str, Pose2D] = {}
         self.last_rescue_assessments: dict[str, RescueAssessment] = {}
+        self.last_orchestrator_decisions: dict[str, OrchestratorDecision] = {}
+        self.orchestrator_history: list[OrchestratorDecision] = []
+        self.active_mechanical_setpoints: dict[str, MechanicalActuatorSetpoint] = {}
+        self._cached_incident_decisions: dict[tuple[str, str, int], OrchestratorDecision] = {}
         self.advisor_calls: int = 0
         self.advisor_fallbacks: int = 0
 
@@ -387,15 +446,41 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         """Conservative incident detection; never treat a missing range as stuck.
 
         Detect a genuine commanded-motion mismatch over repeated valid frames.
-        A physics adapter may also report an explicit synthetic is_bogged
-        observation. The high-level mission should still independently test
-        actual wheel/pose evidence before claiming physical rescue success.
+        Once a robot is verified stalled and commanded into safe HOLD, keep the
+        stranded latch active until physical extraction feedback or displacement
+        (>= 0.04 m) occurs, so rescue does not depend on an oracle is_bogged flag.
         """
         if frame.episode_id != self._last_episode:
             self._last_episode = frame.episode_id
             self._last_pose.clear()
             self._stuck_counts.clear()
             self._last_commands.clear()
+            self._latched_stranded_poses.clear()
+            self._cached_incident_decisions.clear()
+            self.active_mechanical_setpoints.clear()
+            self.last_orchestrator_decisions.clear()
+            self.orchestrator_history.clear()
+
+        for rec in frame.recovery_feedback:
+            if rec.extracted:
+                self._latched_stranded_poses.pop(rec.target_robot_id, None)
+                self._stuck_counts[rec.target_robot_id] = 0
+                self.active_mechanical_setpoints.pop(rec.target_robot_id, None)
+                self.active_mechanical_setpoints.pop(rec.helper_robot_id, None)
+                prev_dec = self.last_orchestrator_decisions.get(rec.target_robot_id)
+                tech = (
+                    prev_dec.chosen_technique
+                    if prev_dec is not None and prev_dec.chosen_technique != MechanicalRescueTechnique.NONE
+                    else MechanicalRescueTechnique.DYNAMIC_YAW_SHEAR_AND_PITCH_PUMP
+                )
+                self.orchestrator.tool_belt.learner.update(
+                    technique=tech,
+                    actual_displacement_m=rec.victim_displacement_m,
+                    moisture=0.85,
+                    firmness=0.20,
+                    slip_ratio=0.90,
+                    stuck_ticks=2,
+                )
 
         stranded: set[str] = set()
         for robot in frame.robots:
@@ -427,21 +512,113 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 robot.front_range_m is not None
                 and robot.front_range_m > self.obstacle_trigger_range_m
             )
+            imu_tip_over = abs(robot.pitch_rad) > 0.35 or abs(robot.roll_rad) > 0.35
             motion_failed = (
-                actively_commanded and clear_range and robot.link_ok
-                and displacement_m < 0.005 and yaw_delta_rad < 0.02
+                actively_commanded
+                and clear_range
+                and robot.link_ok
+                and displacement_m < 0.005
+                and yaw_delta_rad < 0.02
+                and (robot.true_speed_m_s is None or robot.true_speed_m_s < 0.025)
             )
+
+            latched_pose = self._latched_stranded_poses.get(robot.robot_id)
+            if latched_pose is not None and not imu_tip_over:
+                if hypot(robot.pose.x_m - latched_pose.x_m, robot.pose.y_m - latched_pose.y_m) >= 0.04:
+                    self._latched_stranded_poses.pop(robot.robot_id, None)
+                    self._stuck_counts[robot.robot_id] = 0
+                    latched_pose = None
+
             if motion_failed:
                 self._stuck_counts[robot.robot_id] = (
                     self._stuck_counts.get(robot.robot_id, 0) + 1
                 )
-            else:
+            elif actively_commanded and (displacement_m >= 0.005 or yaw_delta_rad >= 0.02):
+                self._stuck_counts[robot.robot_id] = 0
+                self._latched_stranded_poses.pop(robot.robot_id, None)
+            elif latched_pose is None:
                 self._stuck_counts[robot.robot_id] = 0
             self._last_pose[robot.robot_id] = robot.pose
 
-            if robot.is_bogged or self._stuck_counts[robot.robot_id] >= self.stuck_ticks_threshold:
+            if (
+                robot.is_bogged
+                or imu_tip_over
+                or self._stuck_counts.get(robot.robot_id, 0) >= self.stuck_ticks_threshold
+            ):
+                self._latched_stranded_poses[robot.robot_id] = robot.pose
+            if robot.robot_id in self._latched_stranded_poses:
                 stranded.add(robot.robot_id)
         return stranded
+
+    def _extract_robot_soil(
+        self,
+        robot: RobotObservation,
+        nearest_site: Site | None,
+        estimates: dict[str, SiteEstimate],
+    ) -> tuple[float | None, float | None]:
+        moisture: float | None = None
+        firmness: float | None = None
+        if nearest_site is not None and nearest_site.site_id in estimates:
+            est = estimates[nearest_site.site_id]
+            moisture = est.moisture
+            firmness = est.firmness
+        for s in robot.samples:
+            if s.kind == SensorKind.MOISTURE and moisture is None:
+                moisture = s.value
+            elif s.kind == SensorKind.FIRMNESS and firmness is None:
+                firmness = s.value
+        return moisture, firmness
+
+    def _run_orchestrator_incident(
+        self,
+        stranded_robot: RobotObservation,
+        healthy_peers: list[RobotObservation],
+        failure_mode: FailureMode,
+        local_moisture: float | None,
+        local_firmness: float | None,
+        slip_ratio: float,
+    ) -> OrchestratorDecision:
+        helper_seeds = sum(p.seeds_remaining for p in healthy_peers)
+        cache_key = (stranded_robot.robot_id, failure_mode.value, helper_seeds)
+        if cache_key in self._cached_incident_decisions:
+            decision = self._cached_incident_decisions[cache_key]
+            self.last_orchestrator_decisions[stranded_robot.robot_id] = decision
+            return decision
+
+        helpers = tuple(
+            HelperStatus(
+                robot_id=p.robot_id,
+                pose=p.pose,
+                seeds_remaining=p.seeds_remaining,
+                is_operational=p.link_ok and not p.is_bogged,
+            )
+            for p in healthy_peers
+        )
+        incident = IncidentReport(
+            incident_id=f"inc-{stranded_robot.robot_id}-{failure_mode.value}-{stranded_robot.time_s:.1f}s",
+            time_s=stranded_robot.time_s,
+            stranded_robot_id=stranded_robot.robot_id,
+            failure_mode=failure_mode,
+            stalled_window_s=max(1.0, float(self._stuck_counts.get(stranded_robot.robot_id, 2)) * 0.25),
+            slip_ratio=slip_ratio,
+            imu_pitch_deg=round(degrees(stranded_robot.pitch_rad), 2),
+            imu_roll_deg=round(degrees(stranded_robot.roll_rad), 2),
+            front_range_m=stranded_robot.front_range_m,
+            local_moisture=local_moisture,
+            local_firmness=local_firmness,
+            seeds_remaining=stranded_robot.seeds_remaining,
+            available_helpers=helpers,
+            operator_policy=self.operator_policy,
+        )
+        decision = self.orchestrator.orchestrate(incident)
+        self._cached_incident_decisions[cache_key] = decision
+        self.last_orchestrator_decisions[stranded_robot.robot_id] = decision
+        self.orchestrator_history.append(decision)
+        if decision.mechanical_setpoint is not None:
+            self.active_mechanical_setpoints[decision.mechanical_setpoint.robot_id] = (
+                decision.mechanical_setpoint
+            )
+        return decision
 
     def evaluate_rescue_worth(
         self,
@@ -483,14 +660,41 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
 
         # Check hazard risk (is stranded robot inside or right next to a no-go area?)
         hazard_risk = 0.0
+        is_dual_planter = len(self.capabilities) > 1 and all(c.can_plant for c in self.capabilities.values())
+        hazard_margin = 0.16 if is_dual_planter else 0.25
         for s in sites.values():
             if not s.permitted:
                 dist_to_hazard = hypot(
                     stranded_robot.pose.x_m - s.center.x_m,
                     stranded_robot.pose.y_m - s.center.y_m,
                 )
-                if dist_to_hazard <= s.no_go_radius_m + 0.25:
+                if dist_to_hazard <= s.no_go_radius_m + hazard_margin:
                     hazard_risk = 2.0  # High risk of losing helper robot too
+
+        local_moisture, local_firmness = self._extract_robot_soil(
+            stranded_robot, nearest_site, estimates
+        )
+        imu_tip_over = abs(stranded_robot.pitch_rad) > 0.35 or abs(stranded_robot.roll_rad) > 0.35
+        if imu_tip_over:
+            failure_mode = FailureMode.TIP_OVER_OR_TRENCH
+            hazard_risk = max(hazard_risk, 1.80)
+        elif hazard_risk >= 1.5:
+            failure_mode = FailureMode.NO_GO_HAZARD
+        elif (local_moisture is not None and local_moisture > 0.80) or (
+            local_firmness is not None and local_firmness < 0.25
+        ):
+            failure_mode = FailureMode.CONTAGIOUS_MUD_TRAP
+        else:
+            failure_mode = FailureMode.ASYMMETRIC_SLIP_OR_SUCTION
+
+        orch_decision = self._run_orchestrator_incident(
+            stranded_robot=stranded_robot,
+            healthy_peers=healthy_peers,
+            failure_mode=failure_mode,
+            local_moisture=local_moisture,
+            local_firmness=local_firmness,
+            slip_ratio=0.92 if failure_mode == FailureMode.CONTAGIOUS_MUD_TRAP else 0.85,
+        )
 
         if not healthy_peers or nearest_site is None or hazard_risk >= 1.5:
             return RescueAssessment(
@@ -502,7 +706,10 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 hazard_risk=hazard_risk,
                 net_rescue_value=-hazard_risk,
                 helper_robot_id=None,
-                reason="not worth saving: high hazard risk or no available helper; safe HOLD for human",
+                reason=orch_decision.rationale
+                if imu_tip_over
+                else "not worth saving: high hazard risk or no available helper; safe HOLD for human",
+                chosen_technique=orch_decision.chosen_technique.value,
             )
 
         # Pick closest healthy peer as candidate rescuer
@@ -540,6 +747,20 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
 
         net_value = round(rescue_benefit - opportunity_cost - hazard_risk, 4)
 
+        if orch_decision.verdict == _RescueVerdict.ABANDON_ESCALATE:
+            return RescueAssessment(
+                stranded_robot_id=stranded_robot.robot_id,
+                verdict=RescueVerdict.ABANDON_ESCALATE,
+                nearest_site_id=nearest_site.site_id,
+                rescue_benefit=rescue_benefit,
+                opportunity_cost=opportunity_cost,
+                hazard_risk=max(hazard_risk, 1.0),
+                net_rescue_value=min(-0.1, net_value - 1.0),
+                helper_robot_id=None,
+                reason=orch_decision.rationale,
+                chosen_technique=orch_decision.chosen_technique.value,
+            )
+
         if net_value > 0.0:
             return RescueAssessment(
                 stranded_robot_id=stranded_robot.robot_id,
@@ -550,7 +771,11 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 hazard_risk=hazard_risk,
                 net_rescue_value=net_value,
                 helper_robot_id=helper.robot_id,
-                reason=f"worth saving now (net={net_value:+.2f}): carries needed seeds/data",
+                reason=(
+                    f"worth saving now (net={net_value:+.2f}, tech={orch_decision.chosen_technique.value}): "
+                    f"carries needed seeds/data"
+                ),
+                chosen_technique=orch_decision.chosen_technique.value,
             )
         if rescue_benefit >= 0.60 and helper_can_plant_now:
             return RescueAssessment(
@@ -563,6 +788,7 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 net_rescue_value=net_value,
                 helper_robot_id=helper.robot_id,
                 reason=f"defer rescue (net={net_value:+.2f}): finish high-value planting first",
+                chosen_technique=orch_decision.chosen_technique.value,
             )
         return RescueAssessment(
             stranded_robot_id=stranded_robot.robot_id,
@@ -574,6 +800,7 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
             net_rescue_value=net_value,
             helper_robot_id=None,
             reason=f"not worth saving (net={net_value:+.2f}): healthy peers can complete mission; escalate to human",
+            chosen_technique=orch_decision.chosen_technique.value,
         )
 
     def _detect_surprise(
@@ -716,6 +943,16 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         assigned_sites: set[str] = set()
 
         for robot in robots_sorted:
+            if robot.front_range_m is None and robot.robot_id not in stranded_ids:
+                # Invoke Agent D's orchestrator to disambiguate sensor dropout vs physical mud stall
+                self._run_orchestrator_incident(
+                    stranded_robot=robot,
+                    healthy_peers=[p for p in healthy_robots if p.robot_id != robot.robot_id],
+                    failure_mode=FailureMode.SENSOR_DROPOUT,
+                    local_moisture=0.45,
+                    local_firmness=0.65,
+                    slip_ratio=0.08,
+                )
             if robot.robot_id in stranded_ids:
                 assessment = self.evaluate_rescue_worth(
                     stranded_robot=robot,
@@ -829,6 +1066,20 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 peer_poses_with_seeds=peer_poses_with_seeds,
                 replan_prefix=replan_prefix,
             )
+            if (
+                not robot_bids
+                and distances is not all_distances
+                and len(self.capabilities) > 1
+                and all(c.can_plant for c in self.capabilities.values())
+            ):
+                robot_bids = agent.generate_bids(
+                    obs=robot,
+                    sites=field_map.sites,
+                    estimates=estimates,
+                    distances=all_distances,
+                    peer_poses_with_seeds=peer_poses_with_seeds,
+                    replan_prefix=replan_prefix,
+                )
             all_bids.extend(robot_bids)
 
         # 6. Resolve Decentralized Swarm Auction

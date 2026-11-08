@@ -176,6 +176,73 @@ class MujocoPaddySimulationTests(unittest.TestCase):
         planted_sites = {d.target_site_id for d in sim.completed_drops}
         self.assertEqual(planted_sites, {"patch_b", "patch_c"})
 
+    def test_minimum_connected_antenna_episode_fault_to_orchestrator_to_physical_rescue_and_learner_update(
+        self,
+    ) -> None:
+        """Minimal end-to-end acceptance test for the connected Antenna episode (no oracle flags)."""
+        from ricebot.world import EMERGENT_MUD_RESCUE_TRUTH
+
+        sim = MujocoPaddySimulation(
+            sites=DEFAULT_SITES,
+            probe_radius_m=0.28,
+            substeps_per_tick=25,
+            hidden_truth=EMERGENT_MUD_RESCUE_TRUTH,
+            enable_emergent_mud_traps=True,
+            trap_radius_m=0.28,
+            expose_bogged_flag=False,
+            use_sensor_guided_docking=True,
+        )
+        field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
+        planner = CooperativeSwarmPlanner(DEFAULT_CAPABILITIES)
+        controller = LocalController(
+            ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
+        )
+        core = MissionCore(field_map, planner, controller)
+
+        frame = sim.reset(seed=7)
+        initial_learner_updates = len(planner.orchestrator.tool_belt.learner.history)
+        orchestrator_rescue_decision = None
+        dispatched_rescue_cmd = None
+
+        for _ in range(195):
+            # Verify privileged is_bogged oracle flag is never exposed
+            for r in frame.robots:
+                self.assertFalse(r.is_bogged)
+
+            decision = core.decide(frame)
+            orch_dec = planner.last_orchestrator_decisions.get("planter")
+            if orch_dec is not None and orch_dec.verdict == RescueVerdict.RESCUE_NOW:
+                orchestrator_rescue_decision = orch_dec
+
+            for c in decision.commands:
+                if c.robot_id == "scout" and c.recovery_target_id == "planter":
+                    dispatched_rescue_cmd = c
+
+            frame = sim.step(decision.commands)
+
+        # 1. Local non-oracle fault evidence connected to SwarmOrchestratorAgent
+        self.assertIsNotNone(orchestrator_rescue_decision)
+        assert orchestrator_rescue_decision is not None
+        self.assertEqual(orchestrator_rescue_decision.verdict, RescueVerdict.RESCUE_NOW)
+        self.assertEqual(orchestrator_rescue_decision.helper_robot_id, "scout")
+        self.assertIsNotNone(orchestrator_rescue_decision.mechanical_setpoint)
+        self.assertTrue(orchestrator_rescue_decision.fallback_used)
+        self.assertGreaterEqual(len(orchestrator_rescue_decision.tool_trace), 4)
+
+        # 2. Orchestrator decision connected to bounded physical rescue controller
+        self.assertIsNotNone(dispatched_rescue_cmd)
+        assert dispatched_rescue_cmd is not None
+        self.assertGreater(dispatched_rescue_cmd.latch_rad, 0.30)
+
+        # 3. Actual physical outcome received and updated episode state + ResidualRecoveryLearner
+        self.assertEqual(len(sim.completed_recoveries), 1)
+        rec = sim.completed_recoveries[0]
+        self.assertTrue(rec.extracted)
+        self.assertGreaterEqual(rec.victim_displacement_m, 0.18)
+        final_learner_updates = len(planner.orchestrator.tool_belt.learner.history)
+        self.assertGreater(final_learner_updates, initial_learner_updates)
+        self.assertEqual(len(sim.completed_drops), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,7 +37,7 @@ Key Architectural Properties (Zero Central Map / Zero Cloud Dependency):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, cos, hypot, pi, sin, sqrt
+from math import atan2, cos, degrees, hypot, pi, sin, sqrt
 from typing import Any
 
 try:
@@ -45,7 +45,15 @@ try:
 except ImportError:
     np = None
 
-from .rescue import DistressSignal, FailureMode, RescueEngine
+from .orchestrator import (
+    HelperStatus,
+    IncidentReport,
+    OperatorPolicy,
+    OrchestratorDecision,
+    SwarmOrchestratorAgent,
+)
+from .rescue import DistressSignal, FailureMode, MechanicalActuatorSetpoint, MechanicalRescueTechnique, RescueEngine
+from .rescue import RescueVerdict as _RescueVerdict
 from ..contracts import (
     Decision,
     ObservationFrame,
@@ -61,7 +69,7 @@ from ..contracts import (
 )
 from ..control import ControlLimits
 from ..mission import SiteEstimate
-from .planner import RescueAssessment, RescueVerdict, SupervisoryAdvisor
+from .planner import AmbiguityEvent, RescueAssessment, RescueVerdict, SupervisoryAdvisor
 
 
 def _wrap_angle(angle: float) -> float:
@@ -396,6 +404,8 @@ class DecentralizedRobotNode:
         self.active_distress: DistressSignal | None = None
         self.peer_distress_signals: dict[str, DistressSignal] = {}
         self.rescue_engine: RescueEngine = RescueEngine()
+        self.stall_ticks: int = 0
+        self.latched_stranded_pose: Pose2D | None = None
 
     def process_local_sensors(
         self,
@@ -412,6 +422,26 @@ class DecentralizedRobotNode:
         raw_slip = 0.0
         if v_wheel > 0.05:
             raw_slip = max(0.0, min(1.0, 1.0 - (v_true / max(v_wheel, 1e-3))))
+
+        imu_tip_over = abs(obs.pitch_rad) > 0.35 or abs(obs.roll_rad) > 0.35
+        if self.latched_stranded_pose is not None and not imu_tip_over:
+            if hypot(obs.pose.x_m - self.latched_stranded_pose.x_m, obs.pose.y_m - self.latched_stranded_pose.y_m) >= 0.04:
+                self.latched_stranded_pose = None
+                self.stall_ticks = 0
+
+        if (
+            self.last_pose is not None
+            and v_wheel > 0.08
+            and (obs.front_range_m is not None and obs.front_range_m > self.limits.stop_range_m)
+        ):
+            if v_true < 0.015 and (obs.true_speed_m_s is None or obs.true_speed_m_s < 0.02):
+                self.stall_ticks += 1
+            else:
+                self.stall_ticks = 0
+                self.latched_stranded_pose = None
+        if obs.is_bogged or imu_tip_over or self.stall_ticks >= 2:
+            self.latched_stranded_pose = obs.pose
+            raw_slip = max(raw_slip, 0.85)
 
         ingested = 0
         for sample in obs.samples:
@@ -531,7 +561,9 @@ class DecentralizedRobotNode:
                 # Planter (carrying heavy seeds) prefers surveying forward along the main row (patch_b, patch_c)
                 # while Scout screens the near mud trap (patch_a) and northern terrace (patch_d)
                 sector_bonus = 0.0
-                if self.capability.can_plant:
+                if self.capability.can_plant and obs.seeds_remaining == 0:
+                    sector_bonus = -0.35
+                elif self.robot_id == "planter":
                     if site_id in ("patch_b", "patch_c"):
                         sector_bonus = 0.32
                 else:
@@ -624,8 +656,9 @@ class DecentralizedRobotNode:
                 angular_rad_s=0.0,
             )
 
-        if obs.is_bogged or not obs.link_ok or obs.front_range_m is None or intent.mode is TaskMode.HOLD or intent.target_site_id is None:
+        if obs.is_bogged or self.latched_stranded_pose is not None or not obs.link_ok or obs.front_range_m is None or intent.mode is TaskMode.HOLD or intent.target_site_id is None:
             self.last_commanded_linear_m_s = 0.0
+            spade_hold = 0.85 if (abs(obs.pitch_rad) > 0.35 or abs(obs.roll_rad) > 0.35) else 0.0
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -633,6 +666,7 @@ class DecentralizedRobotNode:
                 task_id=intent.task_id,
                 linear_m_s=0.0,
                 angular_rad_s=0.0,
+                spade_rad=spade_hold,
             )
 
         target_site = self.local_map.sites[intent.target_site_id]
@@ -807,6 +841,9 @@ class DecentralizedMycelialRuntime:
         self.last_rescue_assessments: dict[str, RescueAssessment] = {}
         self.last_advisor_recommendation: str | None = None
         self._sos_broadcast_sent: set[str] = set()
+        self.orchestrator: SwarmOrchestratorAgent = SwarmOrchestratorAgent()
+        self.last_orchestrator_decisions: dict[str, OrchestratorDecision] = {}
+        self._cached_incident_decisions: dict[tuple[str, str, int], OrchestratorDecision] = {}
 
     def _is_link_open(self, time_s: float, dist_m: float) -> bool:
         """Evaluate whether peer-to-peer Wi-Fi HaLow / UWB link can carry packets at `time_s`."""
@@ -831,7 +868,23 @@ class DecentralizedMycelialRuntime:
         obs_by_robot = {r.robot_id: r for r in frame.robots}
         if any(rid not in self.capabilities for rid in obs_by_robot):
             raise ValueError("observation from unknown actor")
-        peer_poses = {r.robot_id: r.pose for r in frame.robots}
+
+        for rec in frame.recovery_feedback:
+            if rec.extracted and rec.target_robot_id in self.nodes:
+                self.nodes[rec.target_robot_id].latched_stranded_pose = None
+                self.nodes[rec.target_robot_id].stall_ticks = 0
+
+        # Filter visible peer poses by active radio/UWB link (Audit M6: no peer pose leak during blackout)
+        visible_peer_poses_by_robot: dict[str, dict[str, Pose2D]] = {}
+        for rid_a, obs_a in obs_by_robot.items():
+            vis: dict[str, Pose2D] = {rid_a: obs_a.pose}
+            for rid_b, obs_b in obs_by_robot.items():
+                if rid_a == rid_b:
+                    continue
+                d_ab = hypot(obs_a.pose.x_m - obs_b.pose.x_m, obs_a.pose.y_m - obs_b.pose.y_m)
+                if obs_a.link_ok and obs_b.link_ok and self._is_link_open(frame.time_s, d_ab):
+                    vis[rid_b] = obs_b.pose
+            visible_peer_poses_by_robot[rid_a] = vis
 
         # 1. Process physical seed landing feedback locally on the robot that released it
         for fb in frame.plant_feedback:
@@ -856,7 +909,9 @@ class DecentralizedMycelialRuntime:
         self.latest_sensor_telemetry = {}
         for robot_id, obs in obs_by_robot.items():
             node = self.nodes[robot_id]
-            telemetry, count, _ = node.process_local_sensors(obs, peer_poses)
+            telemetry, count, _ = node.process_local_sensors(
+                obs, visible_peer_poses_by_robot[robot_id]
+            )
             self.latest_sensor_telemetry[robot_id] = telemetry
             total_ingested += count
 
@@ -1022,14 +1077,16 @@ class DecentralizedMycelialRuntime:
         self.last_rescue_assessments = {}
         rescue_intent_by_robot: dict[str, TaskIntent] = {}
         for rid, obs in obs_by_robot.items():
-            if obs.is_bogged:
+            is_stranded = obs.is_bogged or self.nodes[rid].latched_stranded_pose is not None
+            if is_stranded:
                 self._bogged_since_s.setdefault(rid, frame.time_s)
             else:
                 self._bogged_since_s.pop(rid, None)
                 self._sos_broadcast_sent.discard(rid)
 
         for stranded_id, stranded_obs in obs_by_robot.items():
-            if not stranded_obs.is_bogged:
+            is_stranded = stranded_obs.is_bogged or self.nodes[stranded_id].latched_stranded_pose is not None
+            if not is_stranded:
                 continue
             nearest_site_id = min(
                 (s.site_id for s in self.sites.values() if s.permitted),
@@ -1051,7 +1108,7 @@ class DecentralizedMycelialRuntime:
                 r
                 for r in frame.robots
                 if r.robot_id != stranded_id
-                and not r.is_bogged
+                and not (r.is_bogged or self.nodes[r.robot_id].latched_stranded_pose is not None)
                 and r.link_ok
                 and r.robot_id in reachable_peers.get(stranded_id, set())
             ]
@@ -1064,21 +1121,66 @@ class DecentralizedMycelialRuntime:
                     r.pose.y_m - stranded_obs.pose.y_m,
                 ),
             )
+            local_est = self.nodes[stranded_id].local_map.estimate(nearest_site_id)
+            local_m = local_est.moisture
+            local_f = local_est.firmness
+            for s in stranded_obs.samples:
+                if s.kind == SensorKind.MOISTURE and local_m is None:
+                    local_m = s.value
+                elif s.kind == SensorKind.FIRMNESS and local_f is None:
+                    local_f = s.value
+            imu_tip_over = abs(stranded_obs.pitch_rad) > 0.35 or abs(stranded_obs.roll_rad) > 0.35
+            fmode = (
+                FailureMode.TIP_OVER_OR_TRENCH
+                if imu_tip_over
+                else (
+                    FailureMode.CONTAGIOUS_MUD_TRAP
+                    if (local_m is not None and local_m > 0.80) or (local_f is not None and local_f < 0.25)
+                    else FailureMode.ASYMMETRIC_SLIP_OR_SUCTION
+                )
+            )
+            cache_key = (stranded_id, fmode.value, sum(c.seeds_remaining for c in candidates))
+            if cache_key not in self._cached_incident_decisions:
+                inc = IncidentReport(
+                    incident_id=f"myc-inc-{stranded_id}-{frame.time_s:.1f}s",
+                    time_s=frame.time_s,
+                    stranded_robot_id=stranded_id,
+                    failure_mode=fmode,
+                    stalled_window_s=2.0,
+                    slip_ratio=0.90,
+                    imu_pitch_deg=round(degrees(stranded_obs.pitch_rad), 2),
+                    imu_roll_deg=round(degrees(stranded_obs.roll_rad), 2),
+                    front_range_m=stranded_obs.front_range_m,
+                    local_moisture=local_m,
+                    local_firmness=local_f,
+                    seeds_remaining=stranded_obs.seeds_remaining,
+                    available_helpers=tuple(
+                        HelperStatus(c.robot_id, c.pose, c.seeds_remaining) for c in candidates
+                    ),
+                )
+                self._cached_incident_decisions[cache_key] = self.orchestrator.orchestrate(inc)
+            orch_dec = self._cached_incident_decisions[cache_key]
+            self.last_orchestrator_decisions[stranded_id] = orch_dec
+
             dist_m = max(0.05, hypot(rescuer.pose.x_m - stranded_obs.pose.x_m, rescuer.pose.y_m - stranded_obs.pose.y_m))
             eta_s = dist_m / 0.35
             saved_benefit = round((1.80 if self.capabilities[stranded_id].can_plant else 0.70) + 1.35 * stranded_obs.seeds_remaining, 4)
             opp_cost = round(0.18 * eta_s, 4)
             net_utility = round(saved_benefit - opp_cost, 4)
-            verdict = RescueVerdict.RESCUE_NOW if net_utility >= 0.0 else RescueVerdict.DEFER_RESCUE
+            if orch_dec.verdict == _RescueVerdict.ABANDON_ESCALATE:
+                verdict = RescueVerdict.ABANDON_ESCALATE
+                net_utility = min(-0.1, net_utility - 1.5)
+            else:
+                verdict = RescueVerdict.RESCUE_NOW if net_utility >= 0.0 else RescueVerdict.DEFER_RESCUE
             assessment = RescueAssessment(
                 stranded_robot_id=stranded_id,
-                rescuer_robot_id=rescuer.robot_id,
+                rescuer_robot_id=rescuer.robot_id if verdict == RescueVerdict.RESCUE_NOW else None,
                 nearest_site_id=nearest_site_id,
                 expected_saved_benefit=saved_benefit,
                 rescue_opportunity_cost=opp_cost,
                 net_rescue_utility=net_utility,
                 verdict=verdict,
-                rationale=(
+                rationale=orch_dec.rationale if verdict == RescueVerdict.ABANDON_ESCALATE else (
                     f"Peer rescue saves {saved_benefit:.2f} expected utility at cost {opp_cost:.2f} "
                     f"(net={net_utility:+.2f}, ETA={eta_s:.1f}s) -> {verdict.value}"
                 ),
@@ -1120,13 +1222,26 @@ class DecentralizedMycelialRuntime:
 
         if self.advisor is not None and not rescue_intent_by_robot:
             try:
-                rec_map = self.advisor.recommend(
-                    frame,
-                    self.sites,
-                    self.nodes[robot_ids[0]].local_map.estimates() if robot_ids else {},
-                    self.nodes[robot_ids[0]].local_map.planted_sites if robot_ids else set(),
-                    [],
-                )
+                est_map = self.nodes[robot_ids[0]].local_map.estimates() if robot_ids else {}
+                if hasattr(self.advisor, "advise"):
+                    evt = AmbiguityEvent(
+                        episode_id=frame.episode_id,
+                        time_s=frame.time_s,
+                        kind="mycelial_check",
+                        affected_site_ids=(),
+                        candidate_site_ids=tuple(self.sites.keys()),
+                    )
+                    rec_map = self.advisor.advise(evt, frame, est_map)
+                elif hasattr(self.advisor, "recommend"):
+                    rec_map = self.advisor.recommend(
+                        frame,
+                        self.sites,
+                        est_map,
+                        self.nodes[robot_ids[0]].local_map.planted_sites if robot_ids else set(),
+                        [],
+                    )
+                else:
+                    rec_map = None
                 if rec_map:
                     self.last_advisor_recommendation = ", ".join(f"{k}->{v}" for k, v in rec_map.items())
             except Exception:
@@ -1158,7 +1273,18 @@ class DecentralizedMycelialRuntime:
                     target_site_id=winning_bid.site_id,
                     reason=winning_bid.proposal_text,
                 )
-            cmd = node.compute_local_command(obs, intent, peer_poses)
+            cmd = node.compute_local_command(obs, intent, visible_peer_poses_by_robot[rid])
+            orch_dec = self.last_orchestrator_decisions.get(rid)
+            if intent.mode is TaskMode.HOLD and orch_dec is not None and orch_dec.mechanical_setpoint is not None:
+                cmd = RobotCommand(
+                    robot_id=cmd.robot_id,
+                    issued_at_s=cmd.issued_at_s,
+                    expires_at_s=cmd.expires_at_s,
+                    linear_m_s=0.0,
+                    angular_rad_s=0.0,
+                    task_id=cmd.task_id,
+                    spade_rad=max(0.0, min(0.85, float(orch_dec.mechanical_setpoint.spade_rad))),
+                )
             intents.append(intent)
             commands.append(cmd)
 

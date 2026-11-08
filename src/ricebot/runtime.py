@@ -60,6 +60,7 @@ class MissionCore:
         accepted = self.field_map.update(frame)
         excluded = frozenset(self._attempted_plant_sites | {site for site, _, _ in self._pending_plant.values()})
         intents = self.planner.decide(frame, self.field_map, excluded)
+        mech_setpoints = getattr(self.planner, "active_mechanical_setpoints", {})
         commands = []
         for task in intents:
             peer_pose = (
@@ -78,6 +79,25 @@ class MissionCore:
                 cmd = RobotCommand(task.robot_id, frame.time_s, frame.time_s + 0.2, task_id=task.task_id)
             elif cmd.release_seed:
                 self._pending_plant[task.robot_id] = (cmd.target_site_id, cmd.task_id, frame.time_s)
+            setpoint = mech_setpoints.get(task.robot_id)
+            if setpoint is not None and task.mode in (TaskMode.HOLD, TaskMode.RESCUE):
+                spade_rad = max(0.0, min(0.85, float(setpoint.spade_rad))) if task.mode == TaskMode.HOLD else cmd.spade_rad
+                pitch_rad = max(-0.20, min(0.15, float(setpoint.dock_pitch_rad))) if task.mode == TaskMode.RESCUE else cmd.dock_pitch_rad
+                latch_rad = max(0.0, min(0.65, float(setpoint.latch_rad))) if task.mode == TaskMode.RESCUE else cmd.latch_rad
+                cmd = RobotCommand(
+                    robot_id=cmd.robot_id,
+                    issued_at_s=cmd.issued_at_s,
+                    expires_at_s=cmd.expires_at_s,
+                    linear_m_s=cmd.linear_m_s,
+                    angular_rad_s=cmd.angular_rad_s,
+                    release_seed=cmd.release_seed,
+                    target_site_id=cmd.target_site_id,
+                    task_id=cmd.task_id,
+                    recovery_target_id=cmd.recovery_target_id,
+                    dock_pitch_rad=pitch_rad,
+                    latch_rad=latch_rad,
+                    spade_rad=spade_rad,
+                )
             commands.append(cmd)
         # Optional planner feedback: only actual issued motor commands can
         # substantiate a later commanded-motion stall; a task intent cannot.

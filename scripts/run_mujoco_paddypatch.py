@@ -323,12 +323,26 @@ def run_demo(
     steps: int = 140,
     viewer_seconds: float = 0.0,
     single_rover_only: bool = False,
+    expose_bogged_flag: bool = True,
 ) -> dict[str, object]:
-    is_golden_rescue = scenario == "golden_rescue"
+    is_golden_rescue = scenario in ("golden_rescue", "emergent_mud_rescue")
+    is_orchestrator_scenario = scenario in (
+        "golden_rescue",
+        "emergent_mud_rescue",
+        "slurry_refusal",
+        "honest_refusal",
+        "trench_rollover",
+        "sensor_degraded",
+    )
     if is_golden_rescue and steps == 140:
         steps = 195
+    elif scenario == "trench_rollover" and steps == 140:
+        steps = 220
+    elif steps == 140:
+        steps = 185
     inject_at = 1.6 if scenario == "obstacle" else None
     truth = generate_hidden_soil_truth(scenario, seed)
+    use_homogeneous = (viewer_seconds > 0) and not single_rover_only and scenario not in ("slurry_refusal", "honest_refusal")
     sim = MujocoPaddySimulation(
         sites=DEFAULT_SITES,
         probe_radius_m=0.28,
@@ -336,17 +350,28 @@ def run_demo(
         inject_obstacle_at_s=inject_at,
         obstacle_xy=(0.75, -0.25),
         hidden_truth=truth,
-        trap_robot_id="planter" if is_golden_rescue else None,
+        trap_robot_id="planter" if scenario == "golden_rescue" else None,
         trap_site_id="patch_d",
         trap_radius_m=0.28,
+        enable_emergent_mud_traps=scenario in ("emergent_mud_rescue", "slurry_refusal", "honest_refusal"),
+        expose_bogged_flag=expose_bogged_flag,
+        sensor_dropout_robot_id="scout" if scenario == "sensor_degraded" else None,
+        sensor_dropout_window_s=(1.2, 2.2) if scenario == "sensor_degraded" else None,
+        inject_trench_hazard=(scenario == "trench_rollover"),
+        trench_xy=(0.58, -0.50),
+        homogeneous_planting=use_homogeneous,
     )
     caps = (
         (RobotCapability("planter", can_sample=True, can_plant=True), RobotCapability("scout", can_sample=False, can_plant=False))
         if single_rover_only
-        else DEFAULT_CAPABILITIES
+        else (
+            (RobotCapability("planter", can_sample=True, can_plant=True), RobotCapability("scout", can_sample=True, can_plant=True))
+            if use_homogeneous
+            else DEFAULT_CAPABILITIES
+        )
     )
 
-    if is_golden_rescue or policy == "cooperative":
+    if is_orchestrator_scenario or policy == "cooperative":
         field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
         planner: SimpleMissionPlanner = CooperativeSwarmPlanner(caps)
         controller = LocalController(
@@ -447,10 +472,15 @@ def run_demo(
     last_plant_time_s = (
         max((d.contact_observed_at_s for d in sim.completed_drops if d.contact_observed_at_s is not None), default=None)
     )
+    orch_decisions = []
+    if hasattr(runtime, "planner") and hasattr(runtime.planner, "orchestrator_history"):
+        orch_decisions = [d.to_dict() for d in runtime.planner.orchestrator_history]
+    elif hasattr(runtime, "last_orchestrator_decisions"):
+        orch_decisions = [d.to_dict() for d in runtime.last_orchestrator_decisions.values()]
 
     return {
         "engine": f"MuJoCo {mujoco.__version__} (3D Rice Terrace + 4-Wheel Articulated Rovers SimulationPort)",
-        "policy": "cooperative_swarm_rescue" if is_golden_rescue else ("single_rover" if single_rover_only else policy),
+        "policy": "cooperative_swarm_rescue" if is_orchestrator_scenario else ("single_rover" if single_rover_only else policy),
         "comms_mode": comms,
         "scenario": scenario,
         "seed": seed,
@@ -459,6 +489,7 @@ def run_demo(
         "viable_seed_placements": viable_seed_placements,
         "total_seeds_dropped": len(sim.completed_drops),
         "completed_recoveries": [asdict(r) for r in sim.completed_recoveries],
+        "orchestrator_decisions": orch_decisions,
         "completion_time_s": last_plant_time_s,
         "travel_distance_m": recorder.travel_distance_m,
         "total_travel_m": round(sum(recorder.travel_distance_m.values()), 3),
@@ -561,7 +592,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=("nominal", "obstacle", "bad_soil", "shifted_moisture", "sensor_degraded", "golden_rescue"),
+        choices=(
+            "nominal",
+            "obstacle",
+            "bad_soil",
+            "shifted_moisture",
+            "sensor_degraded",
+            "golden_rescue",
+            "emergent_mud_rescue",
+            "slurry_refusal",
+            "honest_refusal",
+            "trench_rollover",
+        ),
         default="nominal",
     )
     parser.add_argument("--policy", choices=("mycelial", "cooperative", "centralized", "single_rover"), default="mycelial")
@@ -569,6 +611,7 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--steps", type=int, default=140)
     parser.add_argument("--headless", action="store_true", help="Run without launching interactive viewer")
+    parser.add_argument("--no-oracle-bogged", action="store_true", help="Disable privileged is_bogged sensor flag")
     parser.add_argument("--viewer-seconds", type=float, default=0.0, help="Launch interactive 3D MuJoCo viewer for N seconds")
     parser.add_argument("--compare-policies", action="store_true", help="Run the Policy A vs Policy B evaluation matrix")
     parser.add_argument("--export-dashboard", type=str, default=None, help="Export interactive top-down HTML belief & terramechanics dashboard to path")
@@ -603,6 +646,13 @@ def main() -> int:
         return 0
 
     v_sec = 0.0 if args.headless else args.viewer_seconds
+    expose_bogged = not args.no_oracle_bogged and args.scenario not in (
+        "emergent_mud_rescue",
+        "slurry_refusal",
+        "honest_refusal",
+        "trench_rollover",
+        "sensor_degraded",
+    )
     summary = run_demo(
         scenario=args.scenario,
         policy=args.policy,
@@ -610,6 +660,7 @@ def main() -> int:
         seed=args.seed,
         steps=args.steps,
         viewer_seconds=v_sec,
+        expose_bogged_flag=expose_bogged,
     )
     print(json.dumps(summary, indent=2))
     return 0

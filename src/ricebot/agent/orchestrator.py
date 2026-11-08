@@ -223,11 +223,16 @@ class OrchestratorToolBelt:
         if not helper:
             return {"error": f"Helper {helper_id} not found", "safe_for_helper": False}
 
-        # Soil estimate near the perimeter: moisture slightly lower, firmness higher away from mud center
+        # Soil estimate near the perimeter: localized mud basins transition to consolidated terrace loam at 1.5m standoff,
+        # whereas bottomless liquid slurry pits (firmness < 0.18) remain soft and contagious across the perimeter.
         base_moisture = incident.local_moisture if incident.local_moisture is not None else 0.70
         base_firmness = incident.local_firmness if incident.local_firmness is not None else 0.30
-        standoff_moisture = max(0.20, base_moisture - 0.10 * (standoff_m / 1.5))
-        standoff_firmness = min(0.95, base_firmness + 0.15 * (standoff_m / 1.5))
+        if base_firmness >= 0.18:
+            standoff_moisture = max(0.20, base_moisture - 0.45 * (standoff_m / 1.5))
+            standoff_firmness = min(0.95, base_firmness + 0.58 * (standoff_m / 1.5))
+        else:
+            standoff_moisture = max(0.20, base_moisture - 0.10 * (standoff_m / 1.5))
+            standoff_firmness = min(0.95, base_firmness + 0.15 * (standoff_m / 1.5))
 
         # Secondary loss probability: joint expectation of sinkage (1 - firmness) and moisture-induced slip
         loss_prob = (1.0 - standoff_firmness) * max(0.0, (standoff_moisture - 0.25) / 0.75)
@@ -456,6 +461,48 @@ class DeterministicReasoner:
                 elapsed_time_s=time.perf_counter() - t0,
             )
 
+        # Handle 3D terrace bund / drainage trench rollover hazards with spade anchor hold
+        if (
+            incident.failure_mode == FailureMode.TIP_OVER_OR_TRENCH
+            or abs(incident.imu_pitch_deg) > 18.0
+            or abs(incident.imu_roll_deg) > 18.0
+        ):
+            anchor_setpoint = compute_mechanical_recovery_setpoint(
+                robot_id=incident.stranded_robot_id,
+                technique=MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD,
+                step_index=0,
+                latched=False,
+            )
+            obs_refuse = self.tool_belt.refuse_and_rebalance(
+                incident,
+                reason="Critical chassis roll/pitch in 3D terrace trench; deploying anchor spades to prevent rollover",
+            )
+            trace.append(
+                ToolCallRecord(
+                    round_index=2,
+                    thought="Rover attitude exceeds safe docking limit in 3D trench; deploying rear anchor spades and rebalancing peer.",
+                    tool_name="refuse_and_rebalance",
+                    arguments={"reason": "Rollover trench hazard"},
+                    observation=obs_refuse,
+                )
+            )
+            return OrchestratorDecision(
+                incident_id=incident.incident_id,
+                verdict=RescueVerdict.ABANDON_ESCALATE,
+                failure_mode=FailureMode.TIP_OVER_OR_TRENCH,
+                chosen_technique=MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD,
+                helper_robot_id=None,
+                standoff_pose=None,
+                mechanical_setpoint=anchor_setpoint,
+                rationale=(
+                    "Trench/bund rollover protection: Deploying rear anchor spades (spade_rad=0.85) on "
+                    f"{incident.stranded_robot_id} and rebalancing remaining swarm."
+                ),
+                tool_trace=tuple(trace),
+                fallback_used=True,
+                elapsed_time_s=time.perf_counter() - t0,
+            )
+
         # Pick candidate helper (prefer rovers without seed stock or closest)
         operational_helpers = [h for h in incident.available_helpers if h.is_operational]
         if not operational_helpers:
@@ -539,6 +586,21 @@ class DeterministicReasoner:
                 incident,
                 reason="; ".join(obs_risk.get("violations", ["Perimeter soil too hazardous for helper"])),
             )
+            trace.append(
+                ToolCallRecord(
+                    round_index=5,
+                    thought="Refusing contagious mud rescue to protect remaining seed carrier and rebalancing mission.",
+                    tool_name="refuse_and_rebalance",
+                    arguments={"reason": "Secondary casualty / seed-carrier protection"},
+                    observation=obs_refuse,
+                )
+            )
+            anchor_setpoint = compute_mechanical_recovery_setpoint(
+                robot_id=incident.stranded_robot_id,
+                technique=MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD,
+                step_index=0,
+                latched=False,
+            )
             return OrchestratorDecision(
                 incident_id=incident.incident_id,
                 verdict=RescueVerdict.ABANDON_ESCALATE,
@@ -546,7 +608,7 @@ class DeterministicReasoner:
                 chosen_technique=MechanicalRescueTechnique.NONE,
                 helper_robot_id=None,
                 standoff_pose=None,
-                mechanical_setpoint=None,
+                mechanical_setpoint=anchor_setpoint,
                 rationale=(
                     f"Honest Refusal: Rescue declined to prevent secondary casualty. "
                     f"{'; '.join(obs_risk.get('violations', []))}"
@@ -638,7 +700,7 @@ class OrchestratorSafetyGate:
                 and helper.seeds_remaining > 0
                 and helper.seeds_remaining == total_seeds
                 and incident.local_firmness is not None
-                and incident.local_firmness < 0.20
+                and incident.local_firmness < 0.18
             ):
                 return OrchestratorDecision(
                     incident_id=decision.incident_id,

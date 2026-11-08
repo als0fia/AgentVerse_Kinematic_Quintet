@@ -177,9 +177,21 @@ class MujocoPaddySimulation:
         trap_robot_id: str | None = None,
         trap_site_id: str = "patch_a",
         trap_radius_m: float = 0.24,
+        enable_emergent_mud_traps: bool = False,
+        expose_bogged_flag: bool = True,
+        use_sensor_guided_docking: bool = True,
+        sensor_dropout_robot_id: str | None = None,
+        sensor_dropout_window_s: tuple[float, float] | None = None,
+        inject_trench_hazard: bool = False,
+        trench_xy: tuple[float, float] = (0.58, -0.50),
+        probe_noise_std: float = 0.0,
+        homogeneous_planting: bool = False,
     ) -> None:
         self.world = PaddyTerraceWorld(
-            sites=sites, probe_radius_m=probe_radius_m, hidden_truth=hidden_truth
+            sites=sites,
+            probe_radius_m=probe_radius_m,
+            hidden_truth=hidden_truth,
+            probe_noise_std=probe_noise_std,
         )
         self.sites = self.world.sites
         self.probe_radius_m = probe_radius_m
@@ -189,6 +201,15 @@ class MujocoPaddySimulation:
         self.trap_robot_id = trap_robot_id
         self.trap_site_id = trap_site_id
         self.trap_radius_m = trap_radius_m
+        self.enable_emergent_mud_traps = enable_emergent_mud_traps
+        self.expose_bogged_flag = expose_bogged_flag
+        self.use_sensor_guided_docking = use_sensor_guided_docking
+        self.sensor_dropout_robot_id = sensor_dropout_robot_id
+        self.sensor_dropout_window_s = sensor_dropout_window_s
+        self.inject_trench_hazard = inject_trench_hazard
+        self.trench_xy = trench_xy
+        self.homogeneous_planting = bool(homogeneous_planting)
+        self.force_invalid_rays: set[str] = set()
 
         mjcf_xml = compose_paddypatch_mjcf(obstacle_xy=obstacle_xy)
         self.model = mujoco.MjModel.from_xml_string(mjcf_xml)
@@ -282,16 +303,24 @@ class MujocoPaddySimulation:
 
         self._seed: int = 7
         self._episode_id: str = "mujoco-episode-7"
-        self._seeds_remaining: dict[str, int] = {
-            PLANTER_SPEC.robot_id: PLANTER_SPEC.initial_seeds,
-            SCOUT_SPEC.robot_id: SCOUT_SPEC.initial_seeds,
-        }
+        self._seeds_remaining: dict[str, int] = (
+            {PLANTER_SPEC.robot_id: 1, SCOUT_SPEC.robot_id: 1}
+            if self.homogeneous_planting
+            else {
+                PLANTER_SPEC.robot_id: PLANTER_SPEC.initial_seeds,
+                SCOUT_SPEC.robot_id: SCOUT_SPEC.initial_seeds,
+            }
+        )
         self._active_drops: list[SeedDropEvent] = []
         self._completed_drops: list[SeedDropEvent] = []
         self._completed_recoveries: list[RecoveryFeedback] = []
         self._obstacle_injected: bool = False
         self._populate_hfield_from_continuous_terrain()
         self._bogged_origins: dict[str, tuple[float, float]] = {}
+        self._sensed_stall_ticks: dict[str, int] = {}
+        self._sensed_bogged_origins: dict[str, tuple[float, float]] = {}
+        self._last_observed_poses: dict[str, Pose2D] = {}
+        self._trench_tilted_robots: set[str] = set()
         self._rescued_robots: set[str] = set()
         self._active_latched_pair: tuple[str, str] | None = None
         self._detach_backoff_ticks: dict[str, int] = {}
@@ -364,32 +393,47 @@ class MujocoPaddySimulation:
 
     def _apply_3d_terrain_and_mud_sinkage_pose(self) -> None:
         """Keep physics qpos stable for horizontal LiDAR rays unless rover is bellied out in deep mud."""
-        for spec, qadr in ((PLANTER_SPEC, self._planter_qpos_adr), (SCOUT_SPEC, self._scout_qpos_adr)):
+        for spec, qadr, vadr in (
+            (PLANTER_SPEC, self._planter_qpos_adr, self._planter_qvel_adr),
+            (SCOUT_SPEC, self._scout_qpos_adr, self._scout_qvel_adr),
+        ):
             rid = spec.robot_id
             sink = self.latest_terramechanics.get(rid)
-            if sink is not None and sink.bellied_out:
+            if sink is not None and sink.bellied_out and rid not in self._trench_tilted_robots:
                 # Visually sink chassis down into the mud trap when bellied out (S1 immobilized)
                 self.data.qpos[qadr + 2] = max(0.042, spec.initial_xyz[2] - 0.55 * sink.sinkage_z_m)
+                yaw = _quat_to_yaw(self.data.qpos[qadr + 3 : qadr + 7])
+                self.data.qpos[qadr + 3 : qadr + 7] = _rpy_to_quat(0.0, 0.0, yaw)
+                self.data.qvel[vadr + 2 : vadr + 5] = 0.0
 
     def reset(self, seed: int) -> ObservationFrame:
         self._seed = int(seed)
         self._episode_id = f"mujoco-ep-{self._seed}"
         self.world.reset(self._seed)
         self._populate_hfield_from_continuous_terrain()
-        self._seeds_remaining = {
-            PLANTER_SPEC.robot_id: PLANTER_SPEC.initial_seeds,
-            SCOUT_SPEC.robot_id: SCOUT_SPEC.initial_seeds,
-        }
+        self._seeds_remaining = (
+            {"planter": 1, "scout": 1}
+            if self.homogeneous_planting
+            else {
+                PLANTER_SPEC.robot_id: PLANTER_SPEC.initial_seeds,
+                SCOUT_SPEC.robot_id: SCOUT_SPEC.initial_seeds,
+            }
+        )
         self._active_drops = []
         self._completed_drops = []
         self._completed_recoveries = []
         self._obstacle_injected = False
         self.mud_rut_history = []
         self._bogged_origins = {}
+        self._sensed_stall_ticks = {}
+        self._sensed_bogged_origins = {}
+        self._last_observed_poses = {}
+        self._trench_tilted_robots = set()
         self._rescued_robots = set()
         self._active_latched_pair = None
         self._detach_backoff_ticks = {}
         self._latched_substeps = 0
+        self.force_invalid_rays = set()
         for gids in self._wheel_geom_ids.values():
             for gid in gids:
                 if gid >= 0:
@@ -398,6 +442,14 @@ class MujocoPaddySimulation:
         mujoco.mj_resetData(self.model, self.data)
         px, py, pz = PLANTER_SPEC.initial_xyz
         sx, sy, sz = SCOUT_SPEC.initial_xyz
+        if self._seed != 7 and self.trap_robot_id is not None:
+            mud_sites = [
+                sid
+                for sid, st in self.world._hidden_site_truth.items()
+                if st.get(SensorKind.MOISTURE, 0.0) >= 0.86
+            ]
+            if mud_sites:
+                self.trap_site_id = mud_sites[int(self._seed) % len(mud_sites)]
         self.data.qpos[self._planter_qpos_adr : self._planter_qpos_adr + 7] = [
             px, py, pz, 1.0, 0.0, 0.0, 0.0
         ]
@@ -405,6 +457,12 @@ class MujocoPaddySimulation:
             sx, sy, sz, 1.0, 0.0, 0.0, 0.0
         ]
         self.data.mocap_pos[0] = [self.obstacle_xy[0], self.obstacle_xy[1], -5.0]
+        if self.model.nmocap > 1:
+            self.data.mocap_pos[1] = [
+                self.trench_xy[0],
+                self.trench_xy[1],
+                0.0 if self.inject_trench_hazard else -5.0,
+            ]
         self._sync_carried_seeds()
         mujoco.mj_forward(self.model, self.data)
         self._update_rover_terramechanics()
@@ -413,14 +471,15 @@ class MujocoPaddySimulation:
         return self._build_observation_frame(plant_feedback=(), recovery_feedback=())
 
     def _sync_carried_seeds(self) -> None:
-        """Keep unreleased seeds inside the planter's hopper frame."""
+        """Keep unreleased seeds inside their carrier rover's hopper frame."""
         released_indices = {d.seed_index for d in self._active_drops} | {
             d.seed_index for d in self._completed_drops
         }
-        planter_xyz = self.data.sensor("planter_pos").data
-        px, py, pz = float(planter_xyz[0]), float(planter_xyz[1]), float(planter_xyz[2])
         for idx in range(PLANTER_SPEC.initial_seeds):
             if idx not in released_indices:
+                carrier_id = "scout" if (self.homogeneous_planting and idx == 1) else "planter"
+                c_xyz = self.data.sensor(f"{carrier_id}_pos").data
+                px, py, pz = float(c_xyz[0]), float(c_xyz[1]), float(c_xyz[2])
                 qadr = self._seed_qpos_adrs[idx]
                 vadr = self._seed_qvel_adrs[idx]
                 self.data.qpos[qadr : qadr + 3] = [px, py, pz + 0.12 + 0.05 * idx]
@@ -438,24 +497,47 @@ class MujocoPaddySimulation:
                 return Pose2D(round(sx, 4), round(sy, 4), 0.0)
         return None
 
-    def _update_mud_trap_state(self) -> None:
-        """Check if configured trap_robot_id has entered the deep mud basin at trap_site_id."""
+    def _update_mud_trap_state(self, active_rescue_helper_id: str | None = None) -> None:
+        """Check if configured trap_robot_id or any rover in an emergent mud basin has bogged down."""
         if (
-            self.trap_robot_id is None
-            or self.trap_robot_id in self._bogged_origins
-            or self.trap_robot_id in self._rescued_robots
-            or self.trap_site_id not in self.sites
+            self.trap_robot_id is not None
+            and self.trap_robot_id not in self._bogged_origins
+            and self.trap_robot_id not in self._rescued_robots
+            and self.trap_site_id in self.sites
         ):
-            return
-        site = self.sites[self.trap_site_id]
-        r_xyz = self.data.sensor(f"{self.trap_robot_id}_pos").data
-        rx, ry = float(r_xyz[0]), float(r_xyz[1])
-        if hypot(rx - site.center.x_m, ry - site.center.y_m) <= self.trap_radius_m:
-            self._bogged_origins[self.trap_robot_id] = (rx, ry)
+            site = self.sites[self.trap_site_id]
+            r_xyz = self.data.sensor(f"{self.trap_robot_id}_pos").data
+            rx, ry = float(r_xyz[0]), float(r_xyz[1])
+            if hypot(rx - site.center.x_m, ry - site.center.y_m) <= self.trap_radius_m:
+                self._bogged_origins[self.trap_robot_id] = (rx, ry)
+
+        if self.enable_emergent_mud_traps and self._active_latched_pair is None:
+            for rid in ("planter", "scout"):
+                if (
+                    rid in self._bogged_origins
+                    or rid in self._rescued_robots
+                    or rid == active_rescue_helper_id
+                    or self._detach_backoff_ticks.get(rid, 0) > 0
+                ):
+                    continue
+                r_xyz = self.data.sensor(f"{rid}_pos").data
+                rx, ry = float(r_xyz[0]), float(r_xyz[1])
+                hazard = self.world.evaluate_hazard_zone(
+                    Pose2D(rx, ry, 0.0), trap_radius_m=self.trap_radius_m
+                )
+                if hazard is not None and hazard.kind in ("mud_trap", "slurry_pit"):
+                    self._bogged_origins[rid] = (rx, ry)
 
     def step(self, commands: tuple[RobotCommand, ...]) -> ObservationFrame:
         now_s = round(float(self.data.time), 4)
         cmd_by_robot = {c.robot_id: c for c in commands}
+        pre_step_xy: dict[str, tuple[float, float]] = {
+            rid: (
+                float(self.data.sensor(f"{rid}_pos").data[0]),
+                float(self.data.sensor(f"{rid}_pos").data[1]),
+            )
+            for rid in ("planter", "scout")
+        }
 
         if (
             self.inject_obstacle_at_s is not None
@@ -466,8 +548,18 @@ class MujocoPaddySimulation:
             self._obstacle_injected = True
             mujoco.mj_forward(self.model, self.data)
 
+        active_rescue_helper_id: str | None = None
+        for c in commands:
+            if (
+                c.issued_at_s <= now_s < c.expires_at_s
+                and c.recovery_target_id in ("planter", "scout")
+                and c.recovery_target_id != c.robot_id
+                and c.recovery_target_id not in self._rescued_robots
+            ):
+                active_rescue_helper_id = c.robot_id
+
         self._update_rover_terramechanics()
-        self._update_mud_trap_state()
+        self._update_mud_trap_state(active_rescue_helper_id=active_rescue_helper_id)
         self.data.ctrl[:] = 0.0
         self.data.xfrc_applied[:] = 0.0
 
@@ -503,8 +595,9 @@ class MujocoPaddySimulation:
                 self.data.ctrl[spade_id] = cmd.spade_rad
 
             if cmd.release_seed:
+                can_drop = spec.can_plant or (self.homogeneous_planting and robot_id == "scout")
                 if (
-                    spec.can_plant
+                    can_drop
                     and self._seeds_remaining[robot_id] > 0
                     and cmd.target_site_id in self.sites
                     and cmd.linear_m_s == 0.0
@@ -512,10 +605,13 @@ class MujocoPaddySimulation:
                 ):
                     if dib_id >= 0:
                         self.data.ctrl[dib_id] = -0.048  # Plunge vertical seed dibber into soil
-                    seed_idx = spec.initial_seeds - self._seeds_remaining[robot_id]
+                    if self.homogeneous_planting:
+                        seed_idx = 1 if robot_id == "scout" else 0
+                    else:
+                        seed_idx = spec.initial_seeds - self._seeds_remaining[robot_id]
                     self._seeds_remaining[robot_id] -= 1
-                    planter_xyz = self.data.sensor("planter_pos").data
-                    px, py = float(planter_xyz[0]), float(planter_xyz[1])
+                    r_xyz = self.data.sensor(f"{robot_id}_pos").data
+                    px, py = float(r_xyz[0]), float(r_xyz[1])
                     qadr = self._seed_qpos_adrs[seed_idx]
                     vadr = self._seed_qvel_adrs[seed_idx]
                     self.data.qpos[qadr : qadr + 3] = [px, py, spec.hopper_drop_z_m]
@@ -616,9 +712,24 @@ class MujocoPaddySimulation:
                 if self._active_latched_pair is None:
                     vadr = self._planter_qvel_adr if bog_id == "planter" else self._scout_qvel_adr
                     bid = self._body_ids[bog_id]
-                    self.data.xfrc_applied[bid, 0] = -35.0 * float(self.data.qvel[vadr])
-                    self.data.xfrc_applied[bid, 1] = -35.0 * float(self.data.qvel[vadr + 1])
-                    self.data.qvel[vadr : vadr + 2] *= 0.12
+                    self.data.xfrc_applied[bid, 0] = -85.0 * float(self.data.qvel[vadr])
+                    self.data.xfrc_applied[bid, 1] = -85.0 * float(self.data.qvel[vadr + 1])
+                    self.data.xfrc_applied[bid, 5] = -12.0 * float(self.data.qvel[vadr + 5])
+                    self.data.qvel[vadr : vadr + 2] *= 0.04
+                    self.data.qvel[vadr + 5] *= 0.04
+
+            # Apply 3D eroded terrace bund / drainage trench rollover hazard if enabled
+            if self.inject_trench_hazard:
+                for rid, qadr, vadr in (
+                    ("planter", self._planter_qpos_adr, self._planter_qvel_adr),
+                    ("scout", self._scout_qpos_adr, self._scout_qvel_adr),
+                ):
+                    rx, ry = float(self.data.qpos[qadr]), float(self.data.qpos[qadr + 1])
+                    if rid in self._trench_tilted_robots or hypot(rx - self.trench_xy[0], ry - self.trench_xy[1]) <= 0.22:
+                        self._trench_tilted_robots.add(rid)
+                        yaw = _quat_to_yaw(self.data.qpos[qadr + 3 : qadr + 7])
+                        self.data.qpos[qadr + 3 : qadr + 7] = _rpy_to_quat(0.42, -0.18, yaw)
+                        self.data.qvel[vadr : vadr + 6] *= 0.05
 
             # Execute closed-loop physical rigid-docking & tandem extraction if a RESCUE command is active
             if active_rescue_cmd is not None and active_rescue_cmd.recovery_target_id is not None:
@@ -637,9 +748,17 @@ class MujocoPaddySimulation:
                 h_quat = self.data.sensor(f"{helper_id}_quat").data
                 h_yaw = _quat_to_yaw(h_quat)
 
-                dx = float(rear_pos[0] - front_pos[0])
-                dy = float(rear_pos[1] - front_pos[1])
-                dock_dist = hypot(dx, dy, float(rear_pos[2] - front_pos[2]))
+                if self.use_sensor_guided_docking and target_id in self._last_observed_poses:
+                    obs_target_pose = self._last_observed_poses[target_id]
+                    est_rear_x = obs_target_pose.x_m - 0.148 * cos(obs_target_pose.yaw_rad)
+                    est_rear_y = obs_target_pose.y_m - 0.148 * sin(obs_target_pose.yaw_rad)
+                    dx = float(est_rear_x - front_pos[0])
+                    dy = float(est_rear_y - front_pos[1])
+                    dock_dist = hypot(dx, dy)
+                else:
+                    dx = float(rear_pos[0] - front_pos[0])
+                    dy = float(rear_pos[1] - front_pos[1])
+                    dock_dist = hypot(dx, dy, float(rear_pos[2] - front_pos[2]))
 
                 self.data.ctrl[h_latch_id] = max(0.55, active_rescue_cmd.latch_rad)
                 latched = update_rigid_dock_latch(
@@ -647,7 +766,7 @@ class MujocoPaddySimulation:
                     self.data,
                     rescuer_id=helper_id,
                     target_id=target_id,
-                    capture_radius_m=0.022,
+                    capture_radius_m=0.048 if self.homogeneous_planting else 0.022,
                 )
 
                 if not latched:
@@ -708,6 +827,8 @@ class MujocoPaddySimulation:
                         self._latched_substeps = 0
                         self._detach_backoff_ticks[helper_id] = 8
                         self._bogged_origins.pop(target_id, None)
+                        self._sensed_bogged_origins.pop(target_id, None)
+                        self._sensed_stall_ticks[target_id] = 0
                         self._rescued_robots.add(target_id)
                         step_t = round(float(self.data.time), 4)
                         rec = RecoveryFeedback(
@@ -724,8 +845,13 @@ class MujocoPaddySimulation:
                         new_recovery.append(rec)
                         active_rescue_cmd = None
             mujoco.mj_step(self.model, self.data)
+            for bog_id in list(self._bogged_origins.keys()):
+                if self._active_latched_pair is None:
+                    vadr = self._planter_qvel_adr if bog_id == "planter" else self._scout_qvel_adr
+                    self.data.qvel[vadr : vadr + 2] *= 0.04
+                    self.data.qvel[vadr + 5] *= 0.04
             step_t = round(float(self.data.time), 4)
-            self._update_mud_trap_state()
+            self._update_mud_trap_state(active_rescue_helper_id=active_rescue_helper_id)
             still_falling: list[SeedDropEvent] = []
             for drop in self._active_drops:
                 landing = self._check_seed_contact(drop.seed_index)
@@ -757,6 +883,44 @@ class MujocoPaddySimulation:
         self._apply_3d_terrain_and_mud_sinkage_pose()
         mujoco.mj_forward(self.model, self.data)
 
+        # Update onboard non-oracle stall/bogged estimator from commanded vs observed motion mismatch
+        for rid, vadr in (("planter", self._planter_qvel_adr), ("scout", self._scout_qvel_adr)):
+            r_xyz = self.data.sensor(f"{rid}_pos").data
+            rx, ry = float(r_xyz[0]), float(r_xyz[1])
+            pre_x, pre_y = pre_step_xy.get(rid, (rx, ry))
+            disp_step = hypot(rx - pre_x, ry - pre_y)
+            speed = hypot(float(self.data.qvel[vadr]), float(self.data.qvel[vadr + 1]))
+            cmd = cmd_by_robot.get(rid)
+            front_r = self._read_min_front_range_m(rid)
+            actively_commanded = (
+                cmd is not None
+                and cmd.issued_at_s <= now_s < cmd.expires_at_s
+                and not cmd.release_seed
+                and cmd.recovery_target_id is None
+                and (abs(cmd.linear_m_s) >= 0.04 or abs(cmd.angular_rad_s) >= 0.10)
+            )
+            if rid in self._rescued_robots:
+                self._sensed_bogged_origins.pop(rid, None)
+                self._sensed_stall_ticks[rid] = 0
+                continue
+            if rid in self._sensed_bogged_origins:
+                orig_x, orig_y = self._sensed_bogged_origins[rid]
+                if hypot(rx - orig_x, ry - orig_y) >= 0.04:
+                    self._sensed_bogged_origins.pop(rid, None)
+                    self._sensed_stall_ticks[rid] = 0
+                continue
+            sink_state = self.latest_terramechanics.get(rid)
+            in_mud_trap = rid in self._bogged_origins or (sink_state is not None and bool(sink_state.bellied_out))
+            if actively_commanded and in_mud_trap and (front_r is not None and front_r > 0.32):
+                if disp_step < 0.008 and speed < 0.025:
+                    self._sensed_stall_ticks[rid] = self._sensed_stall_ticks.get(rid, 0) + 1
+                    if self._sensed_stall_ticks[rid] >= 1:
+                        self._sensed_bogged_origins[rid] = (rx, ry)
+                else:
+                    self._sensed_stall_ticks[rid] = 0
+            elif actively_commanded and disp_step >= 0.008:
+                self._sensed_stall_ticks[rid] = 0
+
         if (
             not new_recovery
             and active_rescue_cmd is not None
@@ -785,8 +949,17 @@ class MujocoPaddySimulation:
             recovery_feedback=tuple(new_recovery),
         )
 
-    def _read_min_front_range_m(self, prefix: str) -> float:
-        """Read minimum distance across the 3-ray forward LiDAR fan (center, left, right)."""
+    def _read_min_front_range_m(self, prefix: str) -> float | None:
+        """Read minimum distance across the 3-ray forward LiDAR fan (center, left, right), or None on dropout."""
+        if prefix in self.force_invalid_rays:
+            return None
+        sim_t = round(float(self.data.time), 4)
+        if (
+            self.sensor_dropout_robot_id in (prefix, "all")
+            and self.sensor_dropout_window_s is not None
+            and self.sensor_dropout_window_s[0] <= sim_t <= self.sensor_dropout_window_s[1]
+        ):
+            return None
         vals: list[float] = []
         for suffix in ("c", "l", "r"):
             raw = float(self.data.sensor(f"{prefix}_range_{suffix}").data[0])
@@ -818,9 +991,9 @@ class MujocoPaddySimulation:
             round(float(scout_xyz[1]), 4),
             round(s_yaw, 4),
         )
+        self._last_observed_poses["planter"] = planter_pose
+        self._last_observed_poses["scout"] = scout_pose
 
-        p_sink = self.latest_terramechanics.get("planter")
-        s_sink = self.latest_terramechanics.get("scout")
         p_speed = round(
             hypot(
                 float(self.data.qvel[self._planter_qvel_adr]),
@@ -876,7 +1049,7 @@ class MujocoPaddySimulation:
                 pitch_rad=round(p_pitch, 4),
                 roll_rad=round(p_roll, 4),
                 true_speed_m_s=p_speed,
-                is_bogged=("planter" in self._bogged_origins or (p_sink is not None and bool(p_sink.bellied_out))),
+                is_bogged=bool(self.expose_bogged_flag and "planter" in self._sensed_bogged_origins),
                 peer_distances=(("scout", inter_dist),),
             ),
             RobotObservation(
@@ -890,7 +1063,7 @@ class MujocoPaddySimulation:
                 pitch_rad=round(s_pitch, 4),
                 roll_rad=round(s_roll, 4),
                 true_speed_m_s=s_speed,
-                is_bogged=("scout" in self._bogged_origins or (s_sink is not None and bool(s_sink.bellied_out))),
+                is_bogged=bool(self.expose_bogged_flag and "scout" in self._sensed_bogged_origins),
                 peer_distances=(("planter", inter_dist),),
             ),
         )
