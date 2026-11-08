@@ -61,7 +61,7 @@ from ..contracts import (
 )
 from ..control import ControlLimits
 from ..mission import SiteEstimate
-from .planner import RescueAssessment, RescueVerdict, SupervisoryAdvisor
+from .planner import AmbiguityEvent, RescueAssessment, RescueVerdict, SupervisoryAdvisor
 
 
 def _wrap_angle(angle: float) -> float:
@@ -472,7 +472,11 @@ class DecentralizedRobotNode:
 
         nearest_sid = self.local_map.nearest_site_id(obs.pose) if hasattr(self.local_map, "nearest_site_id") else None
         local_est = self.local_map.estimate(nearest_sid) if nearest_sid else None
-        effective_slip = raw_slip if raw_slip > 0.0 else (0.85 if obs.is_bogged else 0.08)
+        # Missing rangefinder (None) is sensor invalidity, never wheel immobilisation (Audit C3/M5)
+        if obs.front_range_m is None:
+            effective_slip = 0.08
+        else:
+            effective_slip = raw_slip if raw_slip > 0.0 else (0.85 if obs.is_bogged else 0.08)
         self.active_distress = self.rescue_engine.build_distress_signal(
             obs,
             slip_ratio=effective_slip,
@@ -684,8 +688,12 @@ class DecentralizedRobotNode:
             )
 
         # Potential-field steering combining attractive goal + local SLAM obstacle bypass + protected crop avoidance
-        goal_ux = dx / dist_to_target
-        goal_uy = dy / dist_to_target
+        wp = self._select_waypoint_around_slam_obstacles(obs.pose, target_site.center)
+        wp_dx = wp.x_m - obs.pose.x_m
+        wp_dy = wp.y_m - obs.pose.y_m
+        wp_dist = max(1e-4, hypot(wp_dx, wp_dy))
+        goal_ux = wp_dx / wp_dist
+        goal_uy = wp_dy / wp_dist
         rep_x = 0.0
         rep_y = 0.0
 
@@ -710,8 +718,8 @@ class DecentralizedRobotNode:
             if 1e-4 < d_cell < influence:
                 strength = 0.95 * ((1.0 / d_cell) - (1.0 / influence)) / max(d_cell, 0.10)
                 # Tangential detour around northern side (+Y) of obstacle in southern lane
-                rep_x += (ox / d_cell) * strength * 0.45 - (oy / d_cell) * strength * 1.15
-                rep_y += (oy / d_cell) * strength * 0.45 + (ox / d_cell) * strength * 1.15
+                rep_x += (ox / d_cell) * strength * 0.45 + (oy / d_cell) * strength * 1.15
+                rep_y += (oy / d_cell) * strength * 0.45 - (ox / d_cell) * strength * 1.15
 
         for pid, ppose in peer_poses.items():
             if pid == obs.robot_id:
@@ -831,7 +839,23 @@ class DecentralizedMycelialRuntime:
         obs_by_robot = {r.robot_id: r for r in frame.robots}
         if any(rid not in self.capabilities for rid in obs_by_robot):
             raise ValueError("observation from unknown actor")
-        peer_poses = {r.robot_id: r.pose for r in frame.robots}
+        robot_ids = sorted(obs_by_robot.keys())
+
+        # Compute link-gated peer visibility per robot (Audit M6: zero peer pose leakage during blackout/out-of-range)
+        visible_peer_poses_for_robot: dict[str, dict[str, Pose2D]] = {}
+        reachable_peers: dict[str, set[str]] = {rid: {rid} for rid in robot_ids}
+        for rid_a in robot_ids:
+            obs_a = obs_by_robot[rid_a]
+            vis_poses: dict[str, Pose2D] = {rid_a: obs_a.pose}
+            for rid_b in robot_ids:
+                if rid_a == rid_b:
+                    continue
+                obs_b = obs_by_robot[rid_b]
+                d_ab = hypot(obs_b.pose.x_m - obs_a.pose.x_m, obs_b.pose.y_m - obs_a.pose.y_m)
+                if obs_a.link_ok and obs_b.link_ok and self._is_link_open(frame.time_s, d_ab):
+                    vis_poses[rid_b] = obs_b.pose
+                    reachable_peers[rid_a].add(rid_b)
+            visible_peer_poses_for_robot[rid_a] = vis_poses
 
         # 1. Process physical seed landing feedback locally on the robot that released it
         for fb in frame.plant_feedback:
@@ -856,7 +880,9 @@ class DecentralizedMycelialRuntime:
         self.latest_sensor_telemetry = {}
         for robot_id, obs in obs_by_robot.items():
             node = self.nodes[robot_id]
-            telemetry, count, _ = node.process_local_sensors(obs, peer_poses)
+            telemetry, count, _ = node.process_local_sensors(
+                obs, visible_peer_poses_for_robot[robot_id]
+            )
             self.latest_sensor_telemetry[robot_id] = telemetry
             total_ingested += count
 
@@ -867,7 +893,6 @@ class DecentralizedMycelialRuntime:
 
         # 4. Event-Triggered Peer-to-Peer Mycelial Gossip (ONLY between reachable peers within comm_range_m)
         cycle_packets: list[MycelialGossipPacket] = []
-        robot_ids = sorted(obs_by_robot.keys())
         for sender_id in robot_ids:
             sender_node = self.nodes[sender_id]
             sender_obs = obs_by_robot[sender_id]
@@ -986,19 +1011,6 @@ class DecentralizedMycelialRuntime:
             rid: self.nodes[rid].compute_task_bids(obs) for rid, obs in obs_by_robot.items()
         }
 
-        reachable_peers: dict[str, set[str]] = {rid: {rid} for rid in robot_ids}
-        for rid_a in robot_ids:
-            for rid_b in robot_ids:
-                if rid_a == rid_b:
-                    continue
-                d_ab = self.latest_sensor_telemetry[rid_a].uwb_peer_ranges_m.get(rid_b, 99.0)
-                if (
-                    obs_by_robot[rid_a].link_ok
-                    and obs_by_robot[rid_b].link_ok
-                    and self._is_link_open(frame.time_s, d_ab)
-                ):
-                    reachable_peers[rid_a].add(rid_b)
-
         intents: list[TaskIntent] = []
         commands: list[RobotCommand] = []
         claimed_by_peer: dict[str, str] = {}
@@ -1070,18 +1082,25 @@ class DecentralizedMycelialRuntime:
             opp_cost = round(0.18 * eta_s, 4)
             net_utility = round(saved_benefit - opp_cost, 4)
             verdict = RescueVerdict.RESCUE_NOW if net_utility >= 0.0 else RescueVerdict.DEFER_RESCUE
+            rationale_text = (
+                f"Peer rescue saves {saved_benefit:.2f} expected utility at cost {opp_cost:.2f} "
+                f"(net={net_utility:+.2f}, ETA={eta_s:.1f}s) -> {verdict.value}"
+            )
             assessment = RescueAssessment(
                 stranded_robot_id=stranded_id,
-                rescuer_robot_id=rescuer.robot_id,
+                verdict=verdict,
                 nearest_site_id=nearest_site_id,
+                rescue_benefit=saved_benefit,
+                opportunity_cost=opp_cost,
+                hazard_risk=0.0,
+                net_rescue_value=net_utility,
+                helper_robot_id=rescuer.robot_id,
+                reason=rationale_text,
+                rescuer_robot_id=rescuer.robot_id,
                 expected_saved_benefit=saved_benefit,
                 rescue_opportunity_cost=opp_cost,
                 net_rescue_utility=net_utility,
-                verdict=verdict,
-                rationale=(
-                    f"Peer rescue saves {saved_benefit:.2f} expected utility at cost {opp_cost:.2f} "
-                    f"(net={net_utility:+.2f}, ETA={eta_s:.1f}s) -> {verdict.value}"
-                ),
+                rationale=rationale_text,
             )
             self.last_rescue_assessments[stranded_id] = assessment
             if verdict == RescueVerdict.RESCUE_NOW:
@@ -1120,13 +1139,22 @@ class DecentralizedMycelialRuntime:
 
         if self.advisor is not None and not rescue_intent_by_robot:
             try:
-                rec_map = self.advisor.recommend(
-                    frame,
-                    self.sites,
-                    self.nodes[robot_ids[0]].local_map.estimates() if robot_ids else {},
-                    self.nodes[robot_ids[0]].local_map.planted_sites if robot_ids else set(),
-                    [],
+                est_map = self.nodes[robot_ids[0]].local_map.estimates() if robot_ids else {}
+                planted_set = self.nodes[robot_ids[0]].local_map.planted_sites if robot_ids else set()
+                candidate_sids = tuple(
+                    sid for sid, s in self.sites.items() if s.permitted and sid not in planted_set
                 )
+                event = AmbiguityEvent(
+                    episode_id=frame.episode_id,
+                    time_s=frame.time_s,
+                    kind="mycelial_advisory_check",
+                    affected_site_ids=(),
+                    candidate_site_ids=candidate_sids,
+                )
+                if hasattr(self.advisor, "advise"):
+                    rec_map = self.advisor.advise(event, frame, est_map)
+                else:
+                    rec_map = self.advisor.recommend(frame, self.sites, est_map, planted_set, [])
                 if rec_map:
                     self.last_advisor_recommendation = ", ".join(f"{k}->{v}" for k, v in rec_map.items())
             except Exception:
@@ -1158,7 +1186,7 @@ class DecentralizedMycelialRuntime:
                     target_site_id=winning_bid.site_id,
                     reason=winning_bid.proposal_text,
                 )
-            cmd = node.compute_local_command(obs, intent, peer_poses)
+            cmd = node.compute_local_command(obs, intent, visible_peer_poses_for_robot[rid])
             intents.append(intent)
             commands.append(cmd)
 

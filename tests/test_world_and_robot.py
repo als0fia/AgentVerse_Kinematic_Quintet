@@ -197,5 +197,65 @@ class RobotModuleTest(unittest.TestCase):
             self.assertGreater(m2.neq, 0)
 
 
+
+    def test_level_plot_and_decorative_rice_clumps_do_not_block_lidar(self) -> None:
+        from ricebot.mujoco_sim import MujocoPaddySimulation
+        from ricebot.world import UNEXPECTED_BAD_SOIL_TRUTH, build_world_terrain_xml
+
+        # 1. Verify level plot micro-topography (no 1m terrace steps or steep ramps)
+        world = PaddyTerraceWorld()
+        for x_m in (0.2, 0.85, 1.18, 1.60, 1.98, 2.35):
+            z, dz_dx, dz_dy = world.continuous_terrain.elevation_and_gradient(x_m, -0.50)
+            self.assertLess(abs(z), 0.05)
+            self.assertLess(abs(dz_dx), 0.25)
+            self.assertLess(abs(dz_dy), 0.25)
+
+        # 2. Verify scenario material alignment for bad_soil (patch_b is mud hazard, patch_d is viable loam)
+        bad_xml = build_world_terrain_xml(hidden_truth=UNEXPECTED_BAD_SOIL_TRUTH)
+        self.assertIn('name="puddle_patch_b"', bad_xml)
+        self.assertIn('name="ring_patch_d"', bad_xml)
+
+        # 3. Verify decorative rice leaves are in group 2 and never trigger false LiDAR obstacle stops
+        sim = MujocoPaddySimulation(trap_robot_id="planter", trap_site_id="patch_a")
+        frame0 = sim.reset(seed=7)
+        for r in frame0.robots:
+            self.assertIsNotNone(r.front_range_m)
+            self.assertGreater(r.front_range_m, 1.5)
+            self.assertFalse(r.is_bogged)
+
+    def test_sensor_validity_fault_evidence_and_peer_isolation_negative_controls(self) -> None:
+        from ricebot.agent.mycelial_swarm import DecentralizedMycelialRuntime
+        from ricebot.contracts import RobotCommand
+        from ricebot.mujoco_sim import MujocoPaddySimulation
+
+        # 1. Negative control: rangefinder returning < 0 or in sensor_degraded window -> front_range_m is None, never bogged
+        sim = MujocoPaddySimulation(
+            trap_robot_id="planter",
+            trap_site_id="patch_a",
+            sensor_degraded_window_s=(0.05, 0.25),
+            sensor_degraded_robot_id="planter",
+        )
+        frame = sim.reset(seed=7)
+        # Move planter into patch_a trap radius while issuing HOLD (zero wheel drive)
+        qadr = sim._planter_qpos_adr
+        sim.data.qpos[qadr : qadr + 2] = [0.85, -0.50]
+        hold_cmd = RobotCommand("planter", issued_at_s=0.0, expires_at_s=0.2, task_id="hold", linear_m_s=0.0, angular_rad_s=0.0)
+        frame_deg = sim.step((hold_cmd,))
+        p_obs = [r for r in frame_deg.robots if r.robot_id == "planter"][0]
+        self.assertIsNone(p_obs.front_range_m)
+        self.assertFalse(p_obs.is_bogged)
+        self.assertFalse(sim.latest_fault_evidence["planter"].is_commanded_motion_stall)
+        # Soil samples during sensor_degraded window are marked valid=False
+        self.assertTrue(all(not s.valid for s in p_obs.samples))
+
+        # 2. Peer pose isolation during isolated/blackout comms (Audit M6)
+        rt_iso = DecentralizedMycelialRuntime(
+            sites=DEFAULT_SITES, capabilities=DEFAULT_CAPABILITIES, comm_mode="isolated"
+        )
+        rt_iso.decide(frame)
+        self.assertEqual(rt_iso.latest_sensor_telemetry["planter"].uwb_peer_ranges_m, {})
+        self.assertEqual(rt_iso.total_gossip_packets, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
