@@ -100,5 +100,25 @@ class ScaledFieldIntegrationTest(unittest.TestCase):
 
 
 
+    def test_six_rover_expanded_field_episode_has_observable_useful_work(self) -> None:
+        """End-to-end physical scene: all six rovers must do more than appear."""
+        cfg = EpisodeConfig(
+            scenario="randomized", policy="mycelial", comms="normal",
+            seed=8, steps=120, num_rovers=6, map_scale=1.6,
+            active_mycelial_in_rescue=True, enable_live_llm=False,
+        )
+        record = run_canonical_episode(cfg)
+        self.assertGreaterEqual(record.patches_total, 12)
+        self.assertGreaterEqual(
+            sum(ticks > 0 for ticks in record.active_task_ticks_by_rover.values()), 4
+        )
+        self.assertGreaterEqual(
+            sum(dist > 0.08 for dist in record.distance_m_by_rover.values()), 3
+        )
+        self.assertGreaterEqual(record.patches_visited, 2)
+        self.assertEqual(record.gossip_source, "active")
+        self.assertEqual(record.llm_requests_sent, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
