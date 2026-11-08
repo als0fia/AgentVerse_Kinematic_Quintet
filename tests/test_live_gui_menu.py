@@ -57,6 +57,33 @@ class TestLiveGuiMainMenuAndScalableFleet(unittest.TestCase):
             app.step_once()
             app.set_fleet_size(2)
             self.assertEqual(len(app.frame.robots), 2)
+
+            # Presentation is a passive layout switch, not a new episode.
+            original_session = app.session
+            original_tick = app.step_count
+            original_poses = [
+                (r.robot_id, r.pose.x_m, r.pose.y_m) for r in app.frame.robots
+            ]
+            app.toggle_presentation_mode()
+            self.assertTrue(app.presentation_mode)
+            self.assertEqual(app.main_menu_bar.winfo_manager(), "")
+            self.assertEqual(app.inspector_frame.winfo_manager(), "")
+            self.assertEqual(app.bottom_frame.winfo_manager(), "")
+            self.assertEqual(app.mode_btn.cget("text"), "Engineering / Advanced")
+            app.set_presentation_camera("rescue")
+            app.set_presentation_camera("field")
+            app.set_presentation_camera("auto")
+            self.assertIs(app.session, original_session)
+            self.assertEqual(app.step_count, original_tick)
+            self.assertEqual(
+                [(r.robot_id, r.pose.x_m, r.pose.y_m) for r in app.frame.robots],
+                original_poses,
+            )
+            app.toggle_presentation_mode()
+            self.assertFalse(app.presentation_mode)
+            self.assertNotEqual(app.main_menu_bar.winfo_manager(), "")
+            self.assertNotEqual(app.inspector_frame.winfo_manager(), "")
+            self.assertNotEqual(app.bottom_frame.winfo_manager(), "")
         finally:
             try:
                 if hasattr(app, "renderer") and app.renderer is not None:
