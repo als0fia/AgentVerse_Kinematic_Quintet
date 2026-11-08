@@ -200,7 +200,7 @@ pie title Monthly Compute Cost Breakdown (Co-op Edge Hub - $126.85/mo)
 | **Cost per Rover** | Across 25 active rovers | — | **$\$5.57\text{/rover/month}$** |
 | **Cost per Hectare / Mu** | Across 200 ha ($3,000\text{ mu}$) | — | **$\$0.70\text{/ha/year}$ ($\approx ¥0.33\text{ RMB/mu}$)** |
 
-*Commercial Margin Impact:* With cooperative planting and recovery RaaS fees priced at $¥60\text{–}¥90\text{ RMB/mu}$ ([antenna_tam_sam_som_research](../antenna_tam_sam_som_research.md)), on-premises server compute represents **$<0.5\%$ of gross service revenue**.
+*Commercial Margin Impact:* With cooperative planting and recovery RaaS fees priced at $¥60\text{–}¥90\text{ RMB/mu}$ (antenna_tam_sam_som_research (historical source antenna_tam_sam_som_research.md; retained in repository Git history, excluded from submission snapshot)), on-premises server compute represents **$<0.5\%$ of gross service revenue**.
 
 ---
 
