@@ -620,9 +620,13 @@ def main() -> int:
         dest="dashboard",
         help="Launch native side-by-side 3D MuJoCo + 2D Top-Down Belief Heatmap desktop window",
     )
+    parser.add_argument(
+        "--presentation", action="store_true",
+        help="Launch judge-friendly read-only 3D + 2D display, with Advanced toggle",
+    )
     args = parser.parse_args()
 
-    if args.dashboard:
+    if args.dashboard or args.presentation:
         from ricebot.viewer import launch_live_dashboard
 
         launch_live_dashboard(
@@ -632,6 +636,7 @@ def main() -> int:
             rescue_policy=args.rescue_policy,
             seed=args.seed,
             auto_play=True,
+            presentation=args.presentation,
         )
         return 0
 
