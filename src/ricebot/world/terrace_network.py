@@ -147,6 +147,22 @@ class NavigationWaypoint:
     comment: str = ""
 
 
+@dataclass(frozen=True)
+class TrajectoryState:
+    """Continuous time-stepped robot state along a multi-level terrace trajectory."""
+
+    time_s: float
+    x_m: float
+    y_m: float
+    z_m: float
+    yaw_rad: float
+    pitch_rad: float
+    linear_speed_m_s: float
+    angular_speed_rad_s: float
+    zone_tag: str
+    wheel_angle_rad: float
+
+
 class MultiLevelTerraceEnvironment:
     """Configurable multi-level Chinese terraced rice field environment.
 
@@ -168,6 +184,7 @@ class MultiLevelTerraceEnvironment:
         ramp_width_m: float = 0.55,
         robot_max_slope_deg: float = 15.0,
         robot_width_m: float = 0.276,
+        robot_length_m: float = 0.50,
     ) -> None:
         self.elevation_a = float(elevation_a)
         self.elevation_b = float(elevation_b)
@@ -176,6 +193,7 @@ class MultiLevelTerraceEnvironment:
         self.ramp_width_m = float(ramp_width_m)
         self.robot_max_slope_deg = float(robot_max_slope_deg)
         self.robot_width_m = float(robot_width_m)
+        self.robot_length_m = float(robot_length_m)
 
         # Compute horizontal run for 10-degree ramp: Δx = Δz / tan(slope)
         slope_rad = math.radians(self.ramp_slope_deg)
@@ -714,3 +732,118 @@ class MultiLevelPathPlanner:
             )
         )
         return waypoints
+
+    def simulate_continuous_navigation(
+        self,
+        start_xy: tuple[float, float],
+        goal_xy: tuple[float, float],
+        dt_s: float = 0.05,
+        wheel_radius_m: float = 0.095,
+        robot_max_slope_deg: float | None = None,
+        robot_width_m: float | None = None,
+    ) -> list[TrajectoryState]:
+        """Simulate continuous time-stepped robot traversal along the planned multi-level route.
+
+        Guarantees:
+        - Continuous horizontal and vertical position z(t) from terrain/ramp geometry (zero teleportation)
+        - Smooth body pitch articulation matching ramp incline and transitions
+        - Wheel rotation angle proportional to ground distance travelled
+        - Speed reduction when approaching/exiting ramp entrances
+        """
+        max_slope = self.env.robot_max_slope_deg if robot_max_slope_deg is None else robot_max_slope_deg
+        r_width = self.env.robot_width_m if robot_width_m is None else robot_width_m
+        waypoints = self.plan_path(
+            start_xy,
+            goal_xy,
+            robot_max_slope_deg=max_slope,
+            robot_width_m=r_width,
+        )
+
+        # Build full polyline starting from start_xy
+        z0, _ = self.env.get_elevation_and_pitch(start_xy[0], start_xy[1])
+        reg0 = self.env.locate_region(start_xy[0], start_xy[1])
+        first_yaw = waypoints[0].yaw_rad if waypoints else 0.0
+        nodes: list[NavigationWaypoint] = [
+            NavigationWaypoint(
+                x_m=start_xy[0],
+                y_m=start_xy[1],
+                z_m=z0,
+                yaw_rad=first_yaw,
+                pitch_rad=0.0,
+                speed_m_s=0.22,
+                zone_tag=reg0,
+                comment="Start",
+            )
+        ] + waypoints
+
+        states: list[TrajectoryState] = []
+        t_curr = 0.0
+        wheel_angle = 0.0
+
+        for idx in range(len(nodes) - 1):
+            p0 = nodes[idx]
+            p1 = nodes[idx + 1]
+            dx = p1.x_m - p0.x_m
+            dy = p1.y_m - p0.y_m
+            seg_dist = math.hypot(dx, dy)
+            if seg_dist < 1e-4:
+                continue
+
+            seg_yaw = math.atan2(dy, dx)
+            seg_speed = max(0.10, p1.speed_m_s)
+            seg_duration = seg_dist / seg_speed
+            num_steps = max(1, int(math.ceil(seg_duration / dt_s)))
+
+            for step in range(num_steps):
+                alpha = step / float(num_steps)
+                x = p0.x_m + alpha * dx
+                y = p0.y_m + alpha * dy
+                z_surf, ramp_pitch_mag = self.env.get_elevation_and_pitch(x, y)
+                region = self.env.locate_region(x, y)
+
+                # Determine signed pitch from travel direction along ramp
+                if region.startswith("ramp_"):
+                    ramp = self.env.ramps[region]
+                    rx_dir = ramp.end_pos[0] - ramp.start_pos[0]
+                    ry_dir = ramp.end_pos[1] - ramp.start_pos[1]
+                    dot_uphill = dx * rx_dir + dy * ry_dir
+                    signed_pitch = ramp_pitch_mag if dot_uphill >= 0.0 else -ramp_pitch_mag
+                else:
+                    signed_pitch = 0.0
+
+                ds = seg_dist / float(num_steps)
+                states.append(
+                    TrajectoryState(
+                        time_s=round(t_curr, 3),
+                        x_m=round(x, 4),
+                        y_m=round(y, 4),
+                        z_m=round(z_surf, 4),
+                        yaw_rad=round(seg_yaw, 4),
+                        pitch_rad=round(signed_pitch, 4),
+                        linear_speed_m_s=round(seg_speed, 3),
+                        angular_speed_rad_s=0.0,
+                        zone_tag=region,
+                        wheel_angle_rad=round(wheel_angle, 3),
+                    )
+                )
+                t_curr += dt_s
+                wheel_angle += ds / max(0.02, wheel_radius_m)
+
+        # Append final goal state
+        last = nodes[-1]
+        z_final, _ = self.env.get_elevation_and_pitch(last.x_m, last.y_m)
+        states.append(
+            TrajectoryState(
+                time_s=round(t_curr, 3),
+                x_m=round(last.x_m, 4),
+                y_m=round(last.y_m, 4),
+                z_m=round(z_final, 4),
+                yaw_rad=round(last.yaw_rad, 4),
+                pitch_rad=0.0,
+                linear_speed_m_s=0.0,
+                angular_speed_rad_s=0.0,
+                zone_tag=last.zone_tag,
+                wheel_angle_rad=round(wheel_angle, 3),
+            )
+        )
+        return states

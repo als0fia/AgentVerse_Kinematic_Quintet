@@ -40,6 +40,7 @@ from .terrace_network import (
     NavigationWaypoint,
     RampConnection,
     TerraceLevel,
+    TrajectoryState,
 )
 
 __all__ = [
@@ -57,6 +58,7 @@ __all__ = [
     "RampConnection",
     "TEXTURES_DIR",
     "TerraceLevel",
+    "TrajectoryState",
     "UNEXPECTED_BAD_SOIL_TRUTH",
     "build_textured_asset_xml",
     "build_world_terrain_xml",

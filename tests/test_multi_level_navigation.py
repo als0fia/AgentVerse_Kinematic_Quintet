@@ -254,6 +254,47 @@ class MultiLevelTerraceNavigationTests(unittest.TestCase):
         self.assertLess(z_mid, 0.35)
         self.assertGreater(p_mid, 0.10)  # Nose up climbing pitch
 
+    def test_1m_step_terraces_and_half_meter_robot_continuous_simulation(self) -> None:
+        """Verify 1.0m terrace level differences (0.0m, 1.0m, 2.0m) with a 0.50m robot and continuous trajectory."""
+        env_1m = MultiLevelTerraceEnvironment(
+            elevation_a=0.0,
+            elevation_b=1.0,
+            elevation_c=2.0,
+            ramp_slope_deg=12.0,
+            ramp_width_m=0.75,
+            robot_max_slope_deg=15.0,
+            robot_width_m=0.38,
+            robot_length_m=0.50,
+        )
+        planner_1m = MultiLevelPathPlanner(env_1m)
+
+        self.assertEqual(env_1m.terrace_a.elevation_m, 0.0)
+        self.assertEqual(env_1m.terrace_b.elevation_m, 1.0)
+        self.assertEqual(env_1m.terrace_c.elevation_m, 2.0)
+        self.assertEqual(env_1m.robot_length_m, 0.50)
+        self.assertEqual(env_1m.robot_width_m, 0.38)
+        self.assertAlmostEqual(env_1m.ramp_ab.elevation_diff_m, 1.0, places=3)
+        self.assertAlmostEqual(env_1m.ramp_bc.elevation_diff_m, 1.0, places=3)
+
+        start_a = (-1.50, -0.75)
+        goal_c = (env_1m.terrace_c.bounds_x[0] + 1.50, 0.75)
+
+        ascent_states = planner_1m.simulate_continuous_navigation(start_a, goal_c, dt_s=0.10)
+        self.assertGreater(len(ascent_states), 50)
+        self.assertAlmostEqual(ascent_states[0].z_m, 0.0, places=2)
+        self.assertAlmostEqual(ascent_states[-1].z_m, 2.0, places=2)
+
+        # Verify no vertical teleportation (max step dz <= 0.05m per 0.10s tick)
+        for i in range(len(ascent_states) - 1):
+            dz = abs(ascent_states[i + 1].z_m - ascent_states[i].z_m)
+            self.assertLess(dz, 0.05)
+
+        descent_states = planner_1m.simulate_continuous_navigation(goal_c, start_a, dt_s=0.10)
+        self.assertGreater(len(descent_states), 50)
+        self.assertAlmostEqual(descent_states[0].z_m, 2.0, places=2)
+        self.assertAlmostEqual(descent_states[-1].z_m, 0.0, places=2)
+        self.assertTrue(any(s.pitch_rad < -0.10 for s in descent_states))
+
 
 if __name__ == "__main__":
     unittest.main()

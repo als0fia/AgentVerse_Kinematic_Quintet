@@ -67,28 +67,32 @@ def build_textured_asset_xml(textures_dir: Path | None = None) -> str:
     <texture name="terrace_wall_tex" type="2d" file="{terrace_wall_p}"/>
 
     <!-- Tuned Materials: Photorealistic Rice Field Appearance & Reflectance -->
-    <!-- 1. Paddy soil & terraced ground: lush young rice canopy with visible seedling rows -->
-    <material name="paddy_soil_mat" texture="rice_paddy_crop_tex" texrepeat="1.5 1.0" reflectance="0.10" roughness="0.80"/>
+    <!-- 1. Paddy soil & terraced ground: natural moist organic paddy loam -->
+    <material name="paddy_soil_mat" texture="paddy_viable_loam_tex" texrepeat="5 5" reflectance="0.06" roughness="0.88"/>
 
     <!-- 2. Dense seedling clumps and planting beds -->
-    <material name="crop_bed_mat" texture="rice_paddy_crop_tex" texrepeat="1 1" reflectance="0.10" shininess="0.2" roughness="0.80"/>
+    <material name="crop_bed_mat" texture="rice_paddy_crop_tex" texrepeat="3 2" reflectance="0.08" shininess="0.2" roughness="0.80"/>
 
     <!-- 3. Sunken flooded terrace water: specular sky-reflection with ripple shimmer -->
-    <material name="canal_water_mat" texture="paddy_water_mirror_tex" texrepeat="3 3" reflectance="0.65" shininess="0.95" specular="0.90" rgba="0.35 0.65 0.85 0.55"/>
+    <material name="canal_water_mat" texture="paddy_water_mirror_tex" texrepeat="4 4" reflectance="0.55" shininess="0.92" specular="0.85" rgba="0.28 0.56 0.72 0.78"/>
 
     <!-- 4. Sinuous earthen bund ridges (田埂) separating terrace tiers -->
-    <material name="bund_earth_mat" texture="terrace_bund_earth_tex" texrepeat="4 1" roughness="0.88"/>
+    <material name="bund_earth_mat" texture="terrace_bund_earth_tex" texrepeat="4 2" roughness="0.88"/>
 
     <!-- 5. Aerated viable loam planting soil -->
-    <material name="viable_loam_mat" texture="paddy_viable_loam_tex" texrepeat="2 2" roughness="0.92"/>
+    <material name="viable_loam_mat" texture="paddy_viable_loam_tex" texrepeat="3 3" roughness="0.92"/>
 
     <!-- 6. Saturated deep Lannitian mud hazard pits -->
-    <material name="mud_hazard_mat" texture="paddy_mud_hazard_tex" texrepeat="2 2" reflectance="0.35" shininess="0.85" specular="0.75"/>
+    <material name="mud_hazard_mat" texture="paddy_mud_hazard_tex" texrepeat="3 3" reflectance="0.25" shininess="0.75" specular="0.60"/>
 
     <!-- 7. Traditional stacked slate & clay terrace retaining walls -->
     <material name="terrace_wall_mat" texture="terrace_wall_tex" texrepeat="4 2" roughness="0.88"/>
     <material name="mountain_rock_mat" rgba="0.30 0.42 0.32 1" roughness="0.95"/>
-    <material name="deep_earth_mat" rgba="0.28 0.22 0.16 1" roughness="0.95"/>
+    <material name="deep_earth_mat" rgba="0.32 0.25 0.18 1" roughness="0.95"/>
+    <material name="hillside_grass_mat" rgba="0.24 0.48 0.20 1" roughness="0.92"/>
+    <material name="ramp_mat" texture="terrace_bund_earth_tex" texrepeat="6 2" rgba="0.88 0.76 0.56 1" roughness="0.92"/>
+    <material name="access_path_mat" texture="terrace_bund_earth_tex" texrepeat="5 2" rgba="0.78 0.66 0.48 1" roughness="0.92"/>
+    <material name="seedling_leaf_mat" rgba="0.24 0.68 0.22 1" shininess="0.3" roughness="0.7"/>
 
     <!-- 8. Rover rubber tire material -->
     <material name="wheel_rubber_mat" rgba="0.14 0.14 0.16 1" roughness="0.75"/>
@@ -119,6 +123,13 @@ def enhance_mjcf_with_field_textures(mjcf_xml: str, textures_dir: Path | None = 
     enhanced = re.sub(
         r'(<geom\s+[^>]*?name="[^"]*bund[^"]*"[^>]*?)rgba="[^"]*"',
         r'\1material="bund_earth_mat"',
+        enhanced,
+    )
+
+    # 4. Prevent coplanar hfield mesh z-fighting over textured terrace ground
+    enhanced = re.sub(
+        r'(<geom\s+[^>]*?name="paddy_relief_mesh"[^>]*?)rgba="[^"]*"',
+        r'\1rgba="0 0 0 0"',
         enhanced,
     )
 
