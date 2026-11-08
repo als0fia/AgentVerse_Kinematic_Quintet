@@ -2504,7 +2504,7 @@ class LiveSwarmDashboardApp:
                                    outline=col, width=3 if self.presentation_mode else 2)
 
         # 3. Draw injected physical obstacle if active
-        if self.sim.obstacle_injected:
+        if self.sim.obstacle_injected and not self.presentation_mode:
             ox, oy = self._world_to_canvas(self.sim.obstacle_xy[0], self.sim.obstacle_xy[1])
             c.create_rectangle(ox - 11, oy - 11, ox + 11, oy + 11, fill="#dc2626", outline="#fef08a", width=2)
             c.create_text(ox, oy - 16, text="OBSTACLE", fill="#fef08a", font=("Consolas", 8, "bold"))
