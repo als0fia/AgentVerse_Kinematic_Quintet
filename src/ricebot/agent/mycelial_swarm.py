@@ -1759,6 +1759,21 @@ class DecentralizedMycelialRuntime:
                     verdict=verdict,
                     rationale="baseline(never_rescue): never dispatch peer rescue",
                 )
+            elif self.rescue_policy == "always_rescue":
+                # Deliberately unconditional experimental baseline. This is NOT
+                # the safety-aware rescue policy and may produce helper losses.
+                verdict = RescueVerdict.RESCUE_NOW
+                chosen_tech_val = "direct_pry_and_pull"
+                assessment = RescueAssessment(
+                    stranded_robot_id=stranded_id,
+                    rescuer_robot_id=rescuer.robot_id,
+                    nearest_site_id=nearest_site_id,
+                    expected_saved_benefit=saved_benefit,
+                    rescue_opportunity_cost=opp_cost,
+                    net_rescue_utility=net_utility,
+                    verdict=verdict,
+                    rationale="baseline(always_rescue): dispatch closest helper regardless of utility",
+                )
             else:
                 verdict = RescueVerdict.RESCUE_NOW if net_utility >= 0.0 else RescueVerdict.DEFER_RESCUE
                 chosen_tech_val = "direct_pry_and_pull"
