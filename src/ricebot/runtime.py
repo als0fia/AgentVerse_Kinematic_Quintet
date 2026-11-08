@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from .contracts import (
@@ -171,6 +171,7 @@ class EpisodeConfig:
     num_rovers: int = 2
     map_scale: float = 1.0
     gossip_delay_s: float = 0.4
+    active_mycelial_in_rescue: bool = False  # Explicitly request acting decentralized policy in rescue scenarios
 
     def __post_init__(self) -> None:
         if self.seed < 0 or isinstance(self.seed, bool) or self.steps < 1:
@@ -618,13 +619,20 @@ def create_mujoco_episode_session(
     from .agent import CooperativeSwarmPlanner, DecentralizedMycelialRuntime
     from .mujoco_sim.adapter import DEFAULT_SITES, MujocoPaddySimulation
     from .robot import make_fleet_specs
-    from .world import generate_hidden_soil_truth
+    from .world import build_field_layout, generate_hidden_soil_truth
 
     cfg = config or EpisodeConfig()
     want_shadow = cfg.include_shadow_mycelial if include_shadow_mycelial is None else bool(include_shadow_mycelial)
     is_single = cfg.single_rover_only or cfg.policy == "single_rover"
     inject_at = cfg.inject_obstacle_at_s if cfg.inject_obstacle_at_s is not None else (1.6 if cfg.scenario == "obstacle" else None)
-    truth = generate_hidden_soil_truth(cfg.scenario, cfg.seed)
+    layout = build_field_layout(cfg.map_scale, cfg.seed, cfg.scenario)
+    truth = generate_hidden_soil_truth(cfg.scenario, cfg.seed, layout.sites)
+    fleet_specs = make_fleet_specs(cfg.num_rovers)
+    # Advanced fleet mode: the same physical robot can perform every task.
+    # Controlled 2-rover reference fixtures retain their historical initial loadouts.
+    if cfg.num_rovers > 2 or cfg.map_scale > 1.0 + 1e-6:
+        fleet_specs = tuple(replace(spec, can_sample=True, can_plant=True, initial_seeds=2)
+                            for spec in fleet_specs)
     initial_poses: dict[str, Pose2D] | None = None
     if cfg.planter_spawn is not None or cfg.scout_spawn is not None:
         initial_poses = {}
@@ -633,7 +641,7 @@ def create_mujoco_episode_session(
         if cfg.scout_spawn is not None:
             initial_poses["scout"] = cfg.scout_spawn
     sim = MujocoPaddySimulation(
-        sites=DEFAULT_SITES,
+        sites=layout.sites,
         probe_radius_m=cfg.probe_radius_m,
         substeps_per_tick=cfg.substeps_per_tick,
         inject_obstacle_at_s=inject_at,
@@ -649,8 +657,9 @@ def create_mujoco_episode_session(
         scenario=cfg.scenario,
         num_rovers=cfg.num_rovers,
         map_scale=cfg.map_scale,
+        field_layout=layout,
+        rover_specs=fleet_specs,
     )
-    fleet_specs = make_fleet_specs(cfg.num_rovers)
     caps = (
         tuple(
             RobotCapability(s.robot_id, can_sample=(idx == 0), can_plant=(idx == 0))
@@ -662,7 +671,20 @@ def create_mujoco_episode_session(
 
     sites_tuple = tuple(sim.sites.values())
 
-    if cfg.is_rescue_scenario or cfg.policy == "cooperative":
+    if cfg.policy == "mycelial" and not is_single and (
+        not cfg.is_rescue_scenario or cfg.active_mycelial_in_rescue
+        or cfg.num_rovers > 2 or cfg.map_scale > 1.0 + 1e-6
+    ):
+        policy_runtime = DecentralizedMycelialRuntime(
+            sites=sites_tuple,
+            capabilities=caps,
+            comm_range_m=cfg.comm_range_m,
+            comm_mode=cfg.comms,
+            advisor=advisor,
+            rescue_policy=cfg.rescue_policy,
+            gossip_delay_s=cfg.gossip_delay_s,
+        )
+    elif cfg.is_rescue_scenario or cfg.policy == "cooperative":
         field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
         planner: SimpleMissionPlanner = CooperativeSwarmPlanner(
             caps,
@@ -673,15 +695,6 @@ def create_mujoco_episode_session(
             ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
         )
         policy_runtime: PolicyRuntime = MissionCore(field_map, planner, controller)
-    elif cfg.policy == "mycelial" and not is_single:
-        policy_runtime = DecentralizedMycelialRuntime(
-            sites=sites_tuple,
-            capabilities=caps,
-            comm_range_m=cfg.comm_range_m,
-            comm_mode=cfg.comms,
-            advisor=advisor,
-            rescue_policy=cfg.rescue_policy,
-        )
     else:
         field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
         planner = SimpleMissionPlanner(caps)
@@ -697,6 +710,7 @@ def create_mujoco_episode_session(
             capabilities=caps,
             comm_range_m=0.0 if is_single else cfg.comm_range_m,
             comm_mode="isolated" if is_single else cfg.comms,
+            gossip_delay_s=cfg.gossip_delay_s,
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
         )
