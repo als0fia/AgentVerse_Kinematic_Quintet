@@ -191,6 +191,7 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         self.assertTrue(rec["extracted"])
         self.assertTrue(rec["helper_safe"])
         self.assertGreaterEqual(float(rec["victim_displacement_m"]), 0.18)
+        self.assertLessEqual(float(rec["observed_at_s"]), 10.1)
         self.assertGreater(float(rec["peak_constraint_force_n"]), 1.0)
         self.assertEqual(res["end_state_bogged_robots"], [])
 
@@ -511,12 +512,43 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
                 [(r.helper_robot_id, r.target_robot_id, r.extracted) for r in sess_a.sim.completed_recoveries],
                 [(r.helper_robot_id, r.target_robot_id, r.extracted) for r in sess_b.sim.completed_recoveries],
             )
+            if check_seed == 2:
+                # Verify physical extraction AND post-recovery planting on rescued randomized episode
+                self.assertEqual(len(sess_a.sim.completed_recoveries), 1)
+                rec2 = sess_a.sim.completed_recoveries[0]
+                self.assertTrue(rec2.latched)
+                self.assertTrue(rec2.extracted)
+                self.assertGreaterEqual(rec2.victim_displacement_m, 0.18)
+                planted_s2 = [
+                    d.target_site_id
+                    for d in sess_a.sim.completed_drops
+                    if d.contact_observed_at_s is not None
+                ]
+                self.assertEqual(planted_s2, ["patch_b", "patch_c"])
+
+        # Verify PaddyTerraceWorld.reset(new_seed) refreshes hidden soil truth when scenario is set
+        from ricebot.world import PaddyTerraceWorld
+
+        world_rand = PaddyTerraceWorld(scenario="randomized")
+        world_rand.reset(2)
+        truth_seed_2 = dict(world_rand._hidden_site_truth)
+        world_rand.reset(5)
+        truth_seed_5 = dict(world_rand._hidden_site_truth)
+        self.assertNotEqual(truth_seed_2, truth_seed_5)
+
+        world_shift = PaddyTerraceWorld(scenario="shifted_moisture")
+        world_shift.reset(2)
+        shift_seed_2 = dict(world_shift._hidden_site_truth)
+        world_shift.reset(5)
+        shift_seed_5 = dict(world_shift._hidden_site_truth)
+        self.assertNotEqual(shift_seed_2, shift_seed_5)
 
         # 2. Evaluate 12 different seeds (1..12) through authoritative EpisodeSession
         visited_sequences: set[tuple[str, ...]] = set()
         viable_sets: set[tuple[str, ...]] = set()
         spawn_pairs: set[tuple[tuple[float, float], tuple[float, float]]] = set()
         outcome_classes: set[str] = set()
+        rescued_and_planted_seeds: list[int] = []
 
         for s in range(1, 13):
             spec = generate_randomized_episode_spec(s)
@@ -542,11 +574,18 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
             visited_sequences.add(tuple(sampled_order))
 
             verdicts = {od.verdict for od in sess.orchestrator_decisions.values()}
+            verified_drops = [
+                d.target_site_id
+                for d in sess.sim.completed_drops
+                if d.contact_observed_at_s is not None
+            ]
             if sess.sim.completed_recoveries and any(r.extracted for r in sess.sim.completed_recoveries):
                 outcome_classes.add("rescue_extracted")
+                if len(verified_drops) >= 1:
+                    rescued_and_planted_seeds.append(s)
             elif RescueVerdict.ABANDON_ESCALATE in verdicts:
                 outcome_classes.add("refusal_abandon_escalate")
-            elif not verdicts and len(sess.sim.completed_drops) >= 1:
+            elif not verdicts and len(verified_drops) >= 1:
                 outcome_classes.add("nominal_continue_working")
 
         self.assertGreaterEqual(len(spawn_pairs), 6)
@@ -555,6 +594,7 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(len(outcome_classes), 2)
         self.assertIn("rescue_extracted", outcome_classes)
         self.assertIn("refusal_abandon_escalate", outcome_classes)
+        self.assertTrue(len(rescued_and_planted_seeds) >= 1)
 
 
 if __name__ == "__main__":

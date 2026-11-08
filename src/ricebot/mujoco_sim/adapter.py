@@ -185,7 +185,10 @@ class MujocoPaddySimulation:
         scenario: str = "nominal",
     ) -> None:
         self.world = PaddyTerraceWorld(
-            sites=sites, probe_radius_m=probe_radius_m, hidden_truth=hidden_truth
+            sites=sites,
+            probe_radius_m=probe_radius_m,
+            hidden_truth=hidden_truth,
+            scenario=scenario,
         )
         self.sites = self.world.sites
         self.probe_radius_m = probe_radius_m
