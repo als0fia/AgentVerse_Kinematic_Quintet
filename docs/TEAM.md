@@ -94,7 +94,7 @@ If branches conflict: integration lead preserves both contributors' intended beh
 
 ## Historical planting-first implementation allocation (superseded)
 
-**Archive guard:** the following detailed Isaac/planting-first work split and Gate A–D entries document the *original* integration sequence, not the active weekend task. The current owner directions are in [the rescue-first handoff](#current-rescue-first-owner-handoff), [RUN](RUN.md#current-minimum-working-rescue-integration-assignment) and [ARCHITECTURE](ARCHITECTURE.md#single-runtime-and-one-rescue-episode-current-design-target). Preserve named original roles and historical context rather than rebuilding those milestones or changing robot geometry unilaterally.
+**Archive guard:** the following detailed Isaac/planting-first work split and Gate A–D entries document the *original* integration sequence, not the active weekend task. The current owner directions are in [the rescue-first handoff](#current-rescue-first-owner-handoff), [RUN](RUN.md#current-minimum-working-rescue-integration-assignment) and [ARCHITECTURE](ARCHITECTURE.md). Preserve named original roles and historical context rather than rebuilding those milestones or changing robot geometry unilaterally.
 
 
 The first pure-Python `rice.v1` core and MuJoCo rover/seed simulation are already merged. **One human integrator** owns the shared types/runner; the existing rigid docking mechanics owner retains robot geometry. The next agent assignment is a MuJoCo *rescue skill integration*, not a new Isaac/planting-first skeleton. Keep other workstreams on narrow fixtures.
