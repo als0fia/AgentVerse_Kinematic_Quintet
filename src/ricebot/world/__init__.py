@@ -16,9 +16,11 @@ from .terrace import (
     ContinuousPaddyTerrain,
     ContinuousTerrainPoint,
     PaddyTerraceWorld,
+    RandomizedEpisodeSpec,
     build_world_terrain_xml,
     compute_rice_planting_fitness,
     generate_hidden_soil_truth,
+    generate_randomized_episode_spec,
 )
 
 __all__ = [
@@ -28,7 +30,9 @@ __all__ = [
     "DEFAULT_SITES",
     "UNEXPECTED_BAD_SOIL_TRUTH",
     "PaddyTerraceWorld",
+    "RandomizedEpisodeSpec",
     "build_world_terrain_xml",
     "compute_rice_planting_fitness",
     "generate_hidden_soil_truth",
+    "generate_randomized_episode_spec",
 ]
