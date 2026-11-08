@@ -71,6 +71,39 @@ class WorldModuleTest(unittest.TestCase):
         self.assertNotIn("planter_body", xml)
         self.assertNotIn("scout_body", xml)
 
+    def test_world_terrain_xml_supports_3d_chinese_rice_terraces(self) -> None:
+        """Verify 3D terraced landscape has 1m levels, 40-deg ramps, retaining walls, and no rovers."""
+        xml_3d = build_world_terrain_xml(obstacle_xy=(0.75, -0.25), use_3d_terraces=True)
+        # Verify 1.0m height stepped tiers
+        self.assertIn('geom name="terrace_level0_base"', xml_3d)
+        self.assertIn('geom name="terrace_level1_base"', xml_3d)
+        self.assertIn('geom name="terrace_level2_base"', xml_3d)
+        self.assertIn('geom name="terrace_level3_base"', xml_3d)
+        # Verify 40-deg incline ramps
+        self.assertIn('geom name="ramp_1_center"', xml_3d)
+        self.assertIn('euler="0 -40 0"', xml_3d)
+        # Verify retaining walls
+        self.assertIn("retaining_wall", xml_3d)
+        # Must not contain rover chassis
+        self.assertNotIn("planter_body", xml_3d)
+        self.assertNotIn("scout_body", xml_3d)
+
+    def test_world_soil_probe_sensor_degraded_scenario(self) -> None:
+        """Verify sensor_degraded scenario injects realistic probe measurement noise (Audit N3)."""
+        world = PaddyTerraceWorld(sites=DEFAULT_SITES, probe_radius_m=0.28)
+        world.reset(42)
+
+        nominal_samples = world.sample_local_soil("scout", Pose2D(0.85, -0.50, 0.0), 0.1, scenario="nominal")
+        self.assertEqual(len(nominal_samples), 3)
+
+        world.reset(42)
+        degraded_samples = world.sample_local_soil("scout", Pose2D(0.85, -0.50, 0.0), 0.1, scenario="sensor_degraded")
+        self.assertEqual(len(degraded_samples), 3)
+        for s in degraded_samples:
+            self.assertTrue(s.valid)
+            self.assertGreaterEqual(s.value, 0.0)
+            self.assertLessEqual(s.value, 1.0)
+
 
 class RobotModuleTest(unittest.TestCase):
     def test_rover_specs_and_homogeneous_hardware_parity(self) -> None:
