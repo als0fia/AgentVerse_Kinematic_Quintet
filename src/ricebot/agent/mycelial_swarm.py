@@ -189,8 +189,12 @@ class GaussianChannelBelief:
 class LocalSlamGrid:
     """Per-robot 2D log-odds SLAM occupancy & mud-slip traversability grid (resolution = 0.15m)."""
 
-    def __init__(self, resolution_m: float = 0.15) -> None:
+    def __init__(
+        self, resolution_m: float = 0.15,
+        field_bounds: tuple[tuple[float, float], tuple[float, float]] | None = None,
+    ) -> None:
         self.resolution_m = resolution_m
+        self.field_bounds = field_bounds
         self.cells: dict[tuple[int, int], SlamHazardCell] = {}
         self.version: int = 0
 
@@ -214,8 +218,10 @@ class LocalSlamGrid:
             return None
         hit_x = pose.x_m + (front_range_m + 0.12) * cos(pose.yaw_rad)
         hit_y = pose.y_m + (front_range_m + 0.12) * sin(pose.yaw_rad)
-        # Ignore perimeter bund walls outside the active field interior
-        if not (-0.05 <= hit_x <= 2.75 and -0.78 <= hit_y <= 0.78):
+        # Ignore bund walls using the actual per-episode field, not fixed rice.v1 coordinates.
+        xb, yb = self.field_bounds or ((-0.05, 2.75), (-0.78, 0.78))
+        if not (xb[0] + 0.08 <= hit_x <= xb[1] - 0.08
+                and yb[0] + 0.08 <= hit_y <= yb[1] - 0.08):
             return None
         # Ignore hits that are simply inside known protected crop stands
         for site in known_sites.values():
@@ -505,14 +511,19 @@ class LocalMycelialMap:
         probe_radius_m: float = 0.28,
         camera_fov_rad: float = 1.08,
         camera_range_m: float = 0.95,
+        field_bounds: tuple[tuple[float, float], tuple[float, float]] | None = None,
     ) -> None:
         self.owner_robot_id = owner_robot_id
         self.sites = {s.site_id: s for s in sites}
         self.probe_radius_m = probe_radius_m
         self.camera_fov_rad = camera_fov_rad
         self.camera_range_m = camera_range_m
-        self.slam = LocalSlamGrid(resolution_m=0.15)
-        self.continuous_grid = ContinuousBeliefGrid()
+        self.field_bounds = field_bounds
+        self.slam = LocalSlamGrid(resolution_m=0.15, field_bounds=field_bounds)
+        self.continuous_grid = (
+            ContinuousBeliefGrid(x_bounds=field_bounds[0], y_bounds=field_bounds[1])
+            if field_bounds is not None else ContinuousBeliefGrid()
+        )
         self.seen_sample_ids: set[str] = set()
         self.all_samples: dict[str, SoilSample] = {}
         self.discovered_sites: set[str] = set()
@@ -542,7 +553,7 @@ class LocalMycelialMap:
 
     def reset(self) -> None:
         """Reset all per-site beliefs, camera discovery sets, SLAM cells, and continuous belief grid."""
-        self.slam = LocalSlamGrid(resolution_m=0.15)
+        self.slam = LocalSlamGrid(resolution_m=0.15, field_bounds=self.field_bounds)
         self.continuous_grid.reset()
         self.seen_sample_ids.clear()
         self.all_samples.clear()
@@ -756,6 +767,7 @@ class DecentralizedRobotNode:
         camera_fov_rad: float = 1.08,
         camera_range_m: float = 0.95,
         probe_radius_m: float = 0.28,
+        field_bounds: tuple[tuple[float, float], tuple[float, float]] | None = None,
     ) -> None:
         self.capability = capability
         self.robot_id = capability.robot_id
@@ -770,6 +782,7 @@ class DecentralizedRobotNode:
             probe_radius_m=probe_radius_m,
             camera_fov_rad=camera_fov_rad,
             camera_range_m=camera_range_m,
+            field_bounds=field_bounds,
         )
         self.last_pose: Pose2D | None = None
         self.last_time_s: float | None = None
@@ -1221,6 +1234,7 @@ class DecentralizedMycelialRuntime:
         operator_policy: OperatorPolicy | None = None,
         rescue_policy: str = "react_orchestrator",
         gossip_delay_s: float = 0.4,
+        field_bounds: tuple[tuple[float, float], tuple[float, float]] | None = None,
     ) -> None:
         self._sites_tuple = sites
         self._capabilities_tuple = capabilities
@@ -1235,7 +1249,9 @@ class DecentralizedMycelialRuntime:
         self.rescue_policy = rescue_policy
         self.gossip_delay_s = float(gossip_delay_s)
         self.nodes: dict[str, DecentralizedRobotNode] = {
-            c.robot_id: DecentralizedRobotNode(c, sites=sites, envelope=envelope, limits=limits)
+            c.robot_id: DecentralizedRobotNode(
+                c, sites=sites, envelope=envelope, limits=limits, field_bounds=field_bounds
+            )
             for c in capabilities
         }
         self._last_time_s: float | None = None
