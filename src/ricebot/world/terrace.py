@@ -666,6 +666,17 @@ class ContinuousPaddyTerrain:
             + 0.008 * np.cos(2.40 * X - 1.90 * Y)
             - 0.005 * (X - 1.50)
         )
+        if len(self._sites) > len(DEFAULT_SITES):
+            # This is the same Gaussian terrain formula as elevation_and_gradient,
+            # vectorized for the GUI truth map and reproducible per-seed terrain.
+            rng = random.Random(self.seed + 31337)
+            for _ in range(5):
+                hx = rng.uniform(-0.75, 3.5)
+                hy = rng.uniform(-1.15, 1.15)
+                sx = rng.uniform(0.40, 0.90)
+                sy = rng.uniform(0.35, 0.80)
+                height = rng.uniform(-0.023, 0.028)
+                Z += height * np.exp(-0.5 * (((X - hx) / sx) ** 2 + ((Y - hy) / sy) ** 2))
         sigma2_basin = 0.42 * 0.42
         for site in self._sites:
             truth = self._anchors.get(site.site_id)
