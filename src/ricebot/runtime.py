@@ -174,6 +174,7 @@ class EpisodeConfig:
     active_mycelial_in_rescue: bool = False  # Explicitly request acting decentralized policy in rescue scenarios
     orchestrator_model: str = "gemini-2.5-flash"
     orchestrator_timeout_s: float = 2.5
+    enable_live_llm: bool = False  # Paid network calls require explicit experiment opt-in
 
     def __post_init__(self) -> None:
         if self.seed < 0 or isinstance(self.seed, bool) or self.steps < 1:
@@ -677,7 +678,9 @@ def create_mujoco_episode_session(
     sites_tuple = tuple(sim.sites.values())
     model_orchestrator = SwarmOrchestratorAgent(
         backend=GeminiRESTBackend(
-            model=cfg.orchestrator_model, timeout_s=cfg.orchestrator_timeout_s
+            model=cfg.orchestrator_model,
+            api_key_env="GEMINI_API_KEY" if cfg.enable_live_llm else "ANTENNA_LLM_CALLS_DISABLED",
+            timeout_s=cfg.orchestrator_timeout_s
         )
     )
 
