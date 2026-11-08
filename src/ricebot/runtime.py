@@ -683,6 +683,7 @@ def create_mujoco_episode_session(
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
             gossip_delay_s=cfg.gossip_delay_s,
+            field_bounds=(layout.x_bounds, layout.y_bounds) if layout.scale > 1.0 else None,
         )
     elif cfg.is_rescue_scenario or cfg.policy == "cooperative":
         field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
@@ -711,6 +712,7 @@ def create_mujoco_episode_session(
             comm_range_m=0.0 if is_single else cfg.comm_range_m,
             comm_mode="isolated" if is_single else cfg.comms,
             gossip_delay_s=cfg.gossip_delay_s,
+            field_bounds=(layout.x_bounds, layout.y_bounds) if layout.scale > 1.0 else None,
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
         )
