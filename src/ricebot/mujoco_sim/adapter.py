@@ -1008,10 +1008,10 @@ class MujocoPaddySimulation:
                         stage_y = float(rear_pos[1]) - 0.04 * t_fy + 0.44 * lat_sign * t_ly
                         aim_dx = stage_x - float(front_pos[0])
                         aim_dy = stage_y - float(front_pos[1])
-                    elif along_fwd > -0.20 and abs(lat_proj) > 0.09 and dock_dist > 0.10:
+                    elif along_fwd > -0.28 and abs(lat_proj) > 0.09 and dock_dist > 0.10:
                         # Helper has cleared the victim's side; line up behind the rear strike bar before closing in
-                        stage_x = float(rear_pos[0]) - 0.30 * t_fx
-                        stage_y = float(rear_pos[1]) - 0.30 * t_fy
+                        stage_x = float(rear_pos[0]) - 0.16 * t_fx
+                        stage_y = float(rear_pos[1]) - 0.16 * t_fy
                         aim_dx = stage_x - float(front_pos[0])
                         aim_dy = stage_y - float(front_pos[1])
                     else:

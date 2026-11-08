@@ -774,10 +774,12 @@ class DecentralizedRobotNode:
         self.last_pose: Pose2D | None = None
         self.last_time_s: float | None = None
         self.last_commanded_linear_m_s: float = 0.0
+        self.last_commanded_angular_rad_s: float = 0.0
         self.pending_plant_task: tuple[str, str, float] | None = None
         self.active_distress: DistressSignal | None = None
         self.peer_distress_signals: dict[str, DistressSignal] = {}
         self.rescue_engine: RescueEngine = RescueEngine()
+        self.has_live_peer_link: bool = False
 
     def reset(self) -> None:
         """Reset node-local belief map and internal state for a fresh episode."""
@@ -785,10 +787,12 @@ class DecentralizedRobotNode:
         self.last_pose = None
         self.last_time_s = None
         self.last_commanded_linear_m_s = 0.0
+        self.last_commanded_angular_rad_s = 0.0
         self.pending_plant_task = None
         self.active_distress = None
         self.peer_distress_signals.clear()
         self.rescue_engine = RescueEngine()
+        self.has_live_peer_link = False
 
     def process_local_sensors(
         self,
@@ -796,6 +800,7 @@ class DecentralizedRobotNode:
         peer_poses: dict[str, Pose2D],
     ) -> tuple[OnboardSensorTelemetry, int, list[SlamHazardCell]]:
         """Process raw onboard sensor readings into local SLAM & two-tier soil belief updates."""
+        self.has_live_peer_link = len(peer_poses) > 1
         v_true = 0.0
         if self.last_pose is not None and self.last_time_s is not None and obs.time_s > self.last_time_s:
             dt = obs.time_s - self.last_time_s
@@ -931,21 +936,28 @@ class DecentralizedRobotNode:
             if self.capability.can_sample and (
                 not est.complete or self.local_map.needs_remeasurement(site_id, self.envelope)
             ):
-                # Role-aware spatial spread bonus so multiple scouts/planters naturally fan out
-                # across different planting rows rather than clustering on the same site.
+                # Spatial sector spread bonus so rovers in different rows/lanes naturally fan out
+                # across northern and southern planting sectors rather than clustering on one patch.
                 sector_bonus = 0.0
-                if self.capability.can_plant:
-                    if self.robot_id.endswith("_2"):
-                        if site_id in ("patch_d", "patch_c", "patch_e"):
-                            sector_bonus = 0.34
+                peer_gossip_active = self.has_live_peer_link
+                if self.robot_id.endswith("_3"):
+                    if site_id in ("patch_g", "patch_h", "patch_c", "patch_d"):
+                        sector_bonus = 0.36
+                elif self.robot_id.endswith("_2"):
+                    if site_id in ("patch_e", "patch_f", "patch_d", "patch_c"):
+                        sector_bonus = 0.36
+                elif self.robot_id == "planter" or (obs.seeds_remaining > 0 and obs.pose.y_m >= -0.22):
+                    if peer_gossip_active and (site_id == "patch_d" or site.center.y_m > 0.0):
+                        sector_bonus = 0.42
                     elif site_id in ("patch_b", "patch_c"):
                         sector_bonus = 0.32
                 else:
-                    if self.robot_id.endswith("_2"):
-                        if site_id in ("patch_c", "patch_d", "patch_f"):
-                            sector_bonus = 0.42
-                    elif site_id in ("patch_a", "patch_d"):
+                    if site_id == "patch_a":
                         sector_bonus = 0.45
+                    elif peer_gossip_active and site_id in ("patch_b", "patch_c"):
+                        sector_bonus = 0.45
+                    elif site_id == "patch_d":
+                        sector_bonus = 0.45 if not peer_gossip_active else 0.25
 
                 # Normalize Shannon/Gaussian EIG (unvisited site EIG_0 ≈ 3.8468 -> eig_norm ≈ 1.0)
                 eig_norm = min(1.15, eig / 3.8468)
@@ -1026,7 +1038,7 @@ class DecentralizedRobotNode:
             nx = pose.x_m + t * dx
             ny = pose.y_m + t * dy
             if hypot(site.center.x_m - nx, site.center.y_m - ny) <= site.no_go_radius_m + 0.04:
-                return Pose2D(round(site.center.x_m + 0.34, 3), -0.05, 0.0)
+                return Pose2D(round(site.center.x_m + 0.14, 3), -0.02, 0.0)
 
         return target
 
@@ -1042,6 +1054,7 @@ class DecentralizedRobotNode:
 
         if self.pending_plant_task is not None:
             self.last_commanded_linear_m_s = 0.0
+            self.last_commanded_angular_rad_s = 0.0
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1051,8 +1064,27 @@ class DecentralizedRobotNode:
                 angular_rad_s=0.0,
             )
 
+        if (
+            abs(obs.pitch_rad) > self.limits.max_pitch_roll_rad
+            or abs(obs.roll_rad) > self.limits.max_pitch_roll_rad
+        ):
+            self.last_commanded_linear_m_s = 0.0
+            self.last_commanded_angular_rad_s = 0.0
+            spade = 0.85 if intent.recovery_technique == "spade_anchor_rollover_hold" else 0.0
+            return RobotCommand(
+                robot_id=obs.robot_id,
+                issued_at_s=issued_at_s,
+                expires_at_s=expires_at_s,
+                task_id=intent.task_id,
+                linear_m_s=0.0,
+                angular_rad_s=0.0,
+                spade_rad=spade,
+                recovery_technique=intent.recovery_technique,
+            )
+
         if not obs.link_ok or obs.front_range_m is None or intent.mode is TaskMode.HOLD or intent.target_site_id is None:
             self.last_commanded_linear_m_s = 0.0
+            self.last_commanded_angular_rad_s = 0.0
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1065,13 +1097,29 @@ class DecentralizedRobotNode:
         target_site = self.local_map.sites[intent.target_site_id]
         if intent.mode is TaskMode.RESCUE and intent.target_robot_id is not None:
             peer_pose = peer_poses.get(intent.target_robot_id, target_site.center)
-            dx_r = peer_pose.x_m - obs.pose.x_m
-            dy_r = peer_pose.y_m - obs.pose.y_m
-            dist_r = max(1e-4, hypot(dx_r, dy_r))
+            wp_r = self._select_waypoint_around_slam_obstacles(obs.pose, peer_pose)
+            dx_r = wp_r.x_m - obs.pose.x_m
+            dy_r = wp_r.y_m - obs.pose.y_m
+            dist_r = max(1e-4, hypot(peer_pose.x_m - obs.pose.x_m, peer_pose.y_m - obs.pose.y_m))
             heading_err_r = _wrap_angle(atan2(dy_r, dx_r) - obs.pose.yaw_rad)
-            angular_r = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, heading_err_r * 1.55))
-            linear_r = min(self.limits.speed_m_s, dist_r * 0.65) if abs(heading_err_r) < 0.65 else 0.0
+            angular_r = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, heading_err_r * 1.8))
+            linear_r = min(self.limits.speed_m_s, max(0.08, dist_r * 0.65)) if abs(heading_err_r) < 0.7 else 0.0
+            technique = intent.recovery_technique or "direct_pry_and_pull"
+            if technique == "dynamic_yaw_shear_and_pitch_pump":
+                raw_pitch = 0.12 if dist_r <= 0.36 else 0.0
+                raw_latch = 0.58
+                raw_spade = 0.35 if dist_r <= 0.30 else 0.0
+            elif technique == "pitch_match_nose_down_recovery":
+                raw_pitch = 0.14 if dist_r <= 0.36 else 0.06
+                raw_latch = 0.58
+                raw_spade = 0.25 if dist_r <= 0.30 else 0.0
+            else:
+                raw_pitch = 0.08 if dist_r <= 0.36 else 0.0
+                raw_latch = 0.55
+                raw_spade = 0.0
+            dock_pitch, latch_rad, spade_rad = clamp_recovery_actuators(raw_pitch, raw_latch, raw_spade)
             self.last_commanded_linear_m_s = round(linear_r, 3)
+            self.last_commanded_angular_rad_s = round(angular_r, 3)
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1081,9 +1129,10 @@ class DecentralizedRobotNode:
                 angular_rad_s=round(angular_r, 3),
                 target_site_id=target_site.site_id,
                 recovery_target_id=intent.target_robot_id,
-                dock_pitch_rad=0.08,
-                latch_rad=0.58,
-                spade_rad=0.25,
+                dock_pitch_rad=dock_pitch,
+                latch_rad=latch_rad,
+                spade_rad=spade_rad,
+                recovery_technique=technique,
             )
         dx = target_site.center.x_m - obs.pose.x_m
         dy = target_site.center.y_m - obs.pose.y_m
@@ -1099,6 +1148,7 @@ class DecentralizedRobotNode:
             if release:
                 self.pending_plant_task = (target_site.site_id, intent.task_id, obs.time_s)
             self.last_commanded_linear_m_s = 0.0
+            self.last_commanded_angular_rad_s = 0.0
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1165,6 +1215,7 @@ class DecentralizedRobotNode:
         if obs.front_range_m <= self.limits.stop_range_m:
             if not self.local_map.slam.cells:
                 self.last_commanded_linear_m_s = 0.0
+                self.last_commanded_angular_rad_s = 0.0
                 return RobotCommand(
                     robot_id=obs.robot_id,
                     issued_at_s=issued_at_s,
@@ -1177,6 +1228,7 @@ class DecentralizedRobotNode:
             pivot_w = round(pivot_dir * min(self.limits.turn_rad_s, max(0.65, abs(heading_error) * 1.6)), 3)
             creep_v = 0.18 if (obs.front_range_m > 0.19 and abs(heading_error) < 0.65) else 0.0
             self.last_commanded_linear_m_s = creep_v
+            self.last_commanded_angular_rad_s = pivot_w
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1192,6 +1244,7 @@ class DecentralizedRobotNode:
         )
         linear = min(self.limits.speed_m_s, dist_to_target * 0.55) if abs(heading_error) < 0.55 else 0.0
         self.last_commanded_linear_m_s = round(linear, 3)
+        self.last_commanded_angular_rad_s = round(angular, 3)
         return RobotCommand(
             robot_id=obs.robot_id,
             issued_at_s=issued_at_s,
@@ -1399,14 +1452,27 @@ class DecentralizedMycelialRuntime:
         for robot_id, obs in obs_by_robot.items():
             node = self.nodes[robot_id]
             prev_cmd_lin = node.last_commanded_linear_m_s
+            prev_cmd_ang = node.last_commanded_angular_rad_s
+            prev_pose = node.last_pose
+            yaw_delta = (
+                abs((obs.pose.yaw_rad - prev_pose.yaw_rad + pi) % (2 * pi) - pi)
+                if prev_pose is not None
+                else 0.0
+            )
             telemetry, count, _ = node.process_local_sensors(
                 obs, visible_peer_poses_for_robot[robot_id]
             )
             self.latest_sensor_telemetry[robot_id] = telemetry
             total_ingested += count
-            actively_cmd = abs(prev_cmd_lin) >= 0.04
+            actively_cmd = abs(prev_cmd_lin) >= 0.04 or abs(prev_cmd_ang) >= 0.10
             clear_rng = obs.front_range_m is not None and obs.front_range_m > self.limits.stop_range_m
-            is_stall = bool(actively_cmd and clear_rng and obs.link_ok and telemetry.true_ground_speed_m_s < 0.025)
+            is_stall = bool(
+                actively_cmd
+                and clear_rng
+                and obs.link_ok
+                and telemetry.true_ground_speed_m_s < 0.025
+                and yaw_delta < 0.02
+            )
             extracted_now = any(
                 rf.target_robot_id == robot_id and rf.extracted
                 for rf in frame.recovery_feedback
@@ -1415,7 +1481,11 @@ class DecentralizedMycelialRuntime:
                 rf.target_robot_id == robot_id and rf.latched and not rf.extracted
                 for rf in frame.recovery_feedback
             )
-            if extracted_now or (not being_pulled_now and telemetry.true_ground_speed_m_s >= 0.03):
+            if extracted_now or (
+                not being_pulled_now
+                and prev_pose is not None
+                and (telemetry.true_ground_speed_m_s >= 0.03 or yaw_delta >= 0.02)
+            ):
                 self._stuck_counts[robot_id] = 0
             elif is_stall:
                 self._stuck_counts[robot_id] = self._stuck_counts.get(robot_id, 0) + 1
@@ -1426,9 +1496,9 @@ class DecentralizedMycelialRuntime:
                 robot_id=robot_id,
                 observed_at_s=obs.time_s,
                 commanded_linear_m_s=prev_cmd_lin,
-                commanded_angular_rad_s=0.0,
+                commanded_angular_rad_s=prev_cmd_ang,
                 observed_displacement_m=round(telemetry.true_ground_speed_m_s * 0.1, 5),
-                observed_yaw_delta_rad=0.0,
+                observed_yaw_delta_rad=round(yaw_delta, 5),
                 observed_speed_m_s=obs.true_speed_m_s,
                 slip_ratio=0.90 if stalled_ticks_now >= 2 else telemetry.slip_ratio,
                 pitch_rad=obs.pitch_rad,
@@ -1607,31 +1677,7 @@ class DecentralizedMycelialRuntime:
 
         self.latest_gossip_packets = tuple(cycle_packets)
 
-        # 5. Recompute bids after gossip education & resolve peer task ownership via Consensus Bundle Auction
-        updated_bids: dict[str, list[TaskBidProposal]] = {
-            rid: self.nodes[rid].compute_task_bids(obs) for rid, obs in obs_by_robot.items()
-        }
-
-        intents: list[TaskIntent] = []
-        commands: list[RobotCommand] = []
-        claimed_by_peer: dict[str, str] = {}
-
-        all_connected_bids: list[TaskBidProposal] = []
-        for rid in robot_ids:
-            all_connected_bids.extend(updated_bids[rid])
-        all_connected_bids.sort(key=lambda b: b.bid_score, reverse=True)
-
-        assigned_bid_for_robot: dict[str, TaskBidProposal] = {}
-        for bid in all_connected_bids:
-            if bid.robot_id in assigned_bid_for_robot:
-                continue
-            existing_owner = claimed_by_peer.get(bid.site_id)
-            if existing_owner is not None and existing_owner in reachable_peers[bid.robot_id]:
-                continue
-            assigned_bid_for_robot[bid.robot_id] = bid
-            claimed_by_peer[bid.site_id] = bid.robot_id
-
-        # 6. Autonomous Peer Rescue Triage (RESCUE_NOW vs DEFER_RESCUE vs ABANDON_ESCALATE) & System-2 Advisor
+        # 5. Autonomous Peer Rescue Triage (RESCUE_NOW vs DEFER_RESCUE vs ABANDON_ESCALATE) & System-2 Advisor
         # Uses sensor-derived commanded-versus-observed motion stall evidence (_stuck_counts >= 2), not simulator truth.
         self.last_rescue_assessments = {}
         rescue_intent_by_robot: dict[str, TaskIntent] = {}
@@ -1662,15 +1708,33 @@ class DecentralizedMycelialRuntime:
                 target_site_id=None,
                 reason=f"stalled at {nearest_site_id}; holding for peer rigid-dock extraction",
             )
+            hazard_risk = 0.0
+            for s in self.sites.values():
+                if not s.permitted:
+                    if hypot(stranded_obs.pose.x_m - s.center.x_m, stranded_obs.pose.y_m - s.center.y_m) <= s.no_go_radius_m + 0.25:
+                        hazard_risk = 2.0
+
             candidates = [
                 r
                 for r in frame.robots
                 if r.robot_id != stranded_id
                 and r.robot_id not in stranded_ids
+                and r.robot_id not in rescue_intent_by_robot
                 and r.link_ok
                 and r.robot_id in reachable_peers.get(stranded_id, set())
             ]
-            if not candidates:
+            if not candidates or hazard_risk >= 1.5:
+                self.last_rescue_assessments[stranded_id] = RescueAssessment(
+                    stranded_robot_id=stranded_id,
+                    verdict=RescueVerdict.ABANDON_ESCALATE,
+                    nearest_site_id=nearest_site_id,
+                    rescue_benefit=0.0,
+                    opportunity_cost=0.0,
+                    hazard_risk=hazard_risk,
+                    net_rescue_value=-hazard_risk,
+                    helper_robot_id=None,
+                    reason="not worth saving: high hazard risk or no available reachable helper; safe HOLD for human",
+                )
                 continue
             rescuer = min(
                 candidates,
@@ -1681,22 +1745,60 @@ class DecentralizedMycelialRuntime:
             )
             dist_m = max(0.05, hypot(rescuer.pose.x_m - stranded_obs.pose.x_m, rescuer.pose.y_m - stranded_obs.pose.y_m))
             eta_s = dist_m / 0.35
-            saved_benefit = round((1.80 if self.capabilities[stranded_id].can_plant else 0.70) + 1.35 * stranded_obs.seeds_remaining, 4)
-            opp_cost = round(0.18 * eta_s, 4)
-            net_utility = round(saved_benefit - opp_cost, 4)
 
-            est_near = self.nodes[rescuer.robot_id].local_map.estimate(nearest_site_id)
-            local_m = est_near.moisture if est_near.moisture is not None else 0.88
-            local_f = est_near.firmness if est_near.firmness is not None else 0.19
+            healthy_seeds = sum(c.seeds_remaining for c in candidates)
+            rescuer_map = self.nodes[rescuer.robot_id].local_map
+            allowed_site_ids = [
+                sid
+                for sid, s in self.sites.items()
+                if s.permitted
+                and sid not in rescuer_map.planted_sites
+                and not (rescuer_map.estimate(sid).complete and not self.envelope.eligible(rescuer_map.estimate(sid)))
+            ]
+            remaining_work_sites = max(1, len(allowed_site_ids))
+            confirmed_gaps = sum(1 for sid in allowed_site_ids if self.envelope.eligible(rescuer_map.estimate(sid)))
+
+            seeds_needed = max(0, min(stranded_obs.seeds_remaining, remaining_work_sites - healthy_seeds))
+            seed_recovery_value = 0.95 * seeds_needed
+            offline_data_value = 0.55 if not stranded_obs.link_ok else 0.0
+            base_asset_value = 0.35 if stranded_obs.seeds_remaining > 0 else 0.10
+            saved_benefit = round(seed_recovery_value + offline_data_value + base_asset_value, 4)
+
+            helper_can_plant_now = rescuer.seeds_remaining > 0 and confirmed_gaps > 0
+            active_planting_cost = 1.45 if helper_can_plant_now else 0.25
+            opp_cost = round(active_planting_cost + 0.08 * dist_m, 4)
+            net_utility = round(saved_benefit - opp_cost - hazard_risk, 4)
+
+            est_stranded = self.nodes[stranded_id].local_map.estimate(nearest_site_id)
+            est_near = rescuer_map.estimate(nearest_site_id)
+            local_m = (
+                est_stranded.moisture
+                if est_stranded.moisture is not None
+                else (est_near.moisture if est_near.moisture is not None else 0.88)
+            )
+            local_f = (
+                est_stranded.firmness
+                if est_stranded.firmness is not None
+                else (est_near.firmness if est_near.firmness is not None else 0.19)
+            )
+            f_mode = (
+                FailureMode.NO_GO_HAZARD
+                if hazard_risk >= 1.5
+                else (
+                    FailureMode.CONTAGIOUS_MUD_TRAP
+                    if (local_m > 0.75 or local_f < 0.25)
+                    else FailureMode.ASYMMETRIC_SLIP_OR_SUCTION
+                )
+            )
             incident = IncidentReport(
                 incident_id=f"inc-{stranded_id}-{frame.time_s:.2f}",
                 time_s=frame.time_s,
                 stranded_robot_id=stranded_id,
-                failure_mode=FailureMode.CONTAGIOUS_MUD_TRAP if local_f < 0.25 else FailureMode.ASYMMETRIC_SLIP_OR_SUCTION,
+                failure_mode=f_mode,
                 stalled_window_s=max(0.2, frame.time_s - self._bogged_since_s.get(stranded_id, frame.time_s)),
                 slip_ratio=self.last_fault_evidence[stranded_id].slip_ratio,
-                imu_pitch_deg=self.latest_sensor_telemetry[stranded_id].pitch_deg,
-                imu_roll_deg=self.latest_sensor_telemetry[stranded_id].roll_deg,
+                imu_pitch_deg=round(stranded_obs.pitch_rad * 180.0 / pi, 2),
+                imu_roll_deg=round(stranded_obs.roll_rad * 180.0 / pi, 2),
                 front_range_m=stranded_obs.front_range_m,
                 local_moisture=local_m,
                 local_firmness=local_f,
@@ -1717,9 +1819,9 @@ class DecentralizedMycelialRuntime:
                 nearest_site_id=nearest_site_id,
                 rescue_benefit=saved_benefit,
                 opportunity_cost=opp_cost,
-                hazard_risk=0.0,
+                hazard_risk=hazard_risk,
                 net_rescue_value=net_utility,
-                helper_can_plant_now=False,
+                helper_can_plant_now=helper_can_plant_now,
             )
             if self.rescue_policy == "react_orchestrator":
                 orch_dec = self.orchestrator.orchestrate(incident)
@@ -1734,22 +1836,51 @@ class DecentralizedMycelialRuntime:
                     stranded_robot_id=stranded_id,
                     rescuer_robot_id=None,
                     nearest_site_id=nearest_site_id,
-                    expected_saved_benefit=saved_benefit,
-                    rescue_opportunity_cost=opp_cost,
-                    net_rescue_utility=net_utility,
+                    rescue_benefit=saved_benefit,
+                    opportunity_cost=opp_cost,
+                    hazard_risk=hazard_risk,
+                    net_rescue_value=net_utility,
                     verdict=verdict,
                     rationale="baseline(never_rescue): never dispatch peer rescue",
                 )
-            else:
-                verdict = RescueVerdict.RESCUE_NOW if net_utility >= 0.0 else RescueVerdict.DEFER_RESCUE
+            elif self.rescue_policy == "always_rescue":
+                verdict = RescueVerdict.RESCUE_NOW
                 chosen_tech_val = "direct_pry_and_pull"
                 assessment = RescueAssessment(
                     stranded_robot_id=stranded_id,
                     rescuer_robot_id=rescuer.robot_id,
+                    helper_robot_id=rescuer.robot_id,
+                    mechanical_technique=MechanicalRescueTechnique.DIRECT_PRY_AND_PULL,
                     nearest_site_id=nearest_site_id,
-                    expected_saved_benefit=saved_benefit,
-                    rescue_opportunity_cost=opp_cost,
-                    net_rescue_utility=net_utility,
+                    rescue_benefit=saved_benefit,
+                    opportunity_cost=opp_cost,
+                    hazard_risk=hazard_risk,
+                    net_rescue_value=net_utility,
+                    verdict=verdict,
+                    rationale="baseline(always_rescue): unconditionally dispatch closest helper",
+                )
+            else:
+                if net_utility > 0.0:
+                    verdict = RescueVerdict.RESCUE_NOW
+                elif saved_benefit >= 0.60 and helper_can_plant_now:
+                    verdict = RescueVerdict.DEFER_RESCUE
+                else:
+                    verdict = RescueVerdict.ABANDON_ESCALATE
+                chosen_tech_val = "direct_pry_and_pull" if verdict == RescueVerdict.RESCUE_NOW else "none"
+                assessment = RescueAssessment(
+                    stranded_robot_id=stranded_id,
+                    rescuer_robot_id=rescuer.robot_id if verdict != RescueVerdict.ABANDON_ESCALATE else None,
+                    helper_robot_id=rescuer.robot_id if verdict != RescueVerdict.ABANDON_ESCALATE else None,
+                    mechanical_technique=(
+                        MechanicalRescueTechnique.DIRECT_PRY_AND_PULL
+                        if verdict == RescueVerdict.RESCUE_NOW
+                        else "none"
+                    ),
+                    nearest_site_id=nearest_site_id,
+                    rescue_benefit=saved_benefit,
+                    opportunity_cost=opp_cost,
+                    hazard_risk=hazard_risk,
+                    net_rescue_value=net_utility,
                     verdict=verdict,
                     rationale=(
                         f"Peer rescue saves {saved_benefit:.2f} expected utility at cost {opp_cost:.2f} "
@@ -1758,9 +1889,12 @@ class DecentralizedMycelialRuntime:
                 )
             self.last_rescue_assessments[stranded_id] = assessment
             if verdict == RescueVerdict.RESCUE_NOW:
-                rescue_intent_by_robot[rescuer.robot_id] = TaskIntent(
-                    task_id=f"{frame.episode_id}:{frame.time_s:.3f}:{rescuer.robot_id}:rescue",
-                    robot_id=rescuer.robot_id,
+                helper_id = assessment.helper_robot_id or rescuer.robot_id
+                if helper_id in obs_by_robot:
+                    visible_peer_poses_for_robot[helper_id][stranded_id] = stranded_obs.pose
+                rescue_intent_by_robot[helper_id] = TaskIntent(
+                    task_id=f"{frame.episode_id}:{frame.time_s:.3f}:{helper_id}:rescue",
+                    robot_id=helper_id,
                     mode=TaskMode.RESCUE,
                     issued_at_s=frame.time_s,
                     expires_at_s=frame.time_s + 1.0,
@@ -1772,9 +1906,9 @@ class DecentralizedMycelialRuntime:
                 if stranded_id not in self._sos_broadcast_sent:
                     self._sos_broadcast_sent.add(stranded_id)
                     sos_pkt = MycelialGossipPacket(
-                        packet_id=f"pkt:{frame.time_s:.2f}:{stranded_id}->{rescuer.robot_id}:sos",
+                        packet_id=f"pkt:{frame.time_s:.2f}:{stranded_id}->{helper_id}:sos",
                         sender_id=stranded_id,
-                        receiver_id=rescuer.robot_id,
+                        receiver_id=helper_id,
                         sent_at_s=frame.time_s,
                         uwb_distance_m=round(dist_m, 4),
                         uwb_aoa_rad=0.0,
@@ -1783,7 +1917,7 @@ class DecentralizedMycelialRuntime:
                         task_bid=None,
                         byte_size=64,
                         dialogue_summary=(
-                            f"{stranded_id}->{rescuer.robot_id}: SOS BOGGED at {nearest_site_id}; "
+                            f"{stranded_id}->{helper_id}: SOS BOGGED at {nearest_site_id}; "
                             f"{verdict.value} net={net_utility:+.2f} -> rigid-dock rescue dispatched",
                         ),
                     )
@@ -1791,6 +1925,33 @@ class DecentralizedMycelialRuntime:
                     self.latest_gossip_packets = (*self.latest_gossip_packets, sos_pkt)
                     self.total_gossip_bytes += 64
                     self.total_gossip_packets += 1
+
+        # 6. Recompute bids after gossip education & resolve peer task ownership for healthy non-rescuing robots
+        updated_bids: dict[str, list[TaskBidProposal]] = {
+            rid: self.nodes[rid].compute_task_bids(obs)
+            for rid, obs in obs_by_robot.items()
+            if rid not in rescue_intent_by_robot
+        }
+
+        intents: list[TaskIntent] = []
+        commands: list[RobotCommand] = []
+        claimed_by_peer: dict[str, str] = {}
+
+        all_connected_bids: list[TaskBidProposal] = []
+        for rid in robot_ids:
+            if rid in updated_bids:
+                all_connected_bids.extend(updated_bids[rid])
+        all_connected_bids.sort(key=lambda b: b.bid_score, reverse=True)
+
+        assigned_bid_for_robot: dict[str, TaskBidProposal] = {}
+        for bid in all_connected_bids:
+            if bid.robot_id in assigned_bid_for_robot or bid.robot_id in rescue_intent_by_robot:
+                continue
+            existing_owner = claimed_by_peer.get(bid.site_id)
+            if existing_owner is not None and existing_owner in reachable_peers[bid.robot_id]:
+                continue
+            assigned_bid_for_robot[bid.robot_id] = bid
+            claimed_by_peer[bid.site_id] = bid.robot_id
 
         if self.advisor is not None and not rescue_intent_by_robot:
             try:

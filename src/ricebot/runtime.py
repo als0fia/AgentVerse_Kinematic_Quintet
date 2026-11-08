@@ -234,10 +234,12 @@ class EpisodeConfig:
 
     @property
     def effective_policy_label(self) -> str:
-        if self.is_golden_rescue or self.scenario in {"high_risk_abstain", "randomized"}:
-            return "cooperative_swarm_rescue"
         if self.single_rover_only or self.policy == "single_rover":
             return "single_rover"
+        if self.policy == "mycelial":
+            return "mycelial"
+        if self.is_golden_rescue or self.scenario in {"high_risk_abstain", "randomized"}:
+            return "cooperative_swarm_rescue"
         return self.policy
 
 
@@ -662,7 +664,17 @@ def create_mujoco_episode_session(
 
     sites_tuple = tuple(sim.sites.values())
 
-    if cfg.is_rescue_scenario or cfg.policy == "cooperative":
+    if cfg.policy == "mycelial" and not is_single:
+        policy_runtime: PolicyRuntime = DecentralizedMycelialRuntime(
+            sites=sites_tuple,
+            capabilities=caps,
+            comm_range_m=cfg.comm_range_m * max(1.0, cfg.map_scale),
+            comm_mode=cfg.comms,
+            advisor=advisor,
+            rescue_policy=cfg.rescue_policy,
+            gossip_delay_s=cfg.gossip_delay_s,
+        )
+    elif cfg.is_rescue_scenario or cfg.policy == "cooperative":
         field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
         planner: SimpleMissionPlanner = CooperativeSwarmPlanner(
             caps,
@@ -672,21 +684,12 @@ def create_mujoco_episode_session(
         controller = LocalController(
             ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
         )
-        policy_runtime: PolicyRuntime = MissionCore(field_map, planner, controller)
-    elif cfg.policy == "mycelial" and not is_single:
-        policy_runtime = DecentralizedMycelialRuntime(
-            sites=sites_tuple,
-            capabilities=caps,
-            comm_range_m=cfg.comm_range_m,
-            comm_mode=cfg.comms,
-            advisor=advisor,
-            rescue_policy=cfg.rescue_policy,
-        )
+        policy_runtime = MissionCore(field_map, planner, controller)
     else:
         field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
         planner = SimpleMissionPlanner(caps)
         controller = LocalController(
-            ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
+            ControlLimits(speed_m_s=0.40, turn_rad_s=1.20, stop_range_m=0.32, site_reach_m=0.245)
         )
         policy_runtime = MissionCore(field_map, planner, controller)
 
@@ -695,10 +698,11 @@ def create_mujoco_episode_session(
         shadow_policy = DecentralizedMycelialRuntime(
             sites=sites_tuple,
             capabilities=caps,
-            comm_range_m=0.0 if is_single else cfg.comm_range_m,
+            comm_range_m=0.0 if is_single else cfg.comm_range_m * max(1.0, cfg.map_scale),
             comm_mode="isolated" if is_single else cfg.comms,
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
+            gossip_delay_s=cfg.gossip_delay_s,
         )
 
     return EpisodeSession(
