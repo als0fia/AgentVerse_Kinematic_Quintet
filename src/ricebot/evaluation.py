@@ -157,6 +157,9 @@ class EpisodeEvaluationRecord:
     gossip_sync_events: int
     stale_shared_belief_events: int
     map_divergence_l1: float
+    num_rovers: int
+    map_scale: float
+    active_policy_type: str
 
     # Canonical verdict for schemas/episode.schema.json & scripts/evaluate.py
     success: bool
@@ -220,6 +223,10 @@ def run_canonical_episode(
         planter_spawn=config.planter_spawn,
         scout_spawn=config.scout_spawn,
         inject_obstacle_at_s=config.inject_obstacle_at_s,
+        num_rovers=config.num_rovers,
+        map_scale=config.map_scale,
+        gossip_delay_s=config.gossip_delay_s,
+        active_mycelial_in_rescue=config.active_mycelial_in_rescue,
     )
 
     eff_label = policy_label or (
@@ -237,11 +244,15 @@ def run_canonical_episode(
     elif cfg.scenario == "high_risk_abstain":
         mud_severity = "severe"
 
-    truth = generate_hidden_soil_truth(cfg.scenario, cfg.seed)
+    from .world import build_field_layout
+    layout = build_field_layout(cfg.map_scale, cfg.seed, cfg.scenario)
+    truth = generate_hidden_soil_truth(cfg.scenario, cfg.seed, layout.sites)
 
     # Fresh canonical session creation (Issue #71)
     session = create_mujoco_episode_session(cfg)
     raw_sim = session.sim
+    if raw_sim.num_rovers != cfg.num_rovers or abs(raw_sim.map_scale - cfg.map_scale) > 1e-6:
+        raise RuntimeError("Evaluation configuration does not match the actual MuJoCo fleet and field")
 
     # Optional residual learner configuration for Ablation 3
     planner_obj = getattr(session.policy, "planner", None)
@@ -555,7 +566,7 @@ def run_canonical_episode(
     coord_pol = (
         "single_rover"
         if (cfg.single_rover_only or cfg.policy == "single_rover")
-        else ("cooperative" if cfg.is_rescue_scenario or cfg.policy == "cooperative" else cfg.policy)
+        else ("mycelial" if type(session.policy).__name__ == "DecentralizedMycelialRuntime" else "cooperative" if cfg.is_rescue_scenario or cfg.policy == "cooperative" else cfg.policy)
     )
 
     return EpisodeEvaluationRecord(
@@ -628,6 +639,9 @@ def run_canonical_episode(
         gossip_sync_events=gossip_syncs,
         stale_shared_belief_events=stale_events,
         map_divergence_l1=map_div,
+        num_rovers=cfg.num_rovers,
+        map_scale=cfg.map_scale,
+        active_policy_type=type(session.policy).__name__,
         success=success,
         failure_reason=failure_reason,
         yield_only_success=yield_only_success,
