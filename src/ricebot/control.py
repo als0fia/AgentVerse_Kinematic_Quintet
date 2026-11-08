@@ -179,7 +179,7 @@ class LocalController:
                     linear = min(self.limits.speed_m_s, distance * 0.5)
                     # Anti-Digging Traction (Doppler radar true speed vs linear command)
                     # Only throttle if robot is already at cruising speed (> 0.03 m/s) to allow normal startup acceleration
-                    if robot.true_speed_m_s is not None and robot.true_speed_m_s > 0.03 and linear > 0.05:
+                    if robot.true_speed_m_s is not None and robot.true_speed_m_s > 0.042 and linear > 0.05:
                         slip = 1.0 - (robot.true_speed_m_s / linear)
                         if slip > self.limits.max_slip_ratio:
                             linear = max(0.04, linear * (1.0 - slip))

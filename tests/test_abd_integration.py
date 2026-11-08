@@ -512,6 +512,13 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
                 [(r.helper_robot_id, r.target_robot_id, r.extracted) for r in sess_b.sim.completed_recoveries],
             )
 
+        # Verify PaddyTerraceWorld.reset(new_seed) refreshes hidden soil truth when scenario is set
+        re_sess = create_mujoco_episode_session(EpisodeConfig(scenario="randomized", seed=2))
+        truth_seed_2 = dict(re_sess.sim.world._hidden_site_truth)
+        re_sess.reset(5)
+        truth_seed_5 = dict(re_sess.sim.world._hidden_site_truth)
+        self.assertNotEqual(truth_seed_2, truth_seed_5)
+
         # 2. Evaluate 12 different seeds (1..12) through authoritative EpisodeSession
         visited_sequences: set[tuple[str, ...]] = set()
         viable_sets: set[tuple[str, ...]] = set()

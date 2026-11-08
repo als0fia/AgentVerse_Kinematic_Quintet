@@ -185,7 +185,10 @@ class MujocoPaddySimulation:
         scenario: str = "nominal",
     ) -> None:
         self.world = PaddyTerraceWorld(
-            sites=sites, probe_radius_m=probe_radius_m, hidden_truth=hidden_truth
+            sites=sites,
+            probe_radius_m=probe_radius_m,
+            hidden_truth=hidden_truth,
+            scenario=scenario,
         )
         self.sites = self.world.sites
         self.probe_radius_m = probe_radius_m
@@ -856,7 +859,7 @@ class MujocoPaddySimulation:
                             target_id=target_id,
                             capture_radius_m=0.022,
                         )
-                        # Drive helper backward and victim forward slightly on unlatch so inter-rover distance > 0.36 m (clear of 0.24 m UWB brake)
+                        # Drive helper backward and victim forward on unlatch so inter-rover distance > 0.36 m
                         self.data.ctrl[h_offset : h_offset + 4] = compute_4wheel_skid_steer(helper_spec, -0.35, 0.0)
                         self.data.ctrl[t_offset : t_offset + 4] = compute_4wheel_skid_steer(target_spec, 0.20, 0.0)
                         peak_f = round(max(9.2, self._peak_latch_force_n), 3)

@@ -119,8 +119,8 @@ _RANDOMIZED_SPAWN_ARCHETYPES: tuple[
     ((1.22, -0.48, 0.04), (0.12, -0.54, 0.04)),
     # 4: East-Central Scout / West Planter (Planter near patch_a, Scout near patch_c -> p:a, s:c)
     ((0.20, -0.52, 0.05), (1.98, -0.10, -0.65)),
-    # 5: Central-North Planter / East-South Scout (Planter near patch_d, Scout near patch_c -> p:d, s:c)
-    ((1.58, 0.06, 1.50), (2.14, -0.46, 0.10)),
+    # 5: East-South Planter / Central-North Scout (Planter near patch_c, Scout near patch_d -> p:c, s:d)
+    ((2.04, -0.48, 0.04), (1.58, 0.06, 1.50)),
 )
 
 
@@ -582,19 +582,28 @@ class PaddyTerraceWorld:
         sites: tuple[Site, ...] = DEFAULT_SITES,
         probe_radius_m: float = 0.28,
         hidden_truth: dict[str, dict[SensorKind, float]] | None = None,
+        scenario: str | None = None,
     ) -> None:
         if probe_radius_m <= 0:
             raise ValueError("probe_radius_m must be positive")
         self.sites = {s.site_id: s for s in sites}
         self.probe_radius_m = probe_radius_m
-        self._hidden_site_truth = dict(hidden_truth or DEFAULT_HIDDEN_SOIL_TRUTH)
+        self.scenario = scenario
+        self._explicit_hidden_truth = hidden_truth is not None
+        self._hidden_site_truth = dict(
+            hidden_truth
+            if hidden_truth is not None
+            else (generate_hidden_soil_truth(scenario, 7) if scenario is not None else DEFAULT_HIDDEN_SOIL_TRUTH)
+        )
         self.continuous_terrain = ContinuousPaddyTerrain(
             sites=sites, anchor_truth=self._hidden_site_truth, seed=7
         )
         self._sampled_pairs: set[tuple[str, str]] = set()
 
     def reset(self, seed: int) -> None:
-        """Reset episode sampling state and continuous terrain seed."""
+        """Reset episode sampling state, scenario-driven soil truth, and continuous terrain seed."""
+        if self.scenario is not None and (not self._explicit_hidden_truth or self.scenario in {"randomized", "shifted_moisture"}):
+            self._hidden_site_truth = generate_hidden_soil_truth(self.scenario, int(seed))
         self.continuous_terrain = ContinuousPaddyTerrain(
             sites=tuple(self.sites.values()),
             anchor_truth=self._hidden_site_truth,
