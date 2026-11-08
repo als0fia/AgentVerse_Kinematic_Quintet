@@ -160,6 +160,9 @@ class EpisodeEvaluationRecord:
     num_rovers: int
     map_scale: float
     active_policy_type: str
+    gossip_source: str
+    distance_m_by_rover: dict[str, float]
+    active_task_ticks_by_rover: dict[str, int]
 
     # Canonical verdict for schemas/episode.schema.json & scripts/evaluate.py
     success: bool
@@ -474,6 +477,10 @@ def run_canonical_episode(
     ):
         mycelial_src = session.shadow_policy
 
+    gossip_source = (
+        "active" if hasattr(session.policy, "total_gossip_packets")
+        else "shadow" if mycelial_src is not None else "none"
+    )
     gossip_packets = (
         int(getattr(mycelial_src, "total_gossip_packets", 0)) if mycelial_src else 0
     )
@@ -516,6 +523,30 @@ def run_canonical_episode(
     if physical_extractions_verified > 0 and mobility_resumed_events == 0:
         # Verify whether extracted robot subsequently moved clear of trap
         mobility_resumed_events = physical_extractions_verified
+
+    # Fleet-scale outcomes from the exact observed action trace; robot bodies
+    # existing in the scene are not counted as participating in fieldwork.
+    last_pose_by_rover: dict[str, Pose2D] = {}
+    distance_m_by_rover: dict[str, float] = {
+        spec.robot_id: 0.0 for spec in raw_sim.rover_specs
+    }
+    active_task_ticks_by_rover: dict[str, int] = {
+        spec.robot_id: 0 for spec in raw_sim.rover_specs
+    }
+    for tick in session.ticks:
+        for obs in tick.frame.robots:
+            previous = last_pose_by_rover.get(obs.robot_id)
+            if previous is not None:
+                distance_m_by_rover[obs.robot_id] += hypot(
+                    obs.pose.x_m - previous.x_m, obs.pose.y_m - previous.y_m
+                )
+            last_pose_by_rover[obs.robot_id] = obs.pose
+        for intent in tick.decision.intents:
+            if intent.mode != TaskMode.HOLD:
+                active_task_ticks_by_rover[intent.robot_id] += 1
+    distance_m_by_rover = {
+        rid: round(meters, 4) for rid, meters in distance_m_by_rover.items()
+    }
 
     # Objective physical + agronomic + safety verdict
     failure_reason: str | None = None
@@ -642,6 +673,9 @@ def run_canonical_episode(
         num_rovers=cfg.num_rovers,
         map_scale=cfg.map_scale,
         active_policy_type=type(session.policy).__name__,
+        gossip_source=gossip_source,
+        distance_m_by_rover=distance_m_by_rover,
+        active_task_ticks_by_rover=active_task_ticks_by_rover,
         success=success,
         failure_reason=failure_reason,
         yield_only_success=yield_only_success,
