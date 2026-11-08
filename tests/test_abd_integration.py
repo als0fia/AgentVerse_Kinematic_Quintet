@@ -87,8 +87,18 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         """Phase 1: Existing Policy A (centralized) and Policy B (mycelial) remain functional on nominal fieldwork."""
         res_a = run_demo(scenario="nominal", policy="centralized", seed=7, steps=140)
         res_b = run_demo(scenario="nominal", policy="mycelial", seed=7, steps=140)
-        self.assertEqual(res_a["viable_seed_placements"], 2)
-        self.assertEqual(res_b["viable_seed_placements"], 2)
+        self.assertEqual(
+            res_a["viable_seed_placements"], 2,
+            msg=f"Centralized nominal regression: drops={res_a['completed_seed_drops']}; "
+                f"travel={res_a['travel_distance_m']}; "
+                f"estimates={res_a['site_estimates']}; events={res_a['key_events'][-12:]}"
+        )
+        self.assertEqual(
+            res_b["viable_seed_placements"], 2,
+            msg=f"Mycelial nominal regression: drops={res_b['completed_seed_drops']}; "
+                f"travel={res_b['travel_distance_m']}; "
+                f"estimates={res_b['site_estimates']}; events={res_b['key_events'][-12:]}"
+        )
 
     def test_sensor_only_fault_detection_and_negative_controls(self) -> None:
         """Phase 3: Sensor-only FaultEvidence detects mud stall when expose_bogged_flag=False; obstacle & null-range do not false-trigger."""
@@ -315,7 +325,7 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         """Phase 5 (E): Dashboard recorder, HTML renderer, and operator commands reflect authoritative EpisodeSession."""
         cfg = EpisodeConfig(
             scenario="golden_rescue",
-            policy="mycelial",
+            policy="cooperative",
             seed=7,
             steps=110,
             rescue_policy="react_orchestrator",
@@ -595,6 +605,32 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         self.assertIn("rescue_extracted", outcome_classes)
         self.assertIn("refusal_abandon_escalate", outcome_classes)
         self.assertTrue(len(rescued_and_planted_seeds) >= 1)
+
+    def test_in_place_session_reset_and_scalable_fleet_wave0(self) -> None:
+        """Issue #71 + Option A: Verify EpisodeSession.reset(new_seed) and N-rover fleet execution."""
+        for pol in ("cooperative", "mycelial"):
+            cfg = EpisodeConfig(scenario="randomized", policy=pol, seed=2, include_shadow_mycelial=True)
+            session = create_mujoco_episode_session(cfg)
+            session.reset(2)
+            for _ in range(5):
+                session.step_once()
+            session.reset(8)
+            for _ in range(5):
+                tick = session.step_once()
+            self.assertEqual(session.seed, 8)
+            self.assertEqual(len(session.ticks), 5)
+            self.assertEqual(tick.frame.episode_id, "mujoco-ep-8")
+
+        cfg_fleet = EpisodeConfig(scenario="nominal", policy="mycelial", seed=7, num_rovers=4, steps=12)
+        fleet_sess = create_mujoco_episode_session(cfg_fleet)
+        decisions = fleet_sess.run(seed=7, steps=12)
+        self.assertEqual(len(decisions), 12)
+        assert fleet_sess.current_frame is not None
+        self.assertEqual(len(fleet_sess.current_frame.robots), 4)
+        self.assertEqual(
+            [r.robot_id for r in fleet_sess.current_frame.robots],
+            ["planter", "scout", "planter_2", "scout_2"],
+        )
 
 
 if __name__ == "__main__":

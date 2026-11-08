@@ -19,6 +19,7 @@ from .rovers import (
     detect_ramp_and_compute_visual_servo,
     evaluate_bekker_terramechanics,
     export_robot_mjcf_assets,
+    make_fleet_specs,
     make_homogeneous_rover_spec,
     update_rigid_dock_latch,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "compute_4wheel_skid_steer",
     "evaluate_bekker_terramechanics",
     "export_robot_mjcf_assets",
+    "make_fleet_specs",
     "make_homogeneous_rover_spec",
     "update_rigid_dock_latch",
 ]

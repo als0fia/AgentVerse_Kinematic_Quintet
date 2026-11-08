@@ -30,6 +30,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 import os
+import re
 import time
 from typing import Any, Callable, Protocol
 import urllib.error
@@ -456,6 +457,13 @@ class LLMBackend(Protocol):
     def call(self, prompt: str) -> str | None: ...
 
 
+class OfflineLLMBackend:
+    """Explicit no-network backend for shadow policies and paid-call-free tests."""
+
+    def call(self, prompt: str) -> None:
+        return None
+
+
 class GeminiRESTBackend:
     """Stdlib-only REST caller for Google Gemini (zero extra pip packages)."""
 
@@ -464,15 +472,31 @@ class GeminiRESTBackend:
         model: str = "gemini-2.5-flash",
         api_key_env: str = "GEMINI_API_KEY",
         timeout_s: float = 2.5,
+        max_calls: int = 8,
     ):
+        if max_calls < 1:
+            raise ValueError("model call budget must be positive")
+        self.max_calls = int(max_calls)
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", model):
+            raise ValueError("model identifier contains unsupported characters")
+        if timeout_s <= 0:
+            raise ValueError("model timeout must be positive")
         self.model = model
         self.api_key_env = api_key_env
         self.timeout_s = timeout_s
+        self.total_calls = 0
+        self.responses_received = 0
+        self.unavailable_calls = 0
+        self.total_elapsed_s = 0.0
+        self.last_error_type: str | None = None
 
     def call(self, prompt: str) -> str | None:
         api_key = os.environ.get(self.api_key_env)
-        if not api_key:
+        if not api_key or self.total_calls >= self.max_calls:
+            self.unavailable_calls += 1
             return None
+        self.total_calls += 1
+        t0 = time.perf_counter()
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
@@ -496,9 +520,14 @@ class GeminiRESTBackend:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception:
+            response = data["candidates"][0]["content"]["parts"][0]["text"]
+            self.responses_received += 1
+            return response
+        except Exception as exc:
+            self.last_error_type = type(exc).__name__
             return None
+        finally:
+            self.total_elapsed_s += time.perf_counter() - t0
 
 
 class DeterministicReasoner:

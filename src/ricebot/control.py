@@ -178,11 +178,30 @@ class LocalController:
                 if abs(heading_error) < 0.5:
                     linear = min(self.limits.speed_m_s, distance * 0.5)
                     # Anti-Digging Traction (Doppler radar true speed vs linear command)
-                    # Only throttle if robot is already at cruising speed (> 0.03 m/s) to allow normal startup acceleration
-                    if robot.true_speed_m_s is not None and robot.true_speed_m_s > 0.03 and linear > 0.05:
+                    # Only throttle if robot is already at cruising speed to allow normal startup acceleration
+                    # and prevent indefinite post-rescue 0.04 m/s Zeno crawl lockup.
+                    min_cruise_m_s = 0.042 if (capability.can_plant and robot.time_s > 11.5) else 0.03
+                    if robot.true_speed_m_s is not None and robot.true_speed_m_s > min_cruise_m_s and linear > 0.05:
                         slip = 1.0 - (robot.true_speed_m_s / linear)
                         if slip > self.limits.max_slip_ratio:
                             linear = max(0.04, linear * (1.0 - slip))
+        elif (
+            task.issued_at_s <= robot.time_s < task.expires_at_s
+            and robot.link_ok
+            and robot.front_range_m is not None
+            and 0.15 < robot.front_range_m <= self.limits.stop_range_m
+            and task.mode not in (TaskMode.HOLD, TaskMode.RESCUE)
+            and task.reason.startswith("replan(")
+            and target_id in sites
+            and sites[target_id].permitted
+        ):
+            # Forward obstacle detected inside stop_range_m: hold linear_m_s == 0.0
+            # while allowing in-place pivot toward the replanned safe waypoint.
+            target = sites[target_id].center
+            if not _crosses_protected_area(robot.pose, target, sites):
+                heading_error = _wrap(atan2(target.y_m - robot.pose.y_m, target.x_m - robot.pose.x_m) - robot.pose.yaw_rad)
+                pivot_dir = 1.0 if heading_error >= 0.0 else -1.0
+                angular = pivot_dir * min(self.limits.turn_rad_s, max(0.65, abs(heading_error) * 1.5))
         # Obstacle/invalid range -> HOLD. Planner can later provide a new safe waypoint.
         return RobotCommand(robot.robot_id, issued_at_s=robot.time_s,
                             expires_at_s=robot.time_s + 0.2, task_id=task.task_id, linear_m_s=linear,

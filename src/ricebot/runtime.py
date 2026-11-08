@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from .contracts import (
@@ -54,6 +54,41 @@ class MissionCore:
         self._last_episode: str | None = None
         self._pending_plant: dict[str, tuple[str, str, float]] = {}  # robot -> (site, task_id, sent_at)
         self._attempted_plant_sites: set[str] = set()
+
+    def reset(self) -> None:
+        """Reset MissionCore, MeasuredFieldMap, and planner state for an in-place episode reset."""
+        self._last_time = None
+        self._last_episode = None
+        self._pending_plant.clear()
+        self._attempted_plant_sites.clear()
+        if hasattr(self.field_map, "reset") and callable(self.field_map.reset):
+            self.field_map.reset()
+        elif hasattr(self.field_map, "_samples"):
+            self.field_map._samples.clear()
+        if hasattr(self.planner, "reset") and callable(getattr(self.planner, "reset")):
+            getattr(self.planner, "reset")()
+        else:
+            for dict_or_set_attr in (
+                "_previous_targets",
+                "_previous_eligible",
+                "_blocked_approaches",
+                "_last_pose",
+                "_last_commands",
+                "_stuck_counts",
+                "last_fault_evidence",
+                "last_rescue_assessments",
+                "last_orchestrator_decisions",
+                "recovery_monitoring_history",
+            ):
+                val = getattr(self.planner, dict_or_set_attr, None)
+                if hasattr(val, "clear"):
+                    val.clear()
+            if hasattr(self.planner, "_last_episode"):
+                setattr(self.planner, "_last_episode", None)
+            if hasattr(self.planner, "advisor_calls"):
+                setattr(self.planner, "advisor_calls", 0)
+            if hasattr(self.planner, "advisor_fallbacks"):
+                setattr(self.planner, "advisor_fallbacks", 0)
 
     def decide(self, frame: ObservationFrame) -> Decision:
         if self._last_episode is None:
@@ -133,10 +168,26 @@ class EpisodeConfig:
     planter_spawn: Pose2D | None = None
     scout_spawn: Pose2D | None = None
     inject_obstacle_at_s: float | None = None
+    num_rovers: int = 2
+    map_scale: float = 1.0
+    gossip_delay_s: float = 0.4
+    active_mycelial_in_rescue: bool = False  # Explicitly request acting decentralized policy in rescue scenarios
+    orchestrator_model: str = "gemini-2.5-flash"
+    orchestrator_timeout_s: float = 2.5
+    enable_live_llm: bool = False  # Paid network calls require explicit experiment opt-in
+    llm_max_calls: int = 8
 
     def __post_init__(self) -> None:
         if self.seed < 0 or isinstance(self.seed, bool) or self.steps < 1:
             raise ValueError("seed must be non-negative int and steps >= 1")
+        if self.num_rovers < 2 or self.num_rovers > 6:
+            raise ValueError("num_rovers must be in 2..6")
+        if self.map_scale <= 0.0 or self.gossip_delay_s < 0.0:
+            raise ValueError("map_scale must be > 0 and gossip_delay_s >= 0")
+        if self.orchestrator_timeout_s <= 0:
+            raise ValueError("orchestrator timeout must be positive")
+        if self.llm_max_calls < 1:
+            raise ValueError("llm_max_calls must be positive")
         if self.scenario == "randomized":
             from .world import generate_randomized_episode_spec
 
@@ -179,6 +230,27 @@ class EpisodeConfig:
             if self.sensor_dropout_window_s is None:
                 object.__setattr__(self, "sensor_dropout_window_s", (1.2, 2.4))
 
+    def with_seed(self, seed: int) -> "EpisodeConfig":
+        """Regenerate seed-derived defaults while retaining experiment settings."""
+        changes: dict[str, Any] = {"seed": seed}
+        if self.scenario == "randomized":
+            from .world import generate_randomized_episode_spec
+            old = generate_randomized_episode_spec(self.seed)
+            defaults = {
+                "planter_spawn": old.planter_spawn, "scout_spawn": old.scout_spawn,
+                "trap_robot_id": old.trap_robot_id,
+                "trap_site_id": old.trap_site_id or "patch_d",
+                "trap_radius_m": old.trap_radius_m,
+                "inject_obstacle_at_s": old.inject_obstacle_at_s,
+                "obstacle_xy": old.obstacle_xy,
+            }
+            new = generate_randomized_episode_spec(seed)
+            for name, value in defaults.items():
+                if getattr(self, name) == value:
+                    changes[name] = getattr(new, name)
+            changes["trap_site_id"] = changes.get("trap_site_id") or self.trap_site_id
+        return replace(self, **changes)
+
     @property
     def is_golden_rescue(self) -> bool:
         return self.scenario == "golden_rescue"
@@ -192,10 +264,12 @@ class EpisodeConfig:
 
     @property
     def effective_policy_label(self) -> str:
-        if self.is_golden_rescue or self.scenario in {"high_risk_abstain", "randomized"}:
-            return "cooperative_swarm_rescue"
         if self.single_rover_only or self.policy == "single_rover":
             return "single_rover"
+        if self.policy == "mycelial":
+            return "mycelial"
+        if self.is_golden_rescue or self.scenario in {"high_risk_abstain", "randomized"}:
+            return "cooperative_swarm_rescue"
         return self.policy
 
 
@@ -273,13 +347,69 @@ class EpisodeSession:
             return
         self._pending_operator_requests.append(request)
 
+    @staticmethod
+    def _reset_policy_runtime(runtime: PolicyRuntime | None) -> None:
+        """Reset stateful policy runtime (MissionCore or DecentralizedMycelialRuntime) in place."""
+        if runtime is None:
+            return
+        if hasattr(runtime, "reset") and callable(getattr(runtime, "reset")):
+            getattr(runtime, "reset")()
+            return
+        if hasattr(runtime, "nodes") and hasattr(runtime, "capabilities") and hasattr(runtime, "sites"):
+            sites_tuple = tuple(getattr(runtime, "sites").values())
+            envelope = getattr(runtime, "envelope", None)
+            limits = getattr(runtime, "limits", None)
+            nodes_dict = getattr(runtime, "nodes")
+            if nodes_dict:
+                first_node = next(iter(nodes_dict.values()))
+                node_cls = type(first_node)
+                for rid, cap in getattr(runtime, "capabilities").items():
+                    nodes_dict[rid] = node_cls(cap, sites=sites_tuple, envelope=envelope, limits=limits)
+            for attr_none in ("_last_time_s", "_last_episode_id", "last_advisor_recommendation"):
+                if hasattr(runtime, attr_none):
+                    setattr(runtime, attr_none, None)
+            for attr_zero in ("total_gossip_bytes", "total_gossip_packets"):
+                if hasattr(runtime, attr_zero):
+                    setattr(runtime, attr_zero, 0)
+            if hasattr(runtime, "latest_gossip_packets"):
+                setattr(runtime, "latest_gossip_packets", ())
+            for attr_clear in (
+                "_negotiated_conflicts",
+                "gossip_history",
+                "latest_sensor_telemetry",
+                "_bogged_since_s",
+                "_stuck_counts",
+                "last_fault_evidence",
+                "last_rescue_assessments",
+                "last_orchestrator_decisions",
+                "recovery_monitoring_history",
+                "_sos_broadcast_sent",
+            ):
+                val = getattr(runtime, attr_clear, None)
+                if hasattr(val, "clear"):
+                    val.clear()
+
     def reset(self, seed: int | None = None) -> ObservationFrame:
-        """Reset simulation and session trace state for a deterministic episode."""
+        """Reset simulation, policy runtime, and session trace state for a deterministic episode."""
         if seed is not None:
             if seed < 0 or isinstance(seed, bool):
                 raise ValueError("seed must be a non-negative integer")
+            if seed != self.seed and hasattr(self, "_reseed_factory"):
+                fresh = self._reseed_factory(self.config.with_seed(seed))
+                self.sim, self.policy = fresh.sim, fresh.policy
+                self.shadow_policy, self.config = fresh.shadow_policy, fresh.config
+                self.policy_name = fresh.policy_name
+                for view in self.views:
+                    if hasattr(view, "runtime"):
+                        view.runtime = self.shadow_policy or self.policy
             self.seed = seed
+        self._reset_policy_runtime(self.policy)
+        if self.shadow_policy is not None and self.shadow_policy is not self.policy:
+            self._reset_policy_runtime(self.shadow_policy)
         self.current_frame = self.sim.reset(self.seed)
+        for view in self.views:
+            if hasattr(view, "terrain") and hasattr(self.sim, "world"):
+                view.terrain = self.sim.world.continuous_terrain
         self.last_decision = None
         self.tick_index = 0
         self.paused = False
@@ -508,7 +638,9 @@ def _default_mujoco_operator_handler(
             inject_mud(robot_id)
     elif request.kind == OperatorCommandKind.EXPERIMENT_VEHICLE_SIZING:
         target_robot = str(params.get("robot_id", "all"))
-        targets = ("planter", "scout") if target_robot == "all" else (target_robot,)
+        fleet_specs = getattr(sim, "rover_specs", None)
+        all_rids = tuple(s.robot_id for s in fleet_specs) if fleet_specs else ("planter", "scout")
+        targets = all_rids if target_robot == "all" else (target_robot,)
         for rid in targets:
             if "mass_kg" in params and hasattr(sim, "robot_mass_kg"):
                 getattr(sim, "robot_mass_kg")[rid] = float(params["mass_kg"])
@@ -527,14 +659,23 @@ def create_mujoco_episode_session(
 ) -> EpisodeSession:
     """Canonical factory constructing one authoritative MuJoCo SimulationPort + PolicyRuntime session."""
     from .agent import CooperativeSwarmPlanner, DecentralizedMycelialRuntime
-    from .mujoco_sim.adapter import DEFAULT_CAPABILITIES, DEFAULT_SITES, MujocoPaddySimulation
-    from .world import generate_hidden_soil_truth
+    from .agent.orchestrator import GeminiRESTBackend, OfflineLLMBackend, SwarmOrchestratorAgent
+    from .mujoco_sim.adapter import DEFAULT_SITES, MujocoPaddySimulation
+    from .robot import make_fleet_specs
+    from .world import build_field_layout, generate_hidden_soil_truth
 
     cfg = config or EpisodeConfig()
     want_shadow = cfg.include_shadow_mycelial if include_shadow_mycelial is None else bool(include_shadow_mycelial)
     is_single = cfg.single_rover_only or cfg.policy == "single_rover"
     inject_at = cfg.inject_obstacle_at_s if cfg.inject_obstacle_at_s is not None else (1.6 if cfg.scenario == "obstacle" else None)
-    truth = generate_hidden_soil_truth(cfg.scenario, cfg.seed)
+    layout = build_field_layout(cfg.map_scale, cfg.seed, cfg.scenario)
+    truth = generate_hidden_soil_truth(cfg.scenario, cfg.seed, layout.sites)
+    fleet_specs = make_fleet_specs(cfg.num_rovers)
+    # Advanced fleet mode: the same physical robot can perform every task.
+    # Controlled 2-rover reference fixtures retain their historical initial loadouts.
+    if cfg.num_rovers > 2 or cfg.map_scale > 1.0 + 1e-6:
+        fleet_specs = tuple(replace(spec, can_sample=True, can_plant=True, initial_seeds=2)
+                            for spec in fleet_specs)
     initial_poses: dict[str, Pose2D] | None = None
     if cfg.planter_spawn is not None or cfg.scout_spawn is not None:
         initial_poses = {}
@@ -543,7 +684,7 @@ def create_mujoco_episode_session(
         if cfg.scout_spawn is not None:
             initial_poses["scout"] = cfg.scout_spawn
     sim = MujocoPaddySimulation(
-        sites=DEFAULT_SITES,
+        sites=layout.sites,
         probe_radius_m=cfg.probe_radius_m,
         substeps_per_tick=cfg.substeps_per_tick,
         inject_obstacle_at_s=inject_at,
@@ -557,56 +698,77 @@ def create_mujoco_episode_session(
         expose_bogged_flag=cfg.expose_bogged_flag,
         initial_poses=initial_poses,
         scenario=cfg.scenario,
+        num_rovers=cfg.num_rovers,
+        map_scale=cfg.map_scale,
+        field_layout=layout,
+        rover_specs=fleet_specs,
     )
     caps = (
-        (
-            RobotCapability("planter", can_sample=True, can_plant=True),
-            RobotCapability("scout", can_sample=False, can_plant=False),
+        tuple(
+            RobotCapability(s.robot_id, can_sample=(idx == 0), can_plant=(idx == 0))
+            for idx, s in enumerate(fleet_specs)
         )
         if is_single
-        else DEFAULT_CAPABILITIES
+        else tuple(s.capability for s in fleet_specs)
     )
 
-    if cfg.is_rescue_scenario or cfg.policy == "cooperative":
-        field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
-        planner: SimpleMissionPlanner = CooperativeSwarmPlanner(
-            caps,
-            advisor=advisor,
-            rescue_policy=cfg.rescue_policy,
+    sites_tuple = tuple(sim.sites.values())
+    model_orchestrator = SwarmOrchestratorAgent(
+        backend=GeminiRESTBackend(
+            model=cfg.orchestrator_model,
+            api_key_env="GEMINI_API_KEY" if cfg.enable_live_llm else "ANTENNA_LLM_CALLS_DISABLED",
+            timeout_s=cfg.orchestrator_timeout_s,
+            max_calls=cfg.llm_max_calls,
         )
-        controller = LocalController(
-            ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
-        )
-        policy_runtime: PolicyRuntime = MissionCore(field_map, planner, controller)
-    elif cfg.policy == "mycelial" and not is_single:
+    )
+
+    if cfg.policy == "mycelial" and not is_single:
         policy_runtime = DecentralizedMycelialRuntime(
-            sites=DEFAULT_SITES,
+            sites=sites_tuple,
             capabilities=caps,
             comm_range_m=cfg.comm_range_m,
             comm_mode=cfg.comms,
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
+            orchestrator=model_orchestrator,
+            gossip_delay_s=cfg.gossip_delay_s,
+            field_bounds=(layout.x_bounds, layout.y_bounds) if layout.scale > 1.0 else None,
         )
-    else:
-        field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
-        planner = SimpleMissionPlanner(caps)
+    elif cfg.is_rescue_scenario or cfg.policy == "cooperative":
+        field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
+        planner: SimpleMissionPlanner = CooperativeSwarmPlanner(
+            caps,
+            advisor=advisor,
+            rescue_policy=cfg.rescue_policy,
+            orchestrator=model_orchestrator,
+        )
         controller = LocalController(
             ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
+        )
+        policy_runtime: PolicyRuntime = MissionCore(field_map, planner, controller)
+    else:
+        field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
+        planner = SimpleMissionPlanner(caps)
+        controller = LocalController(
+            ControlLimits(speed_m_s=0.42, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.26)
         )
         policy_runtime = MissionCore(field_map, planner, controller)
 
     shadow_policy: PolicyRuntime | None = None
     if want_shadow and not isinstance(policy_runtime, DecentralizedMycelialRuntime):
         shadow_policy = DecentralizedMycelialRuntime(
-            sites=DEFAULT_SITES,
+            sites=sites_tuple,
             capabilities=caps,
-            comm_range_m=0.0 if is_single else 99.0,
-            comm_mode="isolated" if is_single else "normal",
+            comm_range_m=0.0 if is_single else cfg.comm_range_m,
+            comm_mode="isolated" if is_single else cfg.comms,
+            gossip_delay_s=cfg.gossip_delay_s,
+            field_bounds=(layout.x_bounds, layout.y_bounds) if layout.scale > 1.0 else None,
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
+            orchestrator=SwarmOrchestratorAgent(backend=OfflineLLMBackend()),
         )
 
-    return EpisodeSession(
+    session = EpisodeSession(
         sim=sim,
         policy=policy_runtime,
         views=views,
@@ -619,6 +781,10 @@ def create_mujoco_episode_session(
         operator_handler=_default_mujoco_operator_handler,
         config=cfg,
     )
+    session._reseed_factory = lambda next_config: create_mujoco_episode_session(
+        next_config, advisor=advisor, include_shadow_mycelial=want_shadow
+    )
+    return session
 
 
 class EpisodeRunner:

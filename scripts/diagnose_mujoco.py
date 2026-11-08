@@ -31,12 +31,20 @@ from ricebot.world import generate_hidden_soil_truth
 
 SCENARIOS = (
     "nominal", "obstacle", "bad_soil", "shifted_moisture",
-    "sensor_degraded", "golden_rescue",
+    "sensor_degraded", "golden_rescue", "high_risk_abstain", "randomized",
 )
 
 
 def build_episode(scenario: str, policy: str, comms: str, seed: int,
                   scripted_trap: bool) -> tuple[MujocoPaddySimulation, object]:
+    trap_robot_id = None
+    trap_site_id = "patch_d"
+    if scripted_trap:
+        if scenario == "high_risk_abstain":
+            trap_robot_id = "scout"
+            trap_site_id = "patch_a"
+        else:
+            trap_robot_id = "planter"
     sim = MujocoPaddySimulation(
         sites=DEFAULT_SITES,
         probe_radius_m=0.28,
@@ -44,11 +52,14 @@ def build_episode(scenario: str, policy: str, comms: str, seed: int,
         inject_obstacle_at_s=1.6 if scenario == "obstacle" else None,
         obstacle_xy=(0.75, -0.25),
         hidden_truth=generate_hidden_soil_truth(scenario, seed),
-        trap_robot_id="planter" if scripted_trap else None,
-        trap_site_id="patch_d",
+        trap_robot_id=trap_robot_id,
+        trap_site_id=trap_site_id,
         trap_radius_m=0.28,
+        sensor_dropout_robot_id="planter" if scenario == "sensor_degraded" else None,
+        sensor_dropout_window_s=(1.2, 2.4) if scenario == "sensor_degraded" else None,
+        scenario=scenario,
     )
-    if policy == "mycelial" and scenario != "golden_rescue":
+    if policy == "mycelial" and scenario not in {"golden_rescue", "high_risk_abstain", "randomized"}:
         runtime = DecentralizedMycelialRuntime(
             sites=DEFAULT_SITES, capabilities=DEFAULT_CAPABILITIES,
             comm_range_m=2.15, comm_mode=comms,
@@ -57,7 +68,7 @@ def build_episode(scenario: str, policy: str, comms: str, seed: int,
         field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
         planner = (
             CooperativeSwarmPlanner(DEFAULT_CAPABILITIES)
-            if scenario == "golden_rescue" or policy == "cooperative"
+            if scenario in {"golden_rescue", "high_risk_abstain", "randomized"} or policy == "cooperative"
             else SimpleMissionPlanner(DEFAULT_CAPABILITIES)
         )
         controller = LocalController(
@@ -118,7 +129,7 @@ def main() -> int:
     if args.steps < 1 or any(s < 0 for s in (args.seed or [7])):
         parser.error("steps must be positive and seeds must be nonnegative")
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    scripted = args.scenario == "golden_rescue" and not args.no_scripted_trap
+    scripted = args.scenario in {"golden_rescue", "high_risk_abstain"} and not args.no_scripted_trap
     reports = [
         run_one(
             scenario=args.scenario, policy=args.policy, comms=args.comms,

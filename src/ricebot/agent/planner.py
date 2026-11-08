@@ -13,7 +13,7 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from math import hypot, pi
+from math import hypot, log, pi
 from typing import Protocol
 
 from ..contracts import (
@@ -208,6 +208,49 @@ class SwarmRobotAgent:
             and self.firmness_range[0] <= estimate.firmness <= self.firmness_range[1]
         )
 
+    def compute_expected_information_gain(
+        self,
+        site_id: str,
+        sites: dict[str, Site],
+        estimates: dict[str, SiteEstimate],
+        tau_sensor: float = 10.0,
+        w_spatial: float = 0.25,
+    ) -> float:
+        """Compute Shannon / Gaussian Expected Information Gain (EIG) for physical stop-and-probe at `site_id`:
+        EIG(s) = 0.5 * sum_{k in {M, F, G}} ln(1 + tau_sensor / tau_{i,s,k}) + w_spatial * sigma^2_neighborhood(s).
+        """
+        est = estimates[site_id]
+        site = sites[site_id]
+
+        def _site_precisions(e: SiteEstimate) -> tuple[float, float, float]:
+            if e.complete:
+                base = 10.0 + 3.0 * e.sample_count
+                return (base, base, base)
+            tau_m = (2.5 + 1.5 * e.sample_count) if e.moisture is not None else 1.0
+            tau_f = (2.5 + 1.5 * e.sample_count) if e.firmness is not None else 1.0
+            tau_g = (2.5 + 1.5 * e.sample_count) if e.stand_gap is not None else 1.0
+            return (tau_m, tau_f, tau_g)
+
+        tau_m, tau_f, tau_g = _site_precisions(est)
+        shannon_gain = 0.5 * (
+            log(1.0 + tau_sensor / max(1e-3, tau_m))
+            + log(1.0 + tau_sensor / max(1e-3, tau_f))
+            + log(1.0 + tau_sensor / max(1e-3, tau_g))
+        )
+
+        neigh_vars: list[float] = []
+        for other_id, other_site in sites.items():
+            if not other_site.permitted:
+                continue
+            if hypot(other_site.center.x_m - site.center.x_m, other_site.center.y_m - site.center.y_m) <= 0.95:
+                other_est = estimates.get(other_id)
+                if other_est is not None:
+                    tm, tf, tg = _site_precisions(other_est)
+                    mean_tau = (tm + tf + tg) / 3.0
+                    neigh_vars.append(1.0 / max(1.0, mean_tau))
+        sigma2_neigh = sum(neigh_vars) / len(neigh_vars) if neigh_vars else (3.0 / max(1.0, tau_m + tau_f + tau_g))
+        return round(shannon_gain + w_spatial * sigma2_neigh, 4)
+
     def generate_bids(
         self,
         obs: RobotObservation,
@@ -230,6 +273,7 @@ class SwarmRobotAgent:
                     0.0 if est.complete else max(0.2, 1.0 - 0.3 * est.sample_count),
                 )
             )
+            eig = self.compute_expected_information_gain(site_id, sites, estimates)
 
             # 1. Exploit Bid (PLANT): bid to plant at a confirmed eligible gap
             if (
@@ -251,7 +295,7 @@ class SwarmRobotAgent:
                     )
                 )
 
-            # 2. Explore Bid (SAMPLE): bid to sample an incomplete/unverified site
+            # 2. Explore Bid (SAMPLE): bid to sample an incomplete/unverified site via Expected Information Gain (EIG)
             if self.capability.can_sample and not est.complete:
                 partial_gap_hint = (
                     0.35 * est.stand_gap
@@ -266,11 +310,23 @@ class SwarmRobotAgent:
                     )
                     peer_proximity_bonus = 0.15 / (1.0 + nearest_peer_dist)
                 scout_specialization = 0.15 if obs.seeds_remaining == 0 else 0.0
+
+                # Role-aware spatial spread bonus for secondary rovers so multi-rover fleets fan out across rows
+                role_spread_bonus = 0.0
+                if obs.robot_id.endswith("_2"):
+                    if obs.seeds_remaining == 0 and site_id in ("patch_c", "patch_d", "patch_f"):
+                        role_spread_bonus = 0.08
+                    elif obs.seeds_remaining > 0 and site_id in ("patch_d", "patch_c", "patch_e"):
+                        role_spread_bonus = 0.06
+
+                eig_norm = min(1.0, eig / 3.5968)
+                info_gain_score = 0.5 * uncertainty + 0.5 * eig_norm
                 raw_voi = (
-                    uncertainty
+                    info_gain_score
                     + partial_gap_hint
                     + peer_proximity_bonus
                     + scout_specialization
+                    + role_spread_bonus
                 )
                 utility = raw_voi - self.travel_cost_weight * dist_m
                 bids.append(
@@ -280,12 +336,15 @@ class SwarmRobotAgent:
                         site_id=site_id,
                         utility=round(utility, 6),
                         distance_m=dist_m,
-                        reason=f"{replan_prefix}active VoI sample",
+                        reason=f"{replan_prefix}active VoI sample (EIG={eig:.2f})",
                     )
                 )
 
         bids.sort(key=lambda b: (-b.utility, b.distance_m, b.site_id))
         return bids
+
+    # Alias for callers expecting compute_bids
+    compute_bids = generate_bids
 
 
 class CooperativeSwarmPlanner(SimpleMissionPlanner):
@@ -356,6 +415,24 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
         self.recovery_monitoring_history: list[dict[str, object]] = []
         self.advisor_calls: int = 0
         self.advisor_fallbacks: int = 0
+
+    def reset(self) -> None:
+        """Reset all episode-scoped tracking state on `CooperativeSwarmPlanner`."""
+        self._previous_targets.clear()
+        self._previous_eligible.clear()
+        self._blocked_approaches.clear()
+        self._last_pose.clear()
+        self._last_commands.clear()
+        self._last_episode = None
+        self._stuck_counts.clear()
+        self.last_fault_evidence.clear()
+        self.last_rescue_assessments.clear()
+        self.last_orchestrator_decisions.clear()
+        self.recovery_monitoring_history.clear()
+        self.advisor_calls = 0
+        self.advisor_fallbacks = 0
+        if hasattr(self.orchestrator, "aborted_techniques_by_robot"):
+            self.orchestrator.aborted_techniques_by_robot.clear()
 
     def _estimate_travel_distance(self, pose: Pose2D, site: Site) -> float | None:
         if self.travel_cost_fn is not None:

@@ -66,11 +66,86 @@ class WorldModuleTest(unittest.TestCase):
         xml = build_world_terrain_xml(obstacle_xy=(0.75, -0.25))
         self.assertIn('geom name="field_ground"', xml)
         self.assertIn('geom name="bund_north"', xml)
-        self.assertIn('geom name="bed_patch_a"', xml)
+        for suffix in ("a", "b", "c", "d", "e", "f"):
+            self.assertIn(f'geom name="bed_patch_{suffix}"', xml)
+            self.assertIn(f'geom name="puddle_patch_{suffix}"', xml)
         self.assertIn('body name="mid_run_obstacle"', xml)
         # Must NOT contain rover chassis or wheel joints
         self.assertNotIn("planter_body", xml)
         self.assertNotIn("scout_body", xml)
+
+    def test_dynamic_3d_patch_puddles_across_seeds_and_4wheel_mud_sinkage_tilt(self) -> None:
+        from ricebot.mujoco_sim.adapter import MujocoPaddySimulation
+
+        sim = MujocoPaddySimulation(
+            sites=DEFAULT_SITES,
+            scenario="shifted_moisture",
+            initial_poses={"planter": Pose2D(0.85, -0.50, 0.25), "scout": Pose2D(1.60, -0.50, -0.15)},
+        )
+        self.assertTrue(sim._hfield_dirty)
+
+        # Verify field_ground, paddy_relief_mesh, bed_patch_a..f, and puddle_patch_a..f are in group 2
+        for gname in (
+            "field_ground",
+            "paddy_relief_mesh",
+            *[f"bed_patch_{s}" for s in ("a", "b", "c", "d", "e", "f")],
+            *[f"puddle_patch_{s}" for s in ("a", "b", "c", "d", "e", "f")],
+        ):
+            gid = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_GEOM, gname)
+            self.assertGreaterEqual(gid, 0, f"Missing geom {gname}")
+            self.assertEqual(int(sim.model.geom_group[gid]), 2, f"Expected group=2 for {gname}")
+
+        # Reset across two seeds with different hidden soil truth and verify 3D beds/puddles update dynamically
+        sim.reset(2)
+        mud_set_seed2: set[str] = set()
+        for suffix in ("a", "b", "c", "d"):
+            pid = f"patch_{suffix}"
+            bed_gid = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_GEOM, f"bed_patch_{suffix}")
+            puddle_gid = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_GEOM, f"puddle_patch_{suffix}")
+            is_mud = sim.world._hidden_site_truth[pid][SensorKind.MOISTURE] > 0.80
+            if is_mud:
+                mud_set_seed2.add(pid)
+                self.assertAlmostEqual(float(sim.model.geom_rgba[bed_gid, 0]), 0.20, places=2)
+                self.assertAlmostEqual(float(sim.model.geom_pos[puddle_gid, 2]), 0.0022, places=4)
+                self.assertAlmostEqual(float(sim.model.geom_rgba[puddle_gid, 3]), 0.68, places=2)
+            else:
+                self.assertAlmostEqual(float(sim.model.geom_rgba[bed_gid, 0]), 0.46, places=2)
+                self.assertAlmostEqual(float(sim.model.geom_pos[puddle_gid, 2]), -1.0, places=2)
+                self.assertAlmostEqual(float(sim.model.geom_rgba[puddle_gid, 3]), 0.0, places=2)
+
+        sim.reset(5)
+        mud_set_seed5 = {
+            f"patch_{s}"
+            for s in ("a", "b", "c", "d")
+            if float(
+                sim.model.geom_rgba[
+                    mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_GEOM, f"puddle_patch_{s}"), 3
+                ]
+            )
+            > 0.5
+        }
+        self.assertNotEqual(mud_set_seed2, mud_set_seed5)
+
+        # Verify 4-wheel mud sinkage (z < 0), chassis qpos[z] dip, and non-zero pitch_rad / roll_rad when bogged
+        sim_bog = MujocoPaddySimulation(
+            sites=DEFAULT_SITES,
+            scenario="nominal",
+            initial_poses={"planter": Pose2D(0.85, -0.50, 0.20), "scout": Pose2D(1.60, -0.50, 0.0)},
+        )
+        sim_bog.reset(7)
+        sim_bog.inject_mud_fault("planter")
+        frame = sim_bog.step(())
+        planter_obs = next(r for r in frame.robots if r.robot_id == "planter")
+        w_heights = sim_bog.latest_wheel_heights["planter"]
+        self.assertEqual(len(w_heights), 4)
+        self.assertTrue(all(zw < 0.0 for zw in w_heights))
+        planter_z = float(sim_bog.data.qpos[sim_bog._planter_qpos_adr + 2])
+        self.assertLess(planter_z, 0.048)
+        self.assertGreaterEqual(planter_z, 0.036)
+        self.assertNotEqual(planter_obs.pitch_rad, 0.0)
+        self.assertNotEqual(planter_obs.roll_rad, 0.0)
+        self.assertLessEqual(abs(planter_obs.pitch_rad), 0.22)
+        self.assertLessEqual(abs(planter_obs.roll_rad), 0.22)
 
 
 class RobotModuleTest(unittest.TestCase):

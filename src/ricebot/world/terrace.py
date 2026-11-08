@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import cos, exp, hypot, sin
 import random
+import xml.etree.ElementTree as ET
 from typing import Any
 
 import numpy as np
@@ -83,6 +84,143 @@ UNEXPECTED_BAD_SOIL_TRUTH: dict[str, dict[SensorKind, float]] = {
         SensorKind.STAND_GAP: 0.88,
     },
 }
+
+
+
+@dataclass(frozen=True)
+class FieldLayout:
+    """The one source of truth for scene geometry, sites, and sampled map bounds.
+
+    The 1.0x layout deliberately preserves the original controlled fixtures.
+    Expanded layouts keep robot dimensions unchanged and add actual work sites.
+    """
+    scale: float
+    seed: int
+    sites: tuple[Site, ...]
+    x_bounds: tuple[float, float]
+    y_bounds: tuple[float, float]
+
+
+def build_field_layout(scale: float = 1.0, seed: int = 7, scenario: str = "nominal") -> FieldLayout:
+    """Generate an expanded, deterministic physical field without changing chassis scale."""
+    if scale <= 0.0:
+        raise ValueError("field scale must be positive")
+    half_x, half_y = 1.60 * scale, 0.90 * scale
+    bounds_x = (1.35 - half_x, 1.35 + half_x)
+    bounds_y = (-half_y, half_y)
+    if abs(scale - 1.0) < 1e-6:
+        return FieldLayout(scale, int(seed), DEFAULT_SITES, bounds_x, bounds_y)
+
+    def scaled(p: Pose2D) -> Pose2D:
+        return Pose2D(1.35 + (p.x_m - 1.35) * scale, p.y_m * scale, p.yaw_rad)
+
+    sites = [
+        Site(site.site_id, scaled(site.center), permitted=site.permitted,
+             no_go_radius_m=site.no_go_radius_m)
+        for site in DEFAULT_SITES
+    ]
+
+    # Start with evenly distributed candidate lanes. The seed adds modest
+    # procedural variation; rejection sampling preserves physical clearance.
+    rng = random.Random(int(seed) ^ 0xA531)
+    interpolation = (scale - 1.0) / 0.60
+    extra_positions = [
+        (-0.75, -1.20), (0.10, -1.20), (0.95, -1.20), (1.80, -1.20),
+        (2.65, -1.20), (3.50, -1.20),
+        (-0.75, -0.35), (0.10, -0.35), (0.95, -0.35),
+        (1.80, -0.35), (2.65, -0.35), (3.50, -0.35),
+        (-0.75, 0.50), (0.10, 0.50), (0.95, 0.50),
+        (1.80, 0.50), (2.65, 0.50), (3.50, 0.50),
+        (-0.75, 1.25), (0.10, 1.25), (0.95, 1.25),
+        (1.80, 1.25), (2.65, 1.25), (3.50, 1.25),
+    ]
+    if scenario == "randomized":
+        rng.shuffle(extra_positions)
+    for x_full, y_full in extra_positions:
+        x = 1.35 + (x_full - 1.35) * interpolation
+        y = y_full * interpolation
+        if scenario == "randomized":
+            x += rng.uniform(-0.035, 0.035)
+            y += rng.uniform(-0.035, 0.035)
+        if not (bounds_x[0] + 0.28 < x < bounds_x[1] - 0.28
+                and bounds_y[0] + 0.20 < y < bounds_y[1] - 0.20):
+            continue
+        if any(hypot(x - p.center.x_m, y - p.center.y_m) < 0.58 for p in sites):
+            continue
+        # Stable identifiers make it possible to log/replay individual tasks.
+        name = "patch_" + chr(ord("g") + len(sites) - len(DEFAULT_SITES))
+        sites.append(Site(name, Pose2D(round(x, 4), round(y, 4), 0.0),
+                          permitted=True, no_go_radius_m=0.26))
+    return FieldLayout(scale, int(seed), tuple(sites), bounds_x, bounds_y)
+
+
+def build_scaled_world_terrain_xml(
+    layout: FieldLayout, obstacle_xy: tuple[float, float] = (0.75, -0.25)
+) -> str:
+    """Reuse the proven rice-field MJCF and scale *its real* scene coordinates.
+
+    Only world objects move or resize. Rover bodies, wheels, seed proxies,
+    sensor mounting frames and docking constraints retain physical dimensions.
+    """
+    if abs(layout.scale - 1.0) < 1e-6:
+        return build_world_terrain_xml(obstacle_xy)
+    root = ET.fromstring("<worldbody>" + build_world_terrain_xml(obstacle_xy) + "</worldbody>")
+    scale = layout.scale
+    # Two historical bed decorations (e/f) had no corresponding Site or task.
+    # Exclude them from expanded fields so every visible bed is real work.
+    for element in list(root):
+        if element.get("name") in {
+            "bed_patch_e", "puddle_patch_e", "bed_patch_f", "puddle_patch_f"
+        }:
+            root.remove(element)
+
+    def scaled_pair(x: float, y: float) -> tuple[float, float]:
+        return 1.35 + (x - 1.35) * scale, y * scale
+
+    for element in root.iter():
+        if element.get("pos"):
+            vals = [float(v) for v in element.get("pos", "").split()]
+            if len(vals) == 3:
+                vals[0], vals[1] = scaled_pair(vals[0], vals[1])
+                if element.tag == "camera":
+                    vals[2] *= scale
+                element.set("pos", " ".join(f"{v:.5f}" for v in vals))
+        if element.get("fromto"):
+            vals = [float(v) for v in element.get("fromto", "").split()]
+            if len(vals) == 6:
+                vals[0], vals[1] = scaled_pair(vals[0], vals[1])
+                vals[3], vals[4] = scaled_pair(vals[3], vals[4])
+                element.set("fromto", " ".join(f"{v:.5f}" for v in vals))
+        name = element.get("name", "")
+        if (name.startswith("bund_") or name.startswith("furrow_")) and element.get("size"):
+            vals = [float(v) for v in element.get("size", "").split()]
+            if len(vals) == 3:
+                vals[:2] = [val * scale for val in vals[:2]]
+                element.set("size", " ".join(f"{v:.5f}" for v in vals))
+
+    for site in layout.sites[len(DEFAULT_SITES):]:
+        x, y = site.center.x_m, site.center.y_m
+        if not site.permitted:
+            continue
+        suffix = site.site_id.split("_")[-1]
+        ET.SubElement(root, "geom", {
+            "name": f"bed_patch_{suffix}", "type": "cylinder",
+            "pos": f"{x:.5f} {y:.5f} 0.003", "size": "0.25 0.003",
+            "rgba": "0.46 0.37 0.25 0.92", "group": "2",
+            "contype": "0", "conaffinity": "0",
+        })
+        ET.SubElement(root, "geom", {
+            "name": f"puddle_patch_{suffix}", "type": "cylinder",
+            "pos": f"{x:.5f} {y:.5f} -1.0", "size": "0.05 0.001",
+            "rgba": "0.14 0.42 0.54 0.0", "group": "2",
+            "contype": "0", "conaffinity": "0",
+        })
+        ET.SubElement(root, "site", {
+            "name": f"ring_patch_{suffix}", "type": "cylinder",
+            "pos": f"{x:.5f} {y:.5f} 0.006", "size": "0.16 0.002",
+            "rgba": "0.85 0.72 0.25 0.0",
+        })
+    return "\n".join(ET.tostring(child, encoding="unicode") for child in root)
 
 
 @dataclass(frozen=True)
@@ -232,6 +370,7 @@ def generate_randomized_episode_spec(seed: int) -> RandomizedEpisodeSpec:
 def generate_hidden_soil_truth(
     scenario: str,
     seed: int,
+    sites: tuple[Site, ...] = DEFAULT_SITES,
 ) -> dict[str, dict[SensorKind, float]]:
     """Return evaluator-private hidden soil truth for a scenario and seed.
 
@@ -244,28 +383,47 @@ def generate_hidden_soil_truth(
     - `randomized`: returns the deterministic per-seed soil truth from `generate_randomized_episode_spec(seed)`.
     """
     if scenario == "randomized":
-        return {k: dict(v) for k, v in generate_randomized_episode_spec(seed).hidden_truth.items()}
-    if scenario == "bad_soil":
-        return {k: dict(v) for k, v in UNEXPECTED_BAD_SOIL_TRUTH.items()}
-    if scenario != "shifted_moisture":
-        return {k: dict(v) for k, v in DEFAULT_HIDDEN_SOIL_TRUTH.items()}
-
-    rng = random.Random(seed)
-    patch_ids = ["patch_a", "patch_b", "patch_c", "patch_d"]
-    viable_pair = set(rng.sample(patch_ids, 2))
-    truth: dict[str, dict[SensorKind, float]] = {}
-    for pid in patch_ids:
-        if pid in viable_pair:
-            truth[pid] = {
-                SensorKind.MOISTURE: round(rng.uniform(0.46, 0.62), 2),
-                SensorKind.FIRMNESS: round(rng.uniform(0.64, 0.78), 2),
-                SensorKind.STAND_GAP: round(rng.uniform(0.80, 0.92), 2),
+        truth = {k: dict(v) for k, v in generate_randomized_episode_spec(seed).hidden_truth.items()}
+    elif scenario == "bad_soil":
+        truth = {k: dict(v) for k, v in UNEXPECTED_BAD_SOIL_TRUTH.items()}
+    elif scenario != "shifted_moisture":
+        truth = {k: dict(v) for k, v in DEFAULT_HIDDEN_SOIL_TRUTH.items()}
+    else:
+        rng = random.Random(seed)
+        patch_ids = ["patch_a", "patch_b", "patch_c", "patch_d"]
+        viable_pair = set(rng.sample(patch_ids, 2))
+        truth = {}
+        for pid in patch_ids:
+            if pid in viable_pair:
+                truth[pid] = {
+                    SensorKind.MOISTURE: round(rng.uniform(0.46, 0.62), 2),
+                    SensorKind.FIRMNESS: round(rng.uniform(0.64, 0.78), 2),
+                    SensorKind.STAND_GAP: round(rng.uniform(0.80, 0.92), 2),
+                }
+            else:
+                truth[pid] = {
+                    SensorKind.MOISTURE: round(rng.uniform(0.88, 0.95), 2),
+                    SensorKind.FIRMNESS: round(rng.uniform(0.14, 0.19), 2),
+                    SensorKind.STAND_GAP: round(rng.uniform(0.76, 0.88), 2),
+                }
+    # Expanded sites have stable independent randomness, decoupled from the
+    # four original controlled-case sites and from Python's salted hash().
+    for site in sites:
+        if not site.permitted or site.site_id in truth:
+            continue
+        stable_id = sum((i + 1) * ord(c) for i, c in enumerate(site.site_id))
+        rng = random.Random(int(seed) * 1000003 + stable_id)
+        if rng.random() < 0.70:
+            truth[site.site_id] = {
+                SensorKind.MOISTURE: round(rng.uniform(0.43, 0.65), 2),
+                SensorKind.FIRMNESS: round(rng.uniform(0.59, 0.81), 2),
+                SensorKind.STAND_GAP: round(rng.uniform(0.77, 0.94), 2),
             }
         else:
-            truth[pid] = {
-                SensorKind.MOISTURE: round(rng.uniform(0.88, 0.95), 2),
-                SensorKind.FIRMNESS: round(rng.uniform(0.14, 0.19), 2),
-                SensorKind.STAND_GAP: round(rng.uniform(0.76, 0.88), 2),
+            truth[site.site_id] = {
+                SensorKind.MOISTURE: round(rng.uniform(0.84, 0.96), 2),
+                SensorKind.FIRMNESS: round(rng.uniform(0.13, 0.24), 2),
+                SensorKind.STAND_GAP: round(rng.uniform(0.72, 0.90), 2),
             }
     return truth
 
@@ -352,6 +510,20 @@ class ContinuousPaddyTerrain:
             + 0.008 * cos(2.40 * x_m - 1.90 * y_m)
             - 0.005 * (x_m - 1.50)
         )
+        if len(self._sites) > len(DEFAULT_SITES):
+            # Broad, seed-generated undulations, differentiable for wheel slope estimation.
+            # Each hill uses independent reproducible parameters and modest relief.
+            rng = random.Random(self.seed + 31337)
+            for _ in range(5):
+                hx = rng.uniform(-0.75, 3.5)
+                hy = rng.uniform(-1.15, 1.15)
+                sx = rng.uniform(0.40, 0.90)
+                sy = rng.uniform(0.35, 0.80)
+                height = rng.uniform(-0.023, 0.028)
+                dx, dy = x_m - hx, y_m - hy
+                hill = height * exp(-0.5 * ((dx / sx) ** 2 + (dy / sy) ** 2))
+                z += hill
+                # Derivatives added below after the baseline gradient.
         dz_dx = (
             0.012 * 1.35 * cos(1.35 * x_m + phase) * cos(1.65 * y_m)
             - 0.008 * 2.40 * sin(2.40 * x_m - 1.90 * y_m)
@@ -361,6 +533,19 @@ class ContinuousPaddyTerrain:
             -0.012 * 1.65 * sin(1.35 * x_m + phase) * sin(1.65 * y_m)
             + 0.008 * 1.90 * sin(2.40 * x_m - 1.90 * y_m)
         )
+
+        if len(self._sites) > len(DEFAULT_SITES):
+            rng = random.Random(self.seed + 31337)
+            for _ in range(5):
+                hx = rng.uniform(-0.75, 3.5)
+                hy = rng.uniform(-1.15, 1.15)
+                sx = rng.uniform(0.40, 0.90)
+                sy = rng.uniform(0.35, 0.80)
+                height = rng.uniform(-0.023, 0.028)
+                dx, dy = x_m - hx, y_m - hy
+                hill = height * exp(-0.5 * ((dx / sx) ** 2 + (dy / sy) ** 2))
+                dz_dx -= hill * dx / (sx * sx)
+                dz_dy -= hill * dy / (sy * sy)
 
         # Depressed waterlogged Lannitian mud basins around high-moisture anchors
         for site in self._sites:
@@ -488,6 +673,17 @@ class ContinuousPaddyTerrain:
             + 0.008 * np.cos(2.40 * X - 1.90 * Y)
             - 0.005 * (X - 1.50)
         )
+        if len(self._sites) > len(DEFAULT_SITES):
+            # This is the same Gaussian terrain formula as elevation_and_gradient,
+            # vectorized for the GUI truth map and reproducible per-seed terrain.
+            rng = random.Random(self.seed + 31337)
+            for _ in range(5):
+                hx = rng.uniform(-0.75, 3.5)
+                hy = rng.uniform(-1.15, 1.15)
+                sx = rng.uniform(0.40, 0.90)
+                sy = rng.uniform(0.35, 0.80)
+                height = rng.uniform(-0.023, 0.028)
+                Z += height * np.exp(-0.5 * (((X - hx) / sx) ** 2 + ((Y - hy) / sy) ** 2))
         sigma2_basin = 0.42 * 0.42
         for site in self._sites:
             truth = self._anchors.get(site.site_id)
@@ -603,7 +799,7 @@ class PaddyTerraceWorld:
     def reset(self, seed: int) -> None:
         """Reset episode sampling state, scenario-driven soil truth, and continuous terrain seed."""
         if self.scenario is not None and (not self._explicit_hidden_truth or self.scenario in {"randomized", "shifted_moisture"}):
-            self._hidden_site_truth = generate_hidden_soil_truth(self.scenario, int(seed))
+            self._hidden_site_truth = generate_hidden_soil_truth(self.scenario, int(seed), tuple(self.sites.values()))
         self.continuous_terrain = ContinuousPaddyTerrain(
             sites=tuple(self.sites.values()),
             anchor_truth=self._hidden_site_truth,
@@ -665,15 +861,15 @@ def _build_seedling_clumps_xml() -> str:
                 x, y = cx + dx, cy + dy
                 lines.append(
                     f'<geom name="rice_{prefix}_{idx}_a" type="capsule" fromto="{x:.3f} {y:.3f} 0.01 {x-0.025:.3f} {y+0.015:.3f} 0.15" '
-                    f'size="0.009" contype="0" conaffinity="0" rgba="0.18 0.68 0.22 1"/>'
+                    f'size="0.009" group="2" contype="0" conaffinity="0" rgba="0.18 0.68 0.22 1"/>'
                 )
                 lines.append(
                     f'<geom name="rice_{prefix}_{idx}_b" type="capsule" fromto="{x:.3f} {y:.3f} 0.01 {x+0.025:.3f} {y-0.018:.3f} 0.16" '
-                    f'size="0.008" contype="0" conaffinity="0" rgba="0.25 0.76 0.26 1"/>'
+                    f'size="0.008" group="2" contype="0" conaffinity="0" rgba="0.25 0.76 0.26 1"/>'
                 )
                 lines.append(
                     f'<geom name="rice_{prefix}_{idx}_c" type="capsule" fromto="{x:.3f} {y:.3f} 0.01 {x+0.005:.3f} {y+0.028:.3f} 0.14" '
-                    f'size="0.008" contype="0" conaffinity="0" rgba="0.14 0.58 0.18 1"/>'
+                    f'size="0.008" group="2" contype="0" conaffinity="0" rgba="0.14 0.58 0.18 1"/>'
                 )
     return "\n    ".join(lines)
 
@@ -688,8 +884,8 @@ def build_world_terrain_xml(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
     <camera name="terrace_iso" pos="-0.65 -1.95 1.55" xyaxes="0.82 -0.57 0 0.32 0.46 0.83"/>
     <camera name="top_overview" pos="1.35 -0.02 3.10" xyaxes="1 0 0 0 1 0"/>
 
-    <!-- Main Paddy Field Ground Plane (collision group 1) -->
-    <geom name="field_ground" type="plane" size="5 5 0.1" material="paddy_soil_mat" contype="1" conaffinity="7" friction="1.2 0.01 0.005"/>
+    <!-- Main Paddy Field Ground Plane (group 2 excluded from forward LiDAR raycasts) -->
+    <geom name="field_ground" type="plane" size="5 5 0.1" material="paddy_soil_mat" group="2" contype="1" conaffinity="7" friction="1.2 0.01 0.005"/>
 
     <!-- Raised Perimeter Rice Terrace Bunds / Field Ridges (田埂) -->
     <geom name="bund_north" type="box" pos="1.35 1.05 0.05" size="1.85 0.12 0.05" material="bund_earth_mat" contype="1" conaffinity="7"/>
@@ -701,26 +897,36 @@ def build_world_terrain_xml(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
     <geom name="irrigation_canal_water" type="box" pos="-0.72 0.00 0.008" size="0.16 1.15 0.008" material="canal_water_mat" contype="0" conaffinity="0"/>
 
     <!-- Subtle Row Guide Furrows across the Paddy Plot -->
-    <geom name="furrow_1" type="box" pos="1.55 -0.75 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
-    <geom name="furrow_2" type="box" pos="1.55 -0.25 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
-    <geom name="furrow_3" type="box" pos="1.55 0.20 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
-    <geom name="furrow_4" type="box" pos="1.55 0.70 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" contype="0" conaffinity="0"/>
+    <geom name="furrow_1" type="box" pos="1.55 -0.75 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" group="2" contype="0" conaffinity="0"/>
+    <geom name="furrow_2" type="box" pos="1.55 -0.25 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" group="2" contype="0" conaffinity="0"/>
+    <geom name="furrow_3" type="box" pos="1.55 0.20 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" group="2" contype="0" conaffinity="0"/>
+    <geom name="furrow_4" type="box" pos="1.55 0.70 0.002" size="1.45 0.015 0.002" rgba="0.26 0.20 0.14 0.6" group="2" contype="0" conaffinity="0"/>
 
-    <!-- 6 Field Patches (Visual Terrain Beds: Mud Hazard vs Viable Stand-Gap Loam vs Living Rice Stand) -->
-    <geom name="bed_patch_a" type="cylinder" pos="0.85 -0.50 0.003" size="0.25 0.003" material="mud_hazard_mat" contype="0" conaffinity="0"/>
-    <geom name="puddle_patch_a" type="cylinder" pos="0.85 -0.50 0.005" size="0.18 0.002" material="canal_water_mat" contype="0" conaffinity="0"/>
+    <!-- 6 Dynamic Field Patch Beds & Water Puddles (updated per-seed from hidden soil truth & continuous terrain) -->
+    <geom name="bed_patch_a" type="cylinder" pos="0.85 -0.50 0.003" size="0.25 0.003" rgba="0.20 0.14 0.09 0.95" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_a" type="cylinder" pos="0.85 -0.50 0.0022" size="0.18 0.002" rgba="0.14 0.42 0.54 0.68" group="2" contype="0" conaffinity="0"/>
+    <site name="ring_patch_a" type="cylinder" pos="0.85 -0.50 0.006" size="0.16 0.002" rgba="0.85 0.72 0.25 0.0"/>
 
-    <geom name="bed_patch_b" type="cylinder" pos="1.60 -0.50 0.003" size="0.25 0.003" material="viable_loam_mat" contype="0" conaffinity="0"/>
+    <geom name="bed_patch_b" type="cylinder" pos="1.60 -0.50 0.003" size="0.25 0.003" rgba="0.46 0.37 0.25 0.92" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_b" type="cylinder" pos="1.60 -0.50 -1.0" size="0.05 0.001" rgba="0.14 0.42 0.54 0.0" group="2" contype="0" conaffinity="0"/>
     <site name="ring_patch_b" type="cylinder" pos="1.60 -0.50 0.006" size="0.16 0.002" rgba="0.85 0.72 0.25 0.55"/>
 
-    <geom name="bed_patch_c" type="cylinder" pos="2.35 -0.50 0.003" size="0.25 0.003" material="viable_loam_mat" contype="0" conaffinity="0"/>
+    <geom name="bed_patch_c" type="cylinder" pos="2.35 -0.50 0.003" size="0.25 0.003" rgba="0.46 0.37 0.25 0.92" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_c" type="cylinder" pos="2.35 -0.50 -1.0" size="0.05 0.001" rgba="0.14 0.42 0.54 0.0" group="2" contype="0" conaffinity="0"/>
     <site name="ring_patch_c" type="cylinder" pos="2.35 -0.50 0.006" size="0.16 0.002" rgba="0.85 0.72 0.25 0.55"/>
 
-    <geom name="bed_patch_d" type="cylinder" pos="1.60 0.45 0.003" size="0.25 0.003" material="mud_hazard_mat" contype="0" conaffinity="0"/>
-    <geom name="puddle_patch_d" type="cylinder" pos="1.60 0.45 0.005" size="0.17 0.002" material="canal_water_mat" contype="0" conaffinity="0"/>
+    <geom name="bed_patch_d" type="cylinder" pos="1.60 0.45 0.003" size="0.25 0.003" rgba="0.20 0.14 0.09 0.95" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_d" type="cylinder" pos="1.60 0.45 0.0022" size="0.17 0.002" rgba="0.14 0.42 0.54 0.68" group="2" contype="0" conaffinity="0"/>
+    <site name="ring_patch_d" type="cylinder" pos="1.60 0.45 0.006" size="0.16 0.002" rgba="0.85 0.72 0.25 0.0"/>
 
-    <geom name="bed_crop_nw" type="cylinder" pos="0.85 0.45 0.004" size="0.27 0.004" material="crop_bed_mat" contype="0" conaffinity="0"/>
-    <geom name="bed_crop_ne" type="cylinder" pos="2.35 0.45 0.004" size="0.27 0.004" material="crop_bed_mat" contype="0" conaffinity="0"/>
+    <geom name="bed_patch_e" type="cylinder" pos="1.22 -0.02 0.0025" size="0.22 0.0025" rgba="0.46 0.37 0.25 0.92" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_e" type="cylinder" pos="1.22 -0.02 -1.0" size="0.05 0.001" rgba="0.14 0.42 0.54 0.0" group="2" contype="0" conaffinity="0"/>
+
+    <geom name="bed_patch_f" type="cylinder" pos="1.98 -0.02 0.0025" size="0.22 0.0025" rgba="0.46 0.37 0.25 0.92" group="2" contype="0" conaffinity="0"/>
+    <geom name="puddle_patch_f" type="cylinder" pos="1.98 -0.02 -1.0" size="0.05 0.001" rgba="0.14 0.42 0.54 0.0" group="2" contype="0" conaffinity="0"/>
+
+    <geom name="bed_crop_nw" type="cylinder" pos="0.85 0.45 0.004" size="0.27 0.004" material="crop_bed_mat" group="2" contype="0" conaffinity="0"/>
+    <geom name="bed_crop_ne" type="cylinder" pos="2.35 0.45 0.004" size="0.27 0.004" material="crop_bed_mat" group="2" contype="0" conaffinity="0"/>
     {_build_seedling_clumps_xml()}
 
     <!-- Mid-episode obstacle (fallen irrigation crate parked below ground until surprise injection) -->

@@ -1,3 +1,5 @@
+> **Release caveat (8 Nov 2026):** This is a historical pitch-development resource, not a verified final slide deck, final PDF or live presentation script. For up-to-date claims, demo controls, six matched gossip trials and known collision/secondary-casualty failures, use [PRODUCT](PRODUCT.md), [TESTING](TESTING.md), [DEMO](DEMO.md) and [SUBMISSION](SUBMISSION.md). The real organiser submission and assets require separate team approval.
+
 # Antenna — five-minute Robotics shortlist pitch (evidence-controlled draft)
 
 **Track:** AgentVerse 2026, Robotics. **Product:** Antenna — risk-aware peer rescue during useful rice-field work. **Status:** proposed shortlist talk, not a recorded/presented talk. **Source:** [PR #48 integrated rescue](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/48) and [combined main GitHub checks](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/actions/runs/42418413738) on commit `16768dc`. Do not deliver numbers not reproduced in the final demo.

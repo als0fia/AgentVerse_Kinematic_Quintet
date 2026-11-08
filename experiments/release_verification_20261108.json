@@ -1,0 +1,804 @@
+{
+  "source_base": "52a31d1ec81a68cf3d3ad4adbbf6e600963798c6",
+  "branch": "fix/antenna-final-codex-verification",
+  "environment": "Windows / Python 3.13.14 / MuJoCo 4.0.0",
+  "command": "python scripts/run_scaled_field_study.py --seeds 3 8 --fleets 2 4 6 --scales 1.6 --policies mycelial cooperative --comms normal isolated --rescue-policies react_orchestrator --steps 240 --out artifacts/release-study-final.json",
+  "notes": [
+    "Synthetic MuJoCo terrain and physical seed-contact fixture; no agricultural yield validation",
+    "Map area, site count and fleet size are recorded per trial",
+    "LLM fallback without a valid API response is deterministic, not evidence of LLM benefit",
+    "The binary success field retains historical two-rover semantics; rely on measured fleet metrics for N-rover studies",
+    "Gossip communication volumes are simulated packets, not measured hardware radio traffic"
+  ],
+  "summary": {
+    "matched_gossip_pairs": 6,
+    "mean_viable_seed_placements": 5.944444444444445,
+    "trials": 18
+  },
+  "runs": [
+    {
+      "seed": 3,
+      "scenario": "randomized",
+      "num_rovers": 2,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 4.4964,
+        "scout": 2.896
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 240,
+        "scout": 160
+      },
+      "patches_total": 12,
+      "patches_visited": 8,
+      "viable_seed_placements": 4,
+      "physical_extractions_verified": 1,
+      "physical_latch_engaged": true,
+      "max_victim_extraction_displacement_m": 0.1814,
+      "independent_mobility_resumed_count": 1,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 20,
+      "failure_reason": "unnecessary_rescue_diverted_planter"
+    },
+    {
+      "seed": 3,
+      "scenario": "randomized",
+      "num_rovers": 2,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "isolated",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 4.8867,
+        "scout": 1.0371
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 240,
+        "scout": 91
+      },
+      "patches_total": 12,
+      "patches_visited": 5,
+      "viable_seed_placements": 3,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "scout"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "viable_yield_incomplete"
+    },
+    {
+      "seed": 3,
+      "scenario": "randomized",
+      "num_rovers": 2,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "MissionCore",
+      "coordination_policy": "cooperative",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 2.4774,
+        "scout": 3.5352
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 126,
+        "scout": 240
+      },
+      "patches_total": 12,
+      "patches_visited": 9,
+      "viable_seed_placements": 4,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "planter"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "recoverable_planter_abandoned"
+    },
+    {
+      "seed": 3,
+      "scenario": "randomized",
+      "num_rovers": 4,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 4.1759,
+        "planter_2": 3.42,
+        "scout": 1.4978,
+        "scout_2": 3.7034
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 240,
+        "planter_2": 240,
+        "scout": 110,
+        "scout_2": 240
+      },
+      "patches_total": 12,
+      "patches_visited": 11,
+      "viable_seed_placements": 7,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 2,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "scout"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 245,
+      "failure_reason": "unexpected_robot_collision"
+    },
+    {
+      "seed": 3,
+      "scenario": "randomized",
+      "num_rovers": 4,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "isolated",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 3.0579,
+        "planter_2": 1.8309,
+        "scout": 3.4352,
+        "scout_2": 3.866
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 235,
+        "planter_2": 119,
+        "scout": 240,
+        "scout_2": 240
+      },
+      "patches_total": 12,
+      "patches_visited": 7,
+      "viable_seed_placements": 5,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 2,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "planter_2"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "unexpected_robot_collision"
+    },
+    {
+      "seed": 3,
+      "scenario": "randomized",
+      "num_rovers": 4,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "MissionCore",
+      "coordination_policy": "cooperative",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 3.6802,
+        "planter_2": 1.1163,
+        "scout": 1.6134,
+        "scout_2": 3.1318
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 240,
+        "planter_2": 101,
+        "scout": 114,
+        "scout_2": 204
+      },
+      "patches_total": 12,
+      "patches_visited": 8,
+      "viable_seed_placements": 5,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "scout"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "unnecessary_rescue_diverted_planter"
+    },
+    {
+      "seed": 3,
+      "scenario": "randomized",
+      "num_rovers": 6,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 2.7828,
+        "planter_2": 3.1294,
+        "planter_3": 3.2851,
+        "scout": 2.2633,
+        "scout_2": 2.8562,
+        "scout_3": 1.3604
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 155,
+        "planter_2": 168,
+        "planter_3": 182,
+        "scout": 167,
+        "scout_2": 180,
+        "scout_3": 78
+      },
+      "patches_total": 12,
+      "patches_visited": 12,
+      "viable_seed_placements": 8,
+      "physical_extractions_verified": 1,
+      "physical_latch_engaged": true,
+      "max_victim_extraction_displacement_m": 0.1803,
+      "independent_mobility_resumed_count": 1,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 1,
+      "currently_bogged_at_end": [
+        "scout"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 297,
+      "failure_reason": "secondary_helper_casualty"
+    },
+    {
+      "seed": 3,
+      "scenario": "randomized",
+      "num_rovers": 6,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "isolated",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 1.9807,
+        "planter_2": 4.0651,
+        "planter_3": 4.0059,
+        "scout": 3.9634,
+        "scout_2": 2.4357,
+        "scout_3": 3.166
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 240,
+        "planter_2": 240,
+        "planter_3": 240,
+        "scout": 240,
+        "scout_2": 131,
+        "scout_3": 240
+      },
+      "patches_total": 12,
+      "patches_visited": 10,
+      "viable_seed_placements": 7,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "scout_2"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "viable_yield_incomplete"
+    },
+    {
+      "seed": 3,
+      "scenario": "randomized",
+      "num_rovers": 6,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "MissionCore",
+      "coordination_policy": "cooperative",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 1.6303,
+        "planter_2": 1.1748,
+        "planter_3": 1.0155,
+        "scout": 1.3849,
+        "scout_2": 1.9525,
+        "scout_3": 1.8477
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 95,
+        "planter_2": 90,
+        "planter_3": 65,
+        "scout": 110,
+        "scout_2": 89,
+        "scout_3": 147
+      },
+      "patches_total": 12,
+      "patches_visited": 12,
+      "viable_seed_placements": 8,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "scout_3"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": null
+    },
+    {
+      "seed": 8,
+      "scenario": "randomized",
+      "num_rovers": 2,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 2.4868,
+        "scout": 4.2013
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 160,
+        "scout": 240
+      },
+      "patches_total": 15,
+      "patches_visited": 8,
+      "viable_seed_placements": 4,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "planter"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 8,
+      "failure_reason": "recoverable_planter_abandoned"
+    },
+    {
+      "seed": 8,
+      "scenario": "randomized",
+      "num_rovers": 2,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "isolated",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 2.4968,
+        "scout": 3.425
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 157,
+        "scout": 240
+      },
+      "patches_total": 15,
+      "patches_visited": 7,
+      "viable_seed_placements": 4,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "planter"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "recoverable_planter_abandoned"
+    },
+    {
+      "seed": 8,
+      "scenario": "randomized",
+      "num_rovers": 2,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "MissionCore",
+      "coordination_policy": "cooperative",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 2.3863,
+        "scout": 4.6796
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 128,
+        "scout": 240
+      },
+      "patches_total": 15,
+      "patches_visited": 10,
+      "viable_seed_placements": 4,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "planter"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "recoverable_planter_abandoned"
+    },
+    {
+      "seed": 8,
+      "scenario": "randomized",
+      "num_rovers": 4,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 2.9979,
+        "planter_2": 3.7103,
+        "scout": 3.2283,
+        "scout_2": 1.4
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 240,
+        "planter_2": 240,
+        "scout": 240,
+        "scout_2": 74
+      },
+      "patches_total": 15,
+      "patches_visited": 11,
+      "viable_seed_placements": 7,
+      "physical_extractions_verified": 1,
+      "physical_latch_engaged": true,
+      "max_victim_extraction_displacement_m": 0.1815,
+      "independent_mobility_resumed_count": 1,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 117,
+      "failure_reason": "viable_yield_incomplete"
+    },
+    {
+      "seed": 8,
+      "scenario": "randomized",
+      "num_rovers": 4,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "isolated",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 0.8725,
+        "planter_2": 3.3733,
+        "scout": 4.1923,
+        "scout_2": 4.1263
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 73,
+        "planter_2": 240,
+        "scout": 240,
+        "scout_2": 240
+      },
+      "patches_total": 15,
+      "patches_visited": 11,
+      "viable_seed_placements": 6,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "planter"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "recoverable_planter_abandoned"
+    },
+    {
+      "seed": 8,
+      "scenario": "randomized",
+      "num_rovers": 4,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "MissionCore",
+      "coordination_policy": "cooperative",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 0.8557,
+        "planter_2": 2.3427,
+        "scout": 3.421,
+        "scout_2": 2.6056
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 47,
+        "planter_2": 240,
+        "scout": 176,
+        "scout_2": 240
+      },
+      "patches_total": 15,
+      "patches_visited": 11,
+      "viable_seed_placements": 7,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "planter"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "recoverable_planter_abandoned"
+    },
+    {
+      "seed": 8,
+      "scenario": "randomized",
+      "num_rovers": 6,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 2.0447,
+        "planter_2": 3.6316,
+        "planter_3": 4.3264,
+        "scout": 3.6138,
+        "scout_2": 1.9378,
+        "scout_3": 0.9682
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 240,
+        "planter_2": 217,
+        "planter_3": 240,
+        "scout": 240,
+        "scout_2": 165,
+        "scout_3": 87
+      },
+      "patches_total": 15,
+      "patches_visited": 15,
+      "viable_seed_placements": 8,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "scout_3"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 305,
+      "failure_reason": "viable_yield_incomplete"
+    },
+    {
+      "seed": 8,
+      "scenario": "randomized",
+      "num_rovers": 6,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "DecentralizedMycelialRuntime",
+      "coordination_policy": "mycelial",
+      "comms_mode": "isolated",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 4.4794,
+        "planter_2": 3.7137,
+        "planter_3": 3.5763,
+        "scout": 4.3583,
+        "scout_2": 3.7504,
+        "scout_3": 0.8532
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 240,
+        "planter_2": 240,
+        "planter_3": 240,
+        "scout": 240,
+        "scout_2": 240,
+        "scout_3": 74
+      },
+      "patches_total": 15,
+      "patches_visited": 12,
+      "viable_seed_placements": 7,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "scout_3"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "viable_yield_incomplete"
+    },
+    {
+      "seed": 8,
+      "scenario": "randomized",
+      "num_rovers": 6,
+      "map_scale": 1.6,
+      "steps": 240,
+      "sim_duration_s": 24,
+      "active_policy_type": "MissionCore",
+      "coordination_policy": "cooperative",
+      "comms_mode": "normal",
+      "rescue_policy": "react_orchestrator",
+      "distance_m_by_rover": {
+        "planter": 3.5124,
+        "planter_2": 3.2759,
+        "planter_3": 2.4109,
+        "scout": 2.1554,
+        "scout_2": 1.0113,
+        "scout_3": 1.0248
+      },
+      "active_task_ticks_by_rover": {
+        "planter": 179,
+        "planter_2": 165,
+        "planter_3": 152,
+        "scout": 148,
+        "scout_2": 165,
+        "scout_3": 72
+      },
+      "patches_total": 15,
+      "patches_visited": 15,
+      "viable_seed_placements": 9,
+      "physical_extractions_verified": 0,
+      "physical_latch_engaged": false,
+      "max_victim_extraction_displacement_m": 0,
+      "independent_mobility_resumed_count": 0,
+      "unexpected_robot_collisions": 0,
+      "secondary_casualties": 0,
+      "currently_bogged_at_end": [
+        "scout_3"
+      ],
+      "llm_requests_sent": 0,
+      "gossip_packets_sent": 0,
+      "failure_reason": "viable_yield_incomplete"
+    }
+  ],
+  "paired_comparisons": [
+    {
+      "belief_divergence_difference": -0.2534,
+      "collision_difference": 0,
+      "comparison": "active_mycelial_gossip_vs_isolated",
+      "extra_sites_visited": 3,
+      "extra_viable_placements": 1,
+      "gossip_bytes": 2138,
+      "gossip_packets": 20,
+      "map_scale": 1.6,
+      "num_rovers": 2,
+      "rescue_policy": "react_orchestrator",
+      "seed": 3,
+      "wall_time_difference_ms": -12.78
+    },
+    {
+      "belief_divergence_difference": -0.4643,
+      "collision_difference": 0,
+      "comparison": "active_mycelial_gossip_vs_isolated",
+      "extra_sites_visited": 4,
+      "extra_viable_placements": 2,
+      "gossip_bytes": 21658,
+      "gossip_packets": 245,
+      "map_scale": 1.6,
+      "num_rovers": 4,
+      "rescue_policy": "react_orchestrator",
+      "seed": 3,
+      "wall_time_difference_ms": 119.5
+    },
+    {
+      "belief_divergence_difference": -0.3375,
+      "collision_difference": 0,
+      "comparison": "active_mycelial_gossip_vs_isolated",
+      "extra_sites_visited": 2,
+      "extra_viable_placements": 1,
+      "gossip_bytes": 32020,
+      "gossip_packets": 297,
+      "map_scale": 1.6,
+      "num_rovers": 6,
+      "rescue_policy": "react_orchestrator",
+      "seed": 3,
+      "wall_time_difference_ms": 313.38
+    },
+    {
+      "belief_divergence_difference": -0.5787,
+      "collision_difference": 0,
+      "comparison": "active_mycelial_gossip_vs_isolated",
+      "extra_sites_visited": 1,
+      "extra_viable_placements": 0,
+      "gossip_bytes": 1324,
+      "gossip_packets": 8,
+      "map_scale": 1.6,
+      "num_rovers": 2,
+      "rescue_policy": "react_orchestrator",
+      "seed": 8,
+      "wall_time_difference_ms": -191.21
+    },
+    {
+      "belief_divergence_difference": -0.4588,
+      "collision_difference": 0,
+      "comparison": "active_mycelial_gossip_vs_isolated",
+      "extra_sites_visited": 0,
+      "extra_viable_placements": 1,
+      "gossip_bytes": 12236,
+      "gossip_packets": 117,
+      "map_scale": 1.6,
+      "num_rovers": 4,
+      "rescue_policy": "react_orchestrator",
+      "seed": 8,
+      "wall_time_difference_ms": 320.18
+    },
+    {
+      "belief_divergence_difference": -0.7141,
+      "collision_difference": 0,
+      "comparison": "active_mycelial_gossip_vs_isolated",
+      "extra_sites_visited": 3,
+      "extra_viable_placements": 1,
+      "gossip_bytes": 32242,
+      "gossip_packets": 305,
+      "map_scale": 1.6,
+      "num_rovers": 6,
+      "rescue_policy": "react_orchestrator",
+      "seed": 8,
+      "wall_time_difference_ms": -400.49
+    }
+  ]
+}

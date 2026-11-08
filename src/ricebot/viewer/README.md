@@ -1,3 +1,5 @@
+> **Submission release note (8 Nov 2026):** The current desktop application has a tested native 3D/2D engineering interface and a judge-facing **Presentation Mode**. Launch Presentation Mode with **python scripts/run_mujoco_paddypatch.py --presentation --scenario golden_rescue --policy cooperative --seed 7**. The screenshots, provisional architecture proposals and next-step statements further down this file record earlier development phases and do **not** supersede the [current launch guide](../../../docs/RUN.md), [release test evidence](../../../docs/TESTING.md) or [submission instructions](../../../docs/SUBMISSION.md). The acting controller, MuJoCo contact outcomes and viewer remain distinct. The GUI is not proof of real field hardware or live LLM use.
+
 # Read-Only Swarm Belief & Terramechanics UI (`src/ricebot/viewer/`)
 
 ## 1. Provisional Status & Why This UI Exists (Replacing the Over-Engineered Legacy Visualizer)
@@ -67,3 +69,48 @@ Per [`docs/COMPONENTS.md`](../../../docs/COMPONENTS.md) (Role 5) and [`docs/DEMO
 ## 5. Invariants & Extending
 - **Strictly Read-Only Belief & Oracle Separation:** `ground_truth_layers` are used strictly for visual comparison and independent grading; neither `planter` nor `scout` ever reads hidden ground truth.
 - **Next UI Steps:** Connect autonomous physical rigid-docking rescue state (`DOCKING`, `LATCHED`, `ANCHOR_PULL`, `EXTRACTED`) directly into the top-down canvas and telemetry cards as the closed-loop rescue skill is integrated.
+
+
+## Judge-facing Presentation Mode (8 Nov 2026)
+
+Presentation Mode is an alternative layout of the **same** live Tkinter/MuJoCo
+application, not a separate simulator or replay. It does not mutate the
+physics, policy, controller, planner, safety gates or evaluation.
+
+From the repository root, in Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-mujoco.txt
+.\.venv\Scripts\python.exe scripts\run_mujoco_paddypatch.py --presentation --scenario golden_rescue --policy cooperative --rescue-policy react_orchestrator --seed 7
+```
+
+The normal `--dashboard` command still opens the complete Engineering UI.
+Select **Engineering / Advanced** in the top strip to reveal all controls,
+sliders, technical telemetry and belief selectors again, without resetting
+the episode. Select **Presentation Mode** to hide them. Presentation mode
+starts playing automatically; use the visible Play/Pause and Restart buttons
+when recording one continuous screen capture. Camera choices **Field**,
+**Rescue** and **Auto frame** only change the visual camera, never robot
+movement. Auto framing follows observed rescue incidents when present.
+
+The 3D pane renders the actual MuJoCo bodies, simulated terrain and
+observation-linked hazard markers. The 2D pane displays fused *estimated*
+traversability risk from the existing onboard maps, discovered SLAM hazards,
+observed site outcomes, each rover's actual pose history and physical
+helper-approach positions recorded only after assignment. Red marks an
+observed stranded rover; amber marks an actually selected helper. Event
+headlines derive from fault evidence, rescue assessment and verdict,
+latched/extraction feedback, and the recovered rover's subsequent task.
+
+**Line semantics:** Solid rover trails = **past observed motion**. Amber
+solid trail = **past helper motion since rescue assignment**. Dashed lines =
+**straight-line direction to the currently assigned destination**, *not*
+a collision-free route or computed waypoint plan. No path is presented as
+computed unless the runtime actually exposes one. Fused estimates and
+simulated sensors are not ground-truth field measurements.
+
+Run `python -m unittest discover -s tests -v` and
+`python scripts/check_repo.py` for regression checks. Headless CI skips
+the graphical Tk test; verify actual 3D/2D rendering, typography, viewport
+size, and full 60-second screen recording on Windows before claiming
+presentation readiness.

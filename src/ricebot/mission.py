@@ -40,6 +40,10 @@ class MeasuredFieldMap:
         self.sample_radius_m = sample_radius_m
         self._samples: dict[str, SoilSample] = {}
 
+    def reset(self) -> None:
+        """Clear all accumulated soil samples for an in-place episode reset."""
+        self._samples.clear()
+
     def update(self, frame: ObservationFrame) -> int:
         accepted = 0
         for robot in frame.robots:

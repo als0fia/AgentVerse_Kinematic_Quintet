@@ -1,5 +1,16 @@
 # Agent instructions — AgentVerse team submission repository
 
+## Submission-candidate branch override (8 November 2026)
+
+This branch, **release/agentverse-2026-submission**, is a separately prepared **candidate for the actual hackathon source link**, based on green Presentation Mode commit **60c7283**. Do **not** assume the default GitHub main branch has been updated or merge this branch automatically. The user explicitly requested this independent submission-ready branch; all other branches/worktrees remain untouched.
+
+**Current product and truthful status:** [README](README.md), [PRODUCT](docs/PRODUCT.md), [ARCHITECTURE](docs/ARCHITECTURE.md), [RUN](docs/RUN.md), [TESTING](docs/TESTING.md), [DEMO](docs/DEMO.md), [SUBMISSION](docs/SUBMISSION.md) and [PROVENANCE](docs/PROVENANCE.md). These **supersede historical milestone, branch-authority and next-agent instructions below** where descriptions conflict. The source remains the one MuJoCo EpisodeSession/runtime in src/ricebot; no Isaac Sim or external physical deployment is claimed.
+
+Keep the branch publishable, reproducible and conservative. Do not introduce confidential portal content, participant data, API keys, video mockups, invented test results, or unverified market claims. The final PDF/video, portal upload, repo visibility decisions and final submission require human approval. A green CI run is necessary but not sufficient for Windows graphical and actual portal checks.
+
+The rest of this file contains the team's historical development rules and contributor workflow and remains as provenance. It is **not** a reason to rebuild old stages or replace the chosen release with outdated main.
+
+
 The repo is public. It contains **shared submission engineering**, not personal hackathon operations. Never read private personal-ops files as an input to team coding or paste restricted BuilderBase/Discord/team content here.
 
 ## Boot sequence (smallest relevant context)
