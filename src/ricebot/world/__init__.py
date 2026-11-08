@@ -34,6 +34,13 @@ from .terrace import (
     compute_rice_planting_fitness,
     generate_hidden_soil_truth,
 )
+from .terrace_network import (
+    MultiLevelPathPlanner,
+    MultiLevelTerraceEnvironment,
+    NavigationWaypoint,
+    RampConnection,
+    TerraceLevel,
+)
 
 __all__ = [
     "ChannelStatus",
@@ -41,10 +48,15 @@ __all__ = [
     "ContinuousTerrainPoint",
     "DEFAULT_HIDDEN_SOIL_TRUTH",
     "DEFAULT_SITES",
+    "MultiLevelPathPlanner",
+    "MultiLevelTerraceEnvironment",
+    "NavigationWaypoint",
     "PaddyP2PCommsChannel",
     "PaddyTerraceWorld",
     "PeerLinkStatus",
+    "RampConnection",
     "TEXTURES_DIR",
+    "TerraceLevel",
     "UNEXPECTED_BAD_SOIL_TRUTH",
     "build_textured_asset_xml",
     "build_world_terrain_xml",
