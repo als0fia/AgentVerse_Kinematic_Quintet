@@ -1,3 +1,5 @@
+> **Submission release note (8 Nov 2026):** The current desktop application has a tested native 3D/2D engineering interface and a judge-facing **Presentation Mode**. Launch Presentation Mode with **python scripts/run_mujoco_paddypatch.py --presentation --scenario golden_rescue --policy cooperative --seed 7**. The screenshots, provisional architecture proposals and next-step statements further down this file record earlier development phases and do **not** supersede the [current launch guide](../../../docs/RUN.md), [release test evidence](../../../docs/TESTING.md) or [submission instructions](../../../docs/SUBMISSION.md). The acting controller, MuJoCo contact outcomes and viewer remain distinct. The GUI is not proof of real field hardware or live LLM use.
+
 # Read-Only Swarm Belief & Terramechanics UI (`src/ricebot/viewer/`)
 
 ## 1. Provisional Status & Why This UI Exists (Replacing the Over-Engineered Legacy Visualizer)
