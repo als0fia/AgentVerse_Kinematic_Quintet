@@ -2,6 +2,10 @@
 
 **Robotics track, AgentVerse 2026 · The Kinematic Quintet**
 
+## How this meets the Robotics relevance criterion
+
+**Relevance and impact — 20%** of the organiser's recorded Robotics judging rubric requires a meaningful beneficiary and an observable response to the most consequential failure mode. Our specific test is whether Antenna can handle a stranded field rover without unnecessarily sacrificing another rover, while continuing real simulated soil and planting tasks. We have measured these outcomes in MuJoCo; real farming impact has not been validated. See [EVENT](EVENT.md) for the other four categories and source qualifications.
+
 ## Who benefits and what changes?
 
 Antenna investigates an operational problem faced by future operators of small field robots: when a rover becomes immobilised in uncertain terrain, should another rover interrupt productive work to help, or would that create a second casualty? A fully autonomous fleet needs a defensible answer, not an unconditional rescue instruction.
