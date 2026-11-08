@@ -47,6 +47,9 @@ from ..robot import (
 from ..world import (
     ContinuousTerrainPoint,
     DEFAULT_SITES,
+    FieldLayout,
+    build_field_layout,
+    build_scaled_world_terrain_xml,
     PaddyTerraceWorld,
     build_world_terrain_xml,
     generate_randomized_episode_spec,
@@ -56,10 +59,14 @@ from ..world import (
 def compose_paddypatch_mjcf(
     obstacle_xy: tuple[float, float] = (0.75, -0.25),
     rover_specs: tuple[RoverChassisSpec, ...] | None = None,
+    field_layout: FieldLayout | None = None,
 ) -> str:
     """Compose the full MJCF XML from `src/ricebot/world/` terrain and `src/ricebot/robot/` Paddy Ant units."""
     fleet = rover_specs or (PLANTER_SPEC, SCOUT_SPEC)
-    world_terrain_xml = build_world_terrain_xml(obstacle_xy=obstacle_xy)
+    world_terrain_xml = (
+        build_scaled_world_terrain_xml(field_layout, obstacle_xy=obstacle_xy)
+        if field_layout is not None else build_world_terrain_xml(obstacle_xy=obstacle_xy)
+    )
     rovers_bodies_xml, rovers_actuators_xml, rovers_sensors_xml = build_rovers_and_seeds_xml(specs=fleet)
     equality_lines = [
         f'    <connect name="rigid_latch_{a.robot_id}_to_{b.robot_id}" '
@@ -91,7 +98,7 @@ def compose_paddypatch_mjcf(
     <material name="crop_bed_mat" rgba="0.20 0.42 0.18 0.85"/>
     <material name="canal_water_mat" rgba="0.16 0.46 0.58 0.78" shininess="0.9" specular="0.8"/>
     <material name="wheel_rubber_mat" rgba="0.16 0.16 0.18 1"/>
-    <hfield name="paddy_micro_relief" nrow="32" ncol="48" size="1.65 0.92 0.045 0.02"/>
+    <hfield name="paddy_micro_relief" nrow="32" ncol="48" size="{1.65 * (field_layout.scale if field_layout else 1.0):.5f} {0.92 * (field_layout.scale if field_layout else 1.0):.5f} 0.045 0.02"/>
   </asset>
 
   <worldbody>
@@ -199,9 +206,11 @@ class MujocoPaddySimulation:
         scenario: str = "nominal",
         num_rovers: int = 2,
         map_scale: float = 1.0,
+        field_layout: FieldLayout | None = None,
     ) -> None:
         self.num_rovers = max(2, min(6, int(num_rovers)))
         self.map_scale = float(map_scale)
+        self.layout = field_layout or build_field_layout(map_scale, seed=7, scenario=scenario)
         self.rover_specs: tuple[RoverChassisSpec, ...] = make_fleet_specs(self.num_rovers)
         self._spec_by_id: dict[str, RoverChassisSpec] = {s.robot_id: s for s in self.rover_specs}
         self._ctrl_offset_by_id: dict[str, int] = {
@@ -234,7 +243,9 @@ class MujocoPaddySimulation:
         self.initial_poses: dict[str, Pose2D] | None = dict(initial_poses) if initial_poses else None
         self.scenario = scenario
 
-        mjcf_xml = compose_paddypatch_mjcf(obstacle_xy=obstacle_xy, rover_specs=self.rover_specs)
+        mjcf_xml = compose_paddypatch_mjcf(
+            obstacle_xy=obstacle_xy, rover_specs=self.rover_specs, field_layout=self.layout
+        )
         self.model = mujoco.MjModel.from_xml_string(mjcf_xml)
         self.data = mujoco.MjData(self.model)
 
@@ -386,8 +397,8 @@ class MujocoPaddySimulation:
             return
         nrow = int(self.model.hfield_nrow[0])
         ncol = int(self.model.hfield_ncol[0])
-        xs = np.linspace(-0.30, 3.00, ncol)
-        ys = np.linspace(-0.92, 0.92, nrow)
+        xs = np.linspace(*self.layout.x_bounds, ncol)
+        ys = np.linspace(*self.layout.y_bounds, nrow)
         grid = np.zeros((nrow, ncol), dtype=np.float32)
         for iy, y in enumerate(ys):
             for ix, x in enumerate(xs):
@@ -410,6 +421,10 @@ class MujocoPaddySimulation:
             "e": (1.22, -0.02),
             "f": (1.98, -0.02),
         }
+        base_xy_by_suffix.update({
+            site.site_id.split("_")[-1]: (site.center.x_m, site.center.y_m)
+            for site in self.sites.values() if site.site_id.startswith("patch_")
+        })
         if self._ground_geom_id >= 0:
             self.model.geom_group[self._ground_geom_id] = 2
 
@@ -624,6 +639,27 @@ class MujocoPaddySimulation:
             self.data.qpos[qadr + 2] = round(z_now, 5)
             self.data.qpos[qadr + 3 : qadr + 7] = _rpy_to_quat(roll_now, pitch_now, current_yaw)
 
+    def _procedural_rover_poses(self, seed: int) -> dict[str, Pose2D]:
+        """Place every rover inside the real field with clearance from sites and peers."""
+        rng = random.Random(int(seed) * 1039 + self.num_rovers * 17)
+        poses: dict[str, Pose2D] = {}
+        xb, yb = self.layout.x_bounds, self.layout.y_bounds
+        for spec in self.rover_specs:
+            for _ in range(1600):
+                x = rng.uniform(xb[0] + 0.31, xb[1] - 0.31)
+                y = rng.uniform(yb[0] + 0.27, yb[1] - 0.27)
+                if any(hypot(x - site.center.x_m, y - site.center.y_m) < 0.45
+                       for site in self.sites.values()):
+                    continue
+                if any(hypot(x - pose.x_m, y - pose.y_m) < 0.47
+                       for pose in poses.values()):
+                    continue
+                poses[spec.robot_id] = Pose2D(round(x, 4), round(y, 4), rng.uniform(-3.14, 3.14))
+                break
+            else:
+                raise RuntimeError(f"Cannot safely spawn {self.num_rovers} rovers in scaled field")
+        return poses
+
     def reset(self, seed: int) -> ObservationFrame:
         self._seed = int(seed)
         self._episode_id = f"mujoco-ep-{self._seed}"
@@ -642,6 +678,8 @@ class MujocoPaddySimulation:
             self.obstacle_xy = rand_spec.obstacle_xy
             self.inject_obstacle_at_s = rand_spec.inject_obstacle_at_s
         self.world.reset(self._seed)
+        if self.map_scale > 1.0 + 1e-6:
+            self.initial_poses = self._procedural_rover_poses(self._seed)
         self._populate_hfield_from_continuous_terrain()
         self._sync_3d_terrain_visuals_from_world()
         self._seeds_remaining = {
