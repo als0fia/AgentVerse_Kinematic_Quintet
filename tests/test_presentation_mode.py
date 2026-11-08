@@ -51,6 +51,22 @@ class TestPresentationCues(unittest.TestCase):
         self.assertEqual(cue(feedback=(feedback,)).label,
                          "Extraction in progress")
 
+    def test_previous_recovery_does_not_hide_new_fault(self):
+        rec = NS(target_robot_id="scout", helper_robot_id="planter",
+                 observed_at_s=1.0)
+        frame = NS(
+            robots=(NS(robot_id="scout", is_bogged=False),
+                    NS(robot_id="planter", is_bogged=True)),
+            recovery_feedback=(),
+        )
+        outcome = presentation_cue(
+            frame, NS(intents=()), fault_evidence={"planter": NS(observed_at_s=2.0)},
+            rescue_assessments={}, orchestrator_decisions={},
+            completed_recoveries=(rec,),
+        )
+        self.assertEqual(outcome.label, "Fault detected")
+        self.assertEqual(outcome.victim_id, "planter")
+
     def test_fieldwork_resumption_requires_recovered_robot_task(self):
         rec = NS(target_robot_id="scout", helper_robot_id="planter")
         other = NS(robot_id="planter", mode="plant")
