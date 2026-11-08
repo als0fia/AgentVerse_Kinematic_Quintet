@@ -238,6 +238,7 @@ def run_canonical_episode(
         orchestrator_model=config.orchestrator_model,
         orchestrator_timeout_s=config.orchestrator_timeout_s,
         enable_live_llm=config.enable_live_llm,
+        llm_max_calls=config.llm_max_calls,
     )
 
     eff_label = policy_label or (
