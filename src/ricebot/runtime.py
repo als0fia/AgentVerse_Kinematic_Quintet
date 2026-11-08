@@ -126,7 +126,7 @@ class EpisodeConfig:
     trap_radius_m: float = 0.28
     sensor_dropout_robot_id: str | None = None
     sensor_dropout_window_s: tuple[float, float] | None = None
-    expose_bogged_flag: bool = True
+    expose_bogged_flag: bool = False
     comm_range_m: float = 2.15
     include_shadow_mycelial: bool = False
 
@@ -195,6 +195,7 @@ class EpisodeSession:
         rescue_policy: str = "react_orchestrator",
         comms_mode: str = "normal",
         operator_handler: Callable[[SimulationPort, PolicyRuntime, OperatorRequest], None] | None = None,
+        config: EpisodeConfig | None = None,
     ) -> None:
         if seed < 0 or isinstance(seed, bool):
             raise ValueError("seed must be a non-negative integer")
@@ -208,6 +209,13 @@ class EpisodeSession:
         self.rescue_policy = rescue_policy
         self.comms_mode = comms_mode
         self.operator_handler = operator_handler
+        self.config = config or EpisodeConfig(
+            scenario=scenario,
+            policy=policy_name,
+            rescue_policy=rescue_policy,
+            comms=comms_mode,
+            seed=seed,
+        )
 
         self.current_frame: ObservationFrame | None = None
         self.last_decision: Decision | None = None
@@ -486,6 +494,7 @@ def create_mujoco_episode_session(
     *,
     views: tuple[ReadOnlyView, ...] | list[ReadOnlyView] = (),
     advisor: Any = None,
+    include_shadow_mycelial: bool | None = None,
 ) -> EpisodeSession:
     """Canonical factory constructing one authoritative MuJoCo SimulationPort + PolicyRuntime session."""
     from .agent import CooperativeSwarmPlanner, DecentralizedMycelialRuntime
@@ -493,6 +502,7 @@ def create_mujoco_episode_session(
     from .world import generate_hidden_soil_truth
 
     cfg = config or EpisodeConfig()
+    want_shadow = cfg.include_shadow_mycelial if include_shadow_mycelial is None else bool(include_shadow_mycelial)
     is_single = cfg.single_rover_only or cfg.policy == "single_rover"
     inject_at = 1.6 if cfg.scenario == "obstacle" else None
     truth = generate_hidden_soil_truth(cfg.scenario, cfg.seed)
@@ -548,7 +558,7 @@ def create_mujoco_episode_session(
         policy_runtime = MissionCore(field_map, planner, controller)
 
     shadow_policy: PolicyRuntime | None = None
-    if cfg.include_shadow_mycelial and not isinstance(policy_runtime, DecentralizedMycelialRuntime):
+    if want_shadow and not isinstance(policy_runtime, DecentralizedMycelialRuntime):
         shadow_policy = DecentralizedMycelialRuntime(
             sites=DEFAULT_SITES,
             capabilities=caps,
@@ -569,6 +579,7 @@ def create_mujoco_episode_session(
         rescue_policy=cfg.rescue_policy,
         comms_mode=cfg.comms,
         operator_handler=_default_mujoco_operator_handler,
+        config=cfg,
     )
 
 

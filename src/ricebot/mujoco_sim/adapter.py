@@ -179,7 +179,7 @@ class MujocoPaddySimulation:
         trap_radius_m: float = 0.24,
         sensor_dropout_robot_id: str | None = None,
         sensor_dropout_window_s: tuple[float, float] | None = None,
-        expose_bogged_flag: bool = True,
+        expose_bogged_flag: bool = False,
     ) -> None:
         self.world = PaddyTerraceWorld(
             sites=sites, probe_radius_m=probe_radius_m, hidden_truth=hidden_truth
@@ -317,7 +317,6 @@ class MujocoPaddySimulation:
         self._rescued_robots.discard(robot_id)
         r_xyz = self.data.sensor(f"{robot_id}_pos").data
         self._bogged_origins[robot_id] = (float(r_xyz[0]), float(r_xyz[1]))
-        self._sensed_bogged_robots.add(robot_id)
 
     def inject_dynamic_obstacle(self, x_m: float, y_m: float) -> None:
         """Place the dynamic obstacle at `(x_m, y_m)` via session-authorized operator request."""
@@ -820,6 +819,11 @@ class MujocoPaddySimulation:
                         new_recovery.append(rec)
                         active_rescue_cmd = None
             mujoco.mj_step(self.model, self.data)
+            for bog_id in list(self._bogged_origins.keys()):
+                if self._active_latched_pair is None:
+                    vadr = self._planter_qvel_adr if bog_id == "planter" else self._scout_qvel_adr
+                    self.data.qvel[vadr : vadr + 2] *= 0.04
+                    self.data.qvel[vadr + 5] *= 0.04
             step_t = round(float(self.data.time), 4)
             self._update_mud_trap_state()
             still_falling: list[SeedDropEvent] = []
@@ -990,14 +994,8 @@ class MujocoPaddySimulation:
             for rf in recovery_feedback
         )
 
-        planter_bogged = self.expose_bogged_flag and (
-            "planter" in self._sensed_bogged_robots
-            or (p_sink is not None and bool(p_sink.bellied_out))
-        )
-        scout_bogged = self.expose_bogged_flag and (
-            "scout" in self._sensed_bogged_robots
-            or (s_sink is not None and bool(s_sink.bellied_out))
-        )
+        planter_bogged = self.expose_bogged_flag and ("planter" in self._sensed_bogged_robots)
+        scout_bogged = self.expose_bogged_flag and ("scout" in self._sensed_bogged_robots)
 
         robots = (
             RobotObservation(
@@ -1012,7 +1010,7 @@ class MujocoPaddySimulation:
                 roll_rad=round(p_roll, 4),
                 true_speed_m_s=p_speed,
                 is_bogged=planter_bogged,
-                peer_distances=(("scout", inter_dist),),
+                peer_distances=(("scout", inter_dist),) if inter_dist <= 2.15 else (),
             ),
             RobotObservation(
                 robot_id="scout",
@@ -1026,7 +1024,7 @@ class MujocoPaddySimulation:
                 roll_rad=round(s_roll, 4),
                 true_speed_m_s=s_speed,
                 is_bogged=scout_bogged,
-                peer_distances=(("planter", inter_dist),),
+                peer_distances=(("planter", inter_dist),) if inter_dist <= 2.15 else (),
             ),
         )
         return ObservationFrame(

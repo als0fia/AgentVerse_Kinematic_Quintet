@@ -13,6 +13,7 @@ Single-window large side-by-side layout reconciled with the Multi-Seed Independe
 from __future__ import annotations
 
 from math import cos, hypot, sin, sqrt
+import random
 import time
 import tkinter as tk
 from typing import Any
@@ -175,7 +176,7 @@ class LiveSwarmDashboardApp:
         self.human_control_var = tk.BooleanVar(value=False)
         self.manual_lin_m_s: float = 0.0
         self.manual_ang_rad_s: float = 0.0
-        self.show_details_var = tk.BooleanVar(value=False)
+        self.show_details_var = tk.BooleanVar(value=True)
 
         self.playing = False
         self.after_id: str | None = None
@@ -210,6 +211,7 @@ class LiveSwarmDashboardApp:
             steps=195 if scen in ("golden_rescue", "high_risk_abstain") else 160,
             single_rover_only=(pol == "single_rover"),
             rescue_policy=rescue_pol,
+            include_shadow_mycelial=True,
         )
         t0 = time.perf_counter()
         self.session = create_mujoco_episode_session(cfg, include_shadow_mycelial=True)
@@ -223,7 +225,11 @@ class LiveSwarmDashboardApp:
         self._central_samples_count = 0
 
         self.frame: ObservationFrame = self.session.reset(self.seed)
-        self.decision: Decision = self.session.last_decision  # type: ignore[assignment]
+        self.decision: Decision = (
+            self.session.last_decision
+            if self.session.last_decision is not None
+            else Decision(intents=(), commands=(), ingested_samples=0)
+        )
         self._apply_vehicle_sizing_to_sim()
         self.last_compute_ms = (time.perf_counter() - t0) * 1000.0
         self.step_count = 0
@@ -325,6 +331,17 @@ class LiveSwarmDashboardApp:
 
         tk.Button(
             toolbar,
+            text="🎲 Random Scenario",
+            command=self.trigger_random_scenario,
+            bg="#0f766e",
+            fg="#f0fdfa",
+            font=("Segoe UI", 8, "bold"),
+            padx=7,
+            pady=2,
+        ).pack(side=tk.LEFT, padx=2, pady=4)
+
+        tk.Button(
+            toolbar,
             text="⚡ Inject Mud Fault",
             command=self.trigger_mud_fault_injection,
             bg="#9a3412",
@@ -386,19 +403,20 @@ class LiveSwarmDashboardApp:
                 font=("Consolas", 8, "bold"),
             ).pack(side=tk.LEFT, padx=1)
 
-        # Scenario Selector (Reconciled with Canonical Rescue + Benchmark Harness)
+        # Scenario Selector (3 Core Presets + Existing Scenario Variations)
         tk.Label(toolbar, text="| Scenario:", bg="#111d2c", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(
             side=tk.LEFT, padx=(6, 2)
         )
         for scen_id, scen_lbl in (
-            ("golden_rescue", "★ Golden Rescue"),
-            ("high_risk_abstain", "★ High-Risk Refusal"),
+            ("golden_rescue", "★ 1. Rescue"),
+            ("high_risk_abstain", "★ 2. Refusal"),
+            ("sensor_degraded", "★ 3. Sensor/Comms Fail"),
             ("nominal", "Nominal"),
             ("bad_soil", "Bad Soil"),
             ("shifted_moisture", "Shifted Moisture"),
             ("obstacle", "Obstacle"),
-            ("sensor_degraded", "Degraded Sensor"),
         ):
+            is_preset = scen_id in ("golden_rescue", "high_risk_abstain", "sensor_degraded")
             tk.Radiobutton(
                 toolbar,
                 text=scen_lbl,
@@ -406,10 +424,10 @@ class LiveSwarmDashboardApp:
                 value=scen_id,
                 command=self.reset_episode,
                 bg="#111d2c",
-                fg="#fef08a" if scen_id in ("golden_rescue", "high_risk_abstain") else "#e2e8f0",
+                fg="#fef08a" if is_preset else "#e2e8f0",
                 selectcolor="#0284c7",
                 activebackground="#111d2c",
-                font=("Segoe UI", 8, "bold" if scen_id in ("golden_rescue", "high_risk_abstain") else "normal"),
+                font=("Segoe UI", 8, "bold" if is_preset else "normal"),
             ).pack(side=tk.LEFT, padx=1)
 
         # Policy Selector (Cooperative Rescue vs Mycelial SLAM Policy B vs Centralised Policy A vs Single Rover)
@@ -484,7 +502,7 @@ class LiveSwarmDashboardApp:
 
         tk.Button(
             bench_bar,
-            text="📊 Show Benchmark & Rescue Baseline Tables",
+            text="📊 Live Metrics & On-Demand Baseline Runner",
             command=self._show_multiseed_benchmark_popup,
             bg="#1e293b",
             fg="#fbbf24",
@@ -1107,11 +1125,15 @@ class LiveSwarmDashboardApp:
             pass
 
     def _show_multiseed_benchmark_popup(self) -> None:
-        """Display the reconciled 5-seed x 6-scenario Independent Benchmark Suite + Matched Rescue Baselines."""
+        """Display live-computed episode metrics and provide an on-demand runner for matched baselines."""
         win = tk.Toplevel(self.root)
-        win.title("Independent Multi-Seed Benchmark & Matched-Scenario Rescue Baselines")
+        win.title("Live Episode Metrics & On-Demand Baseline Evaluation")
         win.geometry("980x580")
         win.configure(bg="#0b131e")
+
+        top_bar = tk.Frame(win, bg="#111d2c")
+        top_bar.pack(fill=tk.X, padx=8, pady=6)
+
         txt = tk.Text(
             win,
             bg="#0d1724",
@@ -1121,32 +1143,104 @@ class LiveSwarmDashboardApp:
             pady=10,
             borderwidth=0,
         )
-        txt.pack(fill=tk.BOTH, expand=True)
-        summary_table = (
-            "=== 1. MATCHED-SCENARIO RESCUE BASELINE COMPARISON (AGENT D ORCHESTRATOR vs BASELINES) ===\n"
-            "Evaluated on identical MuJoCo seeds & physical mud traps (`scripts/run_mujoco_paddypatch.py --compare-baselines`):\n\n"
-            "Scenario / Rescue Policy         | Orchestrator Action | Physical Recoveries | Viable Seeds | Secondary Casualties | End-State Bogged\n"
-            "---------------------------------+---------------------+---------------------+--------------+----------------------+-----------------\n"
-            "golden_rescue / react_orchestr.  | DISPATCH_RESCUE     |          1 (t=9.7s) |    2 / 2 ✓   |          0           | [] (All Free)\n"
-            "golden_rescue / numerical_triage | DISPATCH_RESCUE     |          1 (t=9.7s) |    2 / 2 ✓   |          0           | [] (All Free)\n"
-            "golden_rescue / always_rescue    | DISPATCH_RESCUE     |          0 (locked) |    0 / 2 ✗   |          0           | []\n"
-            "golden_rescue / never_rescue     | REFUSE_HIGH_RISK    |          0          |    0 / 2 ✗   |          0           | ['planter']\n"
-            "---------------------------------+---------------------+---------------------+--------------+----------------------+-----------------\n"
-            "high_risk_abstain / react_orch.  | REFUSE_HIGH_RISK    |          0 (refused)|    2 / 2 ✓   |          0 ✓         | ['scout']\n"
-            "high_risk_abstain / num_triage   | REFUSE_HIGH_RISK    |          0 (refused)|    2 / 2 ✓   |          0 ✓         | ['scout']\n"
-            "high_risk_abstain / always_resc. | DISPATCH_RESCUE     |          0 (failed) |    0 / 2 ✗   |          1 (PLANTER) | ['scout','planter']\n"
-            "high_risk_abstain / never_rescue | REFUSE_HIGH_RISK    |          0          |    2 / 2 ✓   |          0 ✓         | ['scout']\n\n"
-            "=== 2. INDEPENDENT MULTI-SEED FIELDWORK BENCHMARK SUITE (SEEDS 1..5 — 30 EPISODES / POLICY) ===\n"
-            "Policy                          | Viable Yield | Wasted Drops | Completion (s) | Map RMSE | Wire Bytes | vs 10Hz Stream\n"
-            "--------------------------------+--------------+--------------+----------------+----------+------------+---------------\n"
-            "1. Blind Grid (No Sensors)      |  65.6% ±11%  |  0.90 / ep   |   7.56 ± 0.04  |  0.2999  |       0 B  | (No Sensing)\n"
-            "2. Single Rover (No Swarm)      |  72.2% ±14%  |  0.00 / ep   |   9.72 ± 2.86  |  0.1456  |       0 B  | (1 Rover Idle)\n"
-            "3. Centralised Simple (Pol A)   |  94.4% ±11%  |  0.00 / ep   |   7.74 ± 2.75  |  0.0889  |  18,546 B  | 10Hz Baseline\n"
-            "4. Centralised Auction          |  94.4% ±11%  |  0.00 / ep   |   7.74 ± 2.75  |  0.0889  |  20,418 B  | +10.1% Overhead\n"
-            "5. Mycelial SLAM + Gossip (B)   | 100.0% ± 0%  |  0.00 / ep   |   7.38 ± 1.65  |  0.0365  |   1,056 B  | 94.3% SAVED ✓\n"
-        )
-        txt.insert(tk.END, summary_table)
-        txt.configure(state=tk.DISABLED)
+        txt.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+
+        def _render_live_summary(baseline_rows: list[str] | None = None) -> None:
+            bm = self._compute_live_benchmark_metrics()
+            planted_sites = [
+                d.target_site_id for d in self.sim.completed_drops if d.contact_observed_at_s is not None
+            ]
+            lines = [
+                "=== 1. CURRENT LIVE EPISODE TELEMETRY (COMPUTED FROM ACTIVE SESSION) ===",
+                f"Seed               : {self.seed}",
+                f"Scenario           : {self.scenario_var.get()}",
+                f"Swarm Policy       : {self.policy_var.get()}",
+                f"Rescue Policy (D)  : {self.rescue_policy_var.get()}",
+                f"Comms Mode         : {self.comms_var.get()}",
+                f"Simulation Step    : {self.step_count} (t = {self.frame.time_s:.2f}s)",
+                f"Viable Seeds       : {bm['viable_planted']} / {bm['viable_target']} (Planted sites: {planted_sites or 'none'})",
+                f"Wasted Drops       : {bm['wasted_drops']}",
+                f"Physical Recoveries: {len(self.sim.completed_recoveries)}",
+                f"Discrete Site RMSE : {bm['discrete_rmse']:.4f}",
+                f"2D Field Map RMSE  : {bm['cont_rmse']:.4f}",
+                f"D-0010 Wire Bytes  : {bm['actual_wire_bytes']} B vs {bm['stream_10hz_bytes']} B (10Hz stream) -> {bm['saved_pct']:+.1f}% saved",
+                "",
+                "=== 2. ACTIVE EPISODE ORCHESTRATOR (D) & RECOVERY (B) LOG ===",
+            ]
+            if self.session.orchestrator_decisions:
+                for vid, odec in self.session.orchestrator_decisions.items():
+                    mode_tag = "DETERMINISTIC FALLBACK" if odec.fallback_used else "LIVE LLM"
+                    tools_str = " -> ".join(tc.tool_name for tc in odec.tool_trace) if odec.tool_trace else "none"
+                    lines.append(
+                        f"• Stranded={vid} | Verdict={odec.verdict.value} | Mode={mode_tag} | "
+                        f"Helper={odec.helper_robot_id or 'none'} | Tech={odec.chosen_technique.value} | Tools={tools_str}"
+                    )
+                    lines.append(f"  Rationale: {odec.rationale}")
+            else:
+                lines.append("• No active orchestrator rescue decisions at current tick.")
+            if self.sim.completed_recoveries:
+                for rec in self.sim.completed_recoveries:
+                    lines.append(
+                        f"• Recovery @ t={rec.observed_at_s:.1f}s: {rec.helper_robot_id} extracted {rec.target_robot_id} "
+                        f"(displacement={rec.victim_displacement_m:.2f}m, peak_force={rec.peak_constraint_force_n:.1f}N)"
+                    )
+            lines.append("")
+            lines.append("=== 3. ON-DEMAND MATCHED-SCENARIO BASELINE RUNNER (GENERATED BY ACTUAL RUNS ONLY) ===")
+            if baseline_rows is None:
+                lines.append(
+                    "Click '▶ Run Live Matched-Scenario Comparison Now' above to execute all 4 rescue policies "
+                    "on golden_rescue and high_risk_abstain for the current seed and display actual measured results."
+                )
+            else:
+                lines.extend(baseline_rows)
+            txt.configure(state=tk.NORMAL)
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, "\n".join(lines))
+            txt.configure(state=tk.DISABLED)
+
+        def _run_live_comparison() -> None:
+            from ..runtime import run_baseline_comparison
+
+            txt.configure(state=tk.NORMAL)
+            txt.insert(tk.END, "\n\nRunning live MuJoCo baseline comparison for seed=" + str(self.seed) + "...\n")
+            txt.configure(state=tk.DISABLED)
+            win.update_idletasks()
+            rows = run_baseline_comparison(seed=self.seed)
+            out_lines = [
+                f"{'Scenario':18s} | {'Rescue Policy':18s} | {'Recoveries':10s} | {'Planted':18s} | {'End Bogged':18s} | {'Orch Decisions'}",
+                "-" * 110,
+            ]
+            for r in rows:
+                out_lines.append(
+                    f"{str(r['scenario']):18s} | {str(r['rescue_policy']):18s} | "
+                    f"{int(r['completed_recoveries']):10d} | {str(r['planted_sites']):18s} | "
+                    f"{str(r['bogged_robots']):18s} | {str(r['orchestrator_decisions'])}"
+                )
+            _render_live_summary(out_lines)
+
+        tk.Button(
+            top_bar,
+            text="↻ Refresh Current Episode Telemetry",
+            command=lambda: _render_live_summary(None),
+            bg="#0284c7",
+            fg="white",
+            font=("Segoe UI", 8, "bold"),
+            padx=8,
+            pady=2,
+        ).pack(side=tk.LEFT, padx=4)
+
+        tk.Button(
+            top_bar,
+            text="▶ Run Live Matched-Scenario Comparison Now",
+            command=_run_live_comparison,
+            bg="#15803d",
+            fg="white",
+            font=("Segoe UI", 8, "bold"),
+            padx=8,
+            pady=2,
+        ).pack(side=tk.LEFT, padx=4)
+
+        _render_live_summary(None)
 
     # ------------------------------------------------------------------
     # Simulation Stepping & Play Loop (Authoritative EpisodeSession)
@@ -1211,6 +1305,30 @@ class LiveSwarmDashboardApp:
             self.toggle_play()
         self._init_simulation()
         self._refresh_all_views()
+
+    def trigger_random_scenario(self) -> None:
+        """Select a random (seed, scenario, comms) variation from the existing presets and reset."""
+        seeds = (1, 2, 3, 4, 5, 7)
+        scenarios = (
+            "golden_rescue",
+            "high_risk_abstain",
+            "sensor_degraded",
+            "nominal",
+            "bad_soil",
+            "shifted_moisture",
+            "obstacle",
+        )
+        comms_choices = ("normal", "intermittent", "isolated")
+        chosen_seed = random.choice(seeds)
+        chosen_scen = random.choice(scenarios)
+        chosen_comms = "isolated" if chosen_scen == "sensor_degraded" and random.random() < 0.5 else random.choice(comms_choices)
+        self.seed_var.set(chosen_seed)
+        self.scenario_var.set(chosen_scen)
+        self.comms_var.set(chosen_comms)
+        self.reset_episode()
+        self.status_lbl.configure(
+            text=f"🎲 Random Selected -> Seed={chosen_seed}, Scenario={chosen_scen}, Comms={chosen_comms}"
+        )
 
     # ------------------------------------------------------------------
     # Independent Benchmark Grader & D-0010 Comm Metrics Calculation
@@ -1329,8 +1447,9 @@ class LiveSwarmDashboardApp:
             for vid, odec in orch_decs.items():
                 tools_str = "->".join(tc.tool_name for tc in odec.tool_trace) if odec.tool_trace else "deterministic"
                 gate_str = "✗VETO" if odec.safety_veto_applied else "✓GATE"
+                mode_str = "FALLBACK:DeterministicReasoner" if odec.fallback_used else "LIVE_LLM:GeminiReAct"
                 parts.append(
-                    f"[{vid.upper()}] {odec.verdict.value.upper()} (helper={odec.helper_robot_id or 'none'}, "
+                    f"[{vid.upper()}] {odec.verdict.value.upper()} [{mode_str}] (helper={odec.helper_robot_id or 'none'}, "
                     f"tech={odec.chosen_technique.value}, {gate_str}, tools={tools_str})"
                 )
             if self.frame.recovery_feedback:
@@ -1339,9 +1458,19 @@ class LiveSwarmDashboardApp:
                     f" | B-RECOVERY: latch={rf.latched} "
                     f"pull={rf.victim_displacement_m:.2f}m F={rf.peak_constraint_force_n:.1f}N extracted={rf.extracted}"
                 )
+            elif self.sim.completed_recoveries:
+                last_rec = self.sim.completed_recoveries[-1]
+                parts.append(
+                    f" | ✓ EXTRACTED @ t={last_rec.observed_at_s:.1f}s ({last_rec.victim_displacement_m:.2f}m, "
+                    f"F={last_rec.peak_constraint_force_n:.1f}N) -> Resumed Fieldwork"
+                )
             self.rescue_banner_lbl.configure(
                 text="  ".join(parts),
-                fg="#fbbf24" if any(d.verdict == RescueVerdict.RESCUE_NOW for d in orch_decs.values()) else "#f87171",
+                fg=(
+                    "#4ade80"
+                    if self.sim.completed_recoveries
+                    else ("#fbbf24" if any(d.verdict == RescueVerdict.RESCUE_NOW for d in orch_decs.values()) else "#f87171")
+                ),
             )
         elif self.sim.completed_recoveries:
             last_rec = self.sim.completed_recoveries[-1]
@@ -1838,16 +1967,39 @@ class LiveSwarmDashboardApp:
 
         # Agent D Rescue Orchestrator & B Physical Recovery section
         lines.append(f"\n--- AGENT D ORCHESTRATOR ({self.rescue_policy_var.get().upper()}) ---")
+        lines.append("Available : [RESCUE_NOW, INVESTIGATE_PERIMETER, DEFER_RESCUE, ABANDON_ESCALATE]")
+        assessments = self.session.rescue_assessments
+        fault_ev_map = self.session.fault_evidence
         if self.session.orchestrator_decisions:
             for vid, odec in self.session.orchestrator_decisions.items():
+                mode_label = (
+                    "DETERMINISTIC FALLBACK (Offline Calibrated Reasoner)"
+                    if odec.fallback_used
+                    else "LIVE LLM (Gemini ReAct)"
+                )
+                lines.append(f"• Mode    : {mode_label}")
+                asm = assessments.get(vid)
+                if asm is not None:
+                    lines.append(
+                        f"  Assess  : benefit={asm.rescue_benefit:.2f} opp_cost={asm.opportunity_cost:.2f} "
+                        f"risk={asm.hazard_risk:.2f} net={asm.net_rescue_value:+.2f}"
+                    )
+                fev = fault_ev_map.get(vid)
+                if fev is not None:
+                    lines.append(
+                        f"  Evidence: stalled_ticks={fev.stalled_ticks} "
+                        f"cmd_v={fev.commanded_linear_m_s:.2f}m/s "
+                        f"obs_v={(fev.observed_speed_m_s or 0.0):.3f}m/s "
+                        f"slip={fev.slip_ratio:.2f}"
+                    )
                 lines.append(
-                    f"• Stranded: {vid.upper()} -> {odec.verdict.value.upper()}"
+                    f"  Selected: {odec.verdict.value.upper()} (Stranded={vid.upper()})"
                 )
                 lines.append(
                     f"  Helper  : {odec.helper_robot_id or 'none'} | Tech: {odec.chosen_technique.value}"
                 )
                 lines.append(
-                    f"  Veto    : {odec.safety_veto_applied} | Fallback: {odec.fallback_used}"
+                    f"  GateVeto: {odec.safety_veto_applied}"
                 )
                 if odec.tool_trace:
                     lines.append(
@@ -1856,6 +2008,13 @@ class LiveSwarmDashboardApp:
                 lines.append(f"  Rationale: {odec.rationale}")
         else:
             lines.append("• Active Incidents: 0 (nominal fieldwork)")
+        if self.frame.recovery_feedback:
+            rf = self.frame.recovery_feedback[-1]
+            phase_str = getattr(rf.phase, "value", str(rf.phase))
+            lines.append(
+                f"• Live B-Feedback: phase={phase_str} latch={rf.latched} "
+                f"pull={rf.victim_displacement_m:.2f}m F={rf.peak_constraint_force_n:.1f}N extracted={rf.extracted}"
+            )
         if self.sim.completed_recoveries:
             last_rec = self.sim.completed_recoveries[-1]
             lines.append(

@@ -464,13 +464,13 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
             obs_disp = round(displacement_m, 5) if previous_pose is not None else 0.0
             obs_yaw = round(yaw_delta_rad, 5) if previous_pose is not None else 0.0
             obs_speed = robot.true_speed_m_s
-            if robot.is_bogged or motion_failed:
+            stalled_ticks_now = self._stuck_counts[robot.robot_id]
+            if motion_failed or stalled_ticks_now >= self.stuck_ticks_threshold:
                 est_slip = 0.90
             elif abs(cmd_lin) > 0.04 and obs_speed is not None:
                 est_slip = max(0.0, min(1.0, 1.0 - (obs_speed / max(0.04, abs(cmd_lin)))))
             else:
                 est_slip = 0.08
-            stalled_ticks_now = self._stuck_counts[robot.robot_id]
             self.last_fault_evidence[robot.robot_id] = FaultEvidence(
                 robot_id=robot.robot_id,
                 observed_at_s=robot.time_s,
@@ -486,10 +486,10 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                 link_ok=robot.link_ok,
                 stalled_ticks=stalled_ticks_now,
                 is_commanded_motion_stall=bool(motion_failed),
-                confidence=0.95 if (motion_failed or robot.is_bogged) else 0.85,
+                confidence=0.95 if (motion_failed or stalled_ticks_now >= self.stuck_ticks_threshold) else 0.85,
             )
 
-            if robot.is_bogged or stalled_ticks_now >= self.stuck_ticks_threshold:
+            if stalled_ticks_now >= self.stuck_ticks_threshold:
                 stranded.add(robot.robot_id)
         return stranded
 
@@ -661,7 +661,7 @@ class CooperativeSwarmPlanner(SimpleMissionPlanner):
                     for p in healthy_peers
                 ),
                 operator_policy=self.operator_policy,
-                commanded_speed_m_s=abs(ev.commanded_linear_m_s) if ev is not None else 0.20,
+                commanded_speed_m_s=max(0.20, abs(ev.commanded_linear_m_s)) if ev is not None else 0.20,
                 measured_speed_m_s=stranded_robot.true_speed_m_s or 0.0,
                 nearest_site_id=nearest_site.site_id,
                 rescue_benefit=rescue_benefit,

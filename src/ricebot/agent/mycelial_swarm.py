@@ -634,7 +634,7 @@ class DecentralizedRobotNode:
                 angular_rad_s=0.0,
             )
 
-        if obs.is_bogged or not obs.link_ok or obs.front_range_m is None or intent.mode is TaskMode.HOLD or intent.target_site_id is None:
+        if not obs.link_ok or obs.front_range_m is None or intent.mode is TaskMode.HOLD or intent.target_site_id is None:
             self.last_commanded_linear_m_s = 0.0
             return RobotCommand(
                 robot_id=obs.robot_id,
@@ -694,8 +694,12 @@ class DecentralizedRobotNode:
             )
 
         # Potential-field steering combining attractive goal + local SLAM obstacle bypass + protected crop avoidance
-        goal_ux = dx / dist_to_target
-        goal_uy = dy / dist_to_target
+        wp = self._select_waypoint_around_slam_obstacles(obs.pose, target_site.center)
+        wp_dx = wp.x_m - obs.pose.x_m
+        wp_dy = wp.y_m - obs.pose.y_m
+        wp_dist = max(1e-4, hypot(wp_dx, wp_dy))
+        goal_ux = wp_dx / wp_dist
+        goal_uy = wp_dy / wp_dist
         rep_x = 0.0
         rep_y = 0.0
 
@@ -720,8 +724,8 @@ class DecentralizedRobotNode:
             if 1e-4 < d_cell < influence:
                 strength = 0.95 * ((1.0 / d_cell) - (1.0 / influence)) / max(d_cell, 0.10)
                 # Tangential detour around northern side (+Y) of obstacle in southern lane
-                rep_x += (ox / d_cell) * strength * 0.45 - (oy / d_cell) * strength * 1.15
-                rep_y += (oy / d_cell) * strength * 0.45 + (ox / d_cell) * strength * 1.15
+                rep_x += (ox / d_cell) * strength * 0.45 + (oy / d_cell) * strength * 1.15
+                rep_y += (oy / d_cell) * strength * 0.45 - (ox / d_cell) * strength * 1.15
 
         for pid, ppose in peer_poses.items():
             if pid == obs.robot_id:
@@ -820,6 +824,7 @@ class DecentralizedMycelialRuntime:
         self.total_gossip_packets: int = 0
         self.advisor = advisor
         self._bogged_since_s: dict[str, float] = {}
+        self._stuck_counts: dict[str, int] = {}
         self.last_fault_evidence: dict[str, FaultEvidence] = {}
         self.last_rescue_assessments: dict[str, RescueAssessment] = {}
         self.last_orchestrator_decisions: dict[str, OrchestratorDecision] = {}
@@ -850,7 +855,23 @@ class DecentralizedMycelialRuntime:
         obs_by_robot = {r.robot_id: r for r in frame.robots}
         if any(rid not in self.capabilities for rid in obs_by_robot):
             raise ValueError("observation from unknown actor")
-        peer_poses = {r.robot_id: r.pose for r in frame.robots}
+        robot_ids = sorted(obs_by_robot.keys())
+
+        # Compute link-gated peer visibility per robot (zero peer pose leakage during blackout/out-of-range)
+        visible_peer_poses_for_robot: dict[str, dict[str, Pose2D]] = {}
+        reachable_peers: dict[str, set[str]] = {rid: {rid} for rid in robot_ids}
+        for rid_a in robot_ids:
+            obs_a = obs_by_robot[rid_a]
+            vis_poses: dict[str, Pose2D] = {rid_a: obs_a.pose}
+            for rid_b in robot_ids:
+                if rid_a == rid_b:
+                    continue
+                obs_b = obs_by_robot[rid_b]
+                d_ab = hypot(obs_b.pose.x_m - obs_a.pose.x_m, obs_b.pose.y_m - obs_a.pose.y_m)
+                if obs_a.link_ok and obs_b.link_ok and self._is_link_open(frame.time_s, d_ab):
+                    vis_poses[rid_b] = obs_b.pose
+                    reachable_peers[rid_a].add(rid_b)
+            visible_peer_poses_for_robot[rid_a] = vis_poses
 
         # 1. Process physical seed landing feedback locally on the robot that released it
         for fb in frame.plant_feedback:
@@ -874,18 +895,37 @@ class DecentralizedMycelialRuntime:
         for rf in frame.recovery_feedback:
             mon = self.orchestrator.record_recovery_feedback(rf)
             self.recovery_monitoring_history.append(mon)
+            if rf.extracted:
+                self._stuck_counts[rf.target_robot_id] = 0
         total_ingested = 0
         self.latest_sensor_telemetry = {}
         self.last_fault_evidence = {}
         for robot_id, obs in obs_by_robot.items():
             node = self.nodes[robot_id]
             prev_cmd_lin = node.last_commanded_linear_m_s
-            telemetry, count, _ = node.process_local_sensors(obs, peer_poses)
+            telemetry, count, _ = node.process_local_sensors(
+                obs, visible_peer_poses_for_robot[robot_id]
+            )
             self.latest_sensor_telemetry[robot_id] = telemetry
             total_ingested += count
             actively_cmd = abs(prev_cmd_lin) >= 0.04
             clear_rng = obs.front_range_m is not None and obs.front_range_m > self.limits.stop_range_m
-            is_stall = bool(actively_cmd and clear_rng and obs.link_ok and telemetry.true_ground_speed_m_s < 0.02)
+            is_stall = bool(actively_cmd and clear_rng and obs.link_ok and telemetry.true_ground_speed_m_s < 0.025)
+            extracted_now = any(
+                rf.target_robot_id == robot_id and rf.extracted
+                for rf in frame.recovery_feedback
+            )
+            being_pulled_now = any(
+                rf.target_robot_id == robot_id and rf.latched and not rf.extracted
+                for rf in frame.recovery_feedback
+            )
+            if extracted_now or (not being_pulled_now and telemetry.true_ground_speed_m_s >= 0.03):
+                self._stuck_counts[robot_id] = 0
+            elif is_stall:
+                self._stuck_counts[robot_id] = self._stuck_counts.get(robot_id, 0) + 1
+            elif self._stuck_counts.get(robot_id, 0) < 2:
+                self._stuck_counts[robot_id] = 0
+            stalled_ticks_now = self._stuck_counts.get(robot_id, 0)
             self.last_fault_evidence[robot_id] = FaultEvidence(
                 robot_id=robot_id,
                 observed_at_s=obs.time_s,
@@ -894,14 +934,14 @@ class DecentralizedMycelialRuntime:
                 observed_displacement_m=round(telemetry.true_ground_speed_m_s * 0.1, 5),
                 observed_yaw_delta_rad=0.0,
                 observed_speed_m_s=obs.true_speed_m_s,
-                slip_ratio=telemetry.slip_ratio,
+                slip_ratio=0.90 if stalled_ticks_now >= 2 else telemetry.slip_ratio,
                 pitch_rad=obs.pitch_rad,
                 roll_rad=obs.roll_rad,
                 front_range_m=obs.front_range_m,
                 link_ok=obs.link_ok,
-                stalled_ticks=2 if (obs.is_bogged or is_stall) else 0,
+                stalled_ticks=stalled_ticks_now,
                 is_commanded_motion_stall=is_stall,
-                confidence=0.95 if (obs.is_bogged or is_stall) else 0.85,
+                confidence=0.95 if stalled_ticks_now >= 2 else 0.85,
             )
 
         # 3. Each robot independently computes its initial local task bids before peer negotiation
@@ -1030,19 +1070,6 @@ class DecentralizedMycelialRuntime:
             rid: self.nodes[rid].compute_task_bids(obs) for rid, obs in obs_by_robot.items()
         }
 
-        reachable_peers: dict[str, set[str]] = {rid: {rid} for rid in robot_ids}
-        for rid_a in robot_ids:
-            for rid_b in robot_ids:
-                if rid_a == rid_b:
-                    continue
-                d_ab = self.latest_sensor_telemetry[rid_a].uwb_peer_ranges_m.get(rid_b, 99.0)
-                if (
-                    obs_by_robot[rid_a].link_ok
-                    and obs_by_robot[rid_b].link_ok
-                    and self._is_link_open(frame.time_s, d_ab)
-                ):
-                    reachable_peers[rid_a].add(rid_b)
-
         intents: list[TaskIntent] = []
         commands: list[RobotCommand] = []
         claimed_by_peer: dict[str, str] = {}
@@ -1063,17 +1090,19 @@ class DecentralizedMycelialRuntime:
             claimed_by_peer[bid.site_id] = bid.robot_id
 
         # 6. Autonomous Peer Rescue Triage (RESCUE_NOW vs DEFER_RESCUE vs ABANDON_ESCALATE) & System-2 Advisor
+        # Uses sensor-derived commanded-versus-observed motion stall evidence (_stuck_counts >= 2), not simulator truth.
         self.last_rescue_assessments = {}
         rescue_intent_by_robot: dict[str, TaskIntent] = {}
-        for rid, obs in obs_by_robot.items():
-            if obs.is_bogged:
+        stranded_ids = {rid for rid in robot_ids if self._stuck_counts.get(rid, 0) >= 2}
+        for rid in robot_ids:
+            if rid in stranded_ids:
                 self._bogged_since_s.setdefault(rid, frame.time_s)
             else:
                 self._bogged_since_s.pop(rid, None)
                 self._sos_broadcast_sent.discard(rid)
 
         for stranded_id, stranded_obs in obs_by_robot.items():
-            if not stranded_obs.is_bogged:
+            if stranded_id not in stranded_ids:
                 continue
             nearest_site_id = min(
                 (s.site_id for s in self.sites.values() if s.permitted),
@@ -1089,13 +1118,13 @@ class DecentralizedMycelialRuntime:
                 issued_at_s=frame.time_s,
                 expires_at_s=frame.time_s + 1.0,
                 target_site_id=None,
-                reason=f"bogged at {nearest_site_id}; holding for peer rigid-dock extraction",
+                reason=f"stalled at {nearest_site_id}; holding for peer rigid-dock extraction",
             )
             candidates = [
                 r
                 for r in frame.robots
                 if r.robot_id != stranded_id
-                and not r.is_bogged
+                and r.robot_id not in stranded_ids
                 and r.link_ok
                 and r.robot_id in reachable_peers.get(stranded_id, set())
             ]
@@ -1123,7 +1152,7 @@ class DecentralizedMycelialRuntime:
                 stranded_robot_id=stranded_id,
                 failure_mode=FailureMode.CONTAGIOUS_MUD_TRAP if local_f < 0.25 else FailureMode.ASYMMETRIC_SLIP_OR_SUCTION,
                 stalled_window_s=max(0.2, frame.time_s - self._bogged_since_s.get(stranded_id, frame.time_s)),
-                slip_ratio=self.latest_sensor_telemetry[stranded_id].slip_ratio,
+                slip_ratio=self.last_fault_evidence[stranded_id].slip_ratio,
                 imu_pitch_deg=self.latest_sensor_telemetry[stranded_id].pitch_deg,
                 imu_roll_deg=self.latest_sensor_telemetry[stranded_id].roll_deg,
                 front_range_m=stranded_obs.front_range_m,
@@ -1141,7 +1170,7 @@ class DecentralizedMycelialRuntime:
                     for c in candidates
                 ),
                 operator_policy=self.operator_policy,
-                commanded_speed_m_s=abs(self.nodes[stranded_id].last_commanded_linear_m_s),
+                commanded_speed_m_s=max(0.20, abs(self.nodes[stranded_id].last_commanded_linear_m_s)),
                 measured_speed_m_s=stranded_obs.true_speed_m_s or 0.0,
                 nearest_site_id=nearest_site_id,
                 rescue_benefit=saved_benefit,
@@ -1261,7 +1290,7 @@ class DecentralizedMycelialRuntime:
                     target_site_id=winning_bid.site_id,
                     reason=winning_bid.proposal_text,
                 )
-            cmd = node.compute_local_command(obs, intent, peer_poses)
+            cmd = node.compute_local_command(obs, intent, visible_peer_poses_for_robot[rid])
             intents.append(intent)
             commands.append(cmd)
 

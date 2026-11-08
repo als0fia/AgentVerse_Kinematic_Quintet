@@ -29,6 +29,7 @@ from ricebot.contracts import (
     OperatorRequest,
     Pose2D,
     RescueVerdict,
+    RobotCommand,
     RobotObservation,
     TaskMode,
 )
@@ -241,6 +242,18 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         intents = ()
         for tick in range(3):
             t_s = round(6.0 + 0.1 * tick, 2)
+            if tick > 0:
+                planner.record_commands(
+                    (
+                        RobotCommand(
+                            "planter",
+                            issued_at_s=round(t_s - 0.1, 2),
+                            expires_at_s=round(t_s + 0.1, 2),
+                            task_id="plant:patch_d",
+                            linear_m_s=0.35,
+                        ),
+                    )
+                )
             frame_robots = (
                 RobotObservation(
                     robot_id="planter",
@@ -346,6 +359,106 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         scout_cmd = next(c for c in tick.decision.commands if c.robot_id == "scout")
         self.assertAlmostEqual(scout_cmd.linear_m_s, 0.22, places=4)
         self.assertAlmostEqual(scout_cmd.angular_rad_s, -0.45, places=4)
+
+    def test_no_privileged_is_bogged_shortcut_and_peer_isolation_across_blackouts(self) -> None:
+        """Verify is_bogged=True alone never triggers rescue without commanded motion, and peer positions never leak across blackouts."""
+        planner = CooperativeSwarmPlanner(DEFAULT_CAPABILITIES, stuck_ticks_threshold=2)
+        field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
+
+        # 1. Even if is_bogged=True is set on RobotObservation, HOLD (0 commanded motion) must NEVER trigger rescue
+        for tick in range(4):
+            t_s = round(1.0 + 0.1 * tick, 2)
+            planner.record_commands(
+                (RobotCommand("planter", issued_at_s=round(t_s - 0.1, 2), expires_at_s=round(t_s + 0.1, 2), linear_m_s=0.0),)
+            )
+            frame = ObservationFrame(
+                episode_id="ep-neg-shortcut",
+                time_s=t_s,
+                robots=(
+                    RobotObservation("planter", Pose2D(1.55, -0.52, 0.0), t_s, 1.5, 2, is_bogged=True, true_speed_m_s=0.0),
+                    RobotObservation("scout", Pose2D(1.10, -0.20, 0.0), t_s, 1.5, 0, is_bogged=False, true_speed_m_s=0.25),
+                ),
+            )
+            planner.decide(frame, field_map)
+            self.assertEqual(planner.last_rescue_assessments, {})
+
+        # 2. Peer positions must NOT leak into uwb_peer_ranges_m during isolated or intermittent blackout or link_ok=False
+        iso_runtime = DecentralizedMycelialRuntime(
+            sites=DEFAULT_SITES,
+            capabilities=DEFAULT_CAPABILITIES,
+            comm_range_m=2.15,
+            comm_mode="isolated",
+        )
+        iso_frame = ObservationFrame(
+            episode_id="ep-peer-iso",
+            time_s=1.0,
+            robots=(
+                RobotObservation("planter", Pose2D(0.50, -0.50, 0.0), 1.0, 1.5, 2),
+                RobotObservation("scout", Pose2D(0.90, -0.50, 0.0), 1.0, 1.5, 0),
+            ),
+        )
+        iso_runtime.decide(iso_frame)
+        self.assertEqual(iso_runtime.latest_sensor_telemetry["planter"].uwb_peer_ranges_m, {})
+        self.assertEqual(iso_runtime.latest_sensor_telemetry["scout"].uwb_peer_ranges_m, {})
+
+        inter_runtime = DecentralizedMycelialRuntime(
+            sites=DEFAULT_SITES,
+            capabilities=DEFAULT_CAPABILITIES,
+            comm_range_m=2.15,
+            comm_mode="intermittent",
+        )
+        # t=1.5s is inside the intermittent blackout window [0.8s, 3.8s]
+        blackout_frame = ObservationFrame(
+            episode_id="ep-peer-inter",
+            time_s=1.5,
+            robots=(
+                RobotObservation("planter", Pose2D(0.50, -0.50, 0.0), 1.5, 1.5, 2),
+                RobotObservation("scout", Pose2D(0.90, -0.50, 0.0), 1.5, 1.5, 0),
+            ),
+        )
+        inter_runtime.decide(blackout_frame)
+        self.assertEqual(inter_runtime.latest_sensor_telemetry["planter"].uwb_peer_ranges_m, {})
+        self.assertEqual(inter_runtime.latest_sensor_telemetry["scout"].uwb_peer_ranges_m, {})
+
+    def test_live_gui_app_launch_presets_and_random_scenario(self) -> None:
+        """Verify LiveSwarmDashboardApp launches, steps, switches presets, and runs Random Scenario without error."""
+        import tkinter as tk
+        from ricebot.viewer.live_app import LiveSwarmDashboardApp
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            app = LiveSwarmDashboardApp(
+                root,
+                initial_scenario="golden_rescue",
+                initial_comms="normal",
+                initial_policy="cooperative",
+                initial_rescue_policy="react_orchestrator",
+                seed=7,
+            )
+            for _ in range(5):
+                app.step_once()
+            self.assertEqual(app.step_count, 5)
+            self.assertIsNotNone(app.session.current_frame)
+
+            for preset in ("high_risk_abstain", "sensor_degraded", "golden_rescue"):
+                app.scenario_var.set(preset)
+                app.reset_episode()
+                app.step_once()
+                self.assertEqual(app.scenario_var.get(), preset)
+                self.assertEqual(app.step_count, 1)
+
+            app.trigger_random_scenario()
+            app.step_once()
+            self.assertIn(app.seed_var.get(), (1, 2, 3, 4, 5, 7))
+            self.assertEqual(app.step_count, 1)
+        finally:
+            try:
+                if hasattr(app, "renderer") and app.renderer is not None:
+                    app.renderer.close()
+            except Exception:
+                pass
+            root.destroy()
 
 
 if __name__ == "__main__":
