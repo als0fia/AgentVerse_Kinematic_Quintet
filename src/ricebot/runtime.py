@@ -175,6 +175,7 @@ class EpisodeConfig:
     orchestrator_model: str = "gemini-2.5-flash"
     orchestrator_timeout_s: float = 2.5
     enable_live_llm: bool = False  # Paid network calls require explicit experiment opt-in
+    llm_max_calls: int = 8
 
     def __post_init__(self) -> None:
         if self.seed < 0 or isinstance(self.seed, bool) or self.steps < 1:
@@ -185,6 +186,8 @@ class EpisodeConfig:
             raise ValueError("map_scale must be > 0 and gossip_delay_s >= 0")
         if self.orchestrator_timeout_s <= 0:
             raise ValueError("orchestrator timeout must be positive")
+        if self.llm_max_calls < 1:
+            raise ValueError("llm_max_calls must be positive")
         if self.scenario == "randomized":
             from .world import generate_randomized_episode_spec
 
@@ -680,7 +683,8 @@ def create_mujoco_episode_session(
         backend=GeminiRESTBackend(
             model=cfg.orchestrator_model,
             api_key_env="GEMINI_API_KEY" if cfg.enable_live_llm else "ANTENNA_LLM_CALLS_DISABLED",
-            timeout_s=cfg.orchestrator_timeout_s
+            timeout_s=cfg.orchestrator_timeout_s,
+            max_calls=cfg.llm_max_calls,
         )
     )
 
