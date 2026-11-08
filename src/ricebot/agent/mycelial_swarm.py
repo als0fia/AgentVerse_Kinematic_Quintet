@@ -37,7 +37,7 @@ Key Architectural Properties (Zero Central Map / Zero Cloud Dependency):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, cos, hypot, pi, sin, sqrt
+from math import atan2, cos, hypot, log, pi, sin, sqrt
 from typing import Any
 
 try:
@@ -288,6 +288,213 @@ class LocalSlamGrid:
         return False
 
 
+class ContinuousBeliefGrid:
+    """Per-robot 2D continuous spatial belief grid updated by Tier-1 camera FOV cone & Tier-2 penetrometer probes."""
+
+    def __init__(
+        self,
+        nx: int = 36,
+        ny: int = 24,
+        x_bounds: tuple[float, float] = (-0.25, 2.95),
+        y_bounds: tuple[float, float] = (-0.90, 0.90),
+    ) -> None:
+        self.nx = int(nx)
+        self.ny = int(ny)
+        self.x_bounds = (float(x_bounds[0]), float(x_bounds[1]))
+        self.y_bounds = (float(y_bounds[0]), float(y_bounds[1]))
+        self.xs = np.linspace(self.x_bounds[0], self.x_bounds[1], self.nx, dtype=np.float64)
+        self.ys = np.linspace(self.y_bounds[0], self.y_bounds[1], self.ny, dtype=np.float64)
+        self.X, self.Y = np.meshgrid(self.xs, self.ys)
+        self.version: int = 0
+        self.prior_precision: float = 0.0
+        self.precision: np.ndarray = np.zeros((self.ny, self.nx), dtype=np.float64)
+        self.uncertainty: np.ndarray = np.ones((self.ny, self.nx), dtype=np.float64)
+        self.moisture: np.ndarray = np.full((self.ny, self.nx), 0.50, dtype=np.float64)
+        self.firmness: np.ndarray = np.full((self.ny, self.nx), 0.50, dtype=np.float64)
+        self.stand_gap: np.ndarray = np.full((self.ny, self.nx), 0.50, dtype=np.float64)
+        self.plant_density: np.ndarray = np.full((self.ny, self.nx), 0.50, dtype=np.float64)
+        self.scan_count: np.ndarray = np.zeros((self.ny, self.nx), dtype=np.int32)
+
+    def reset(self) -> None:
+        """Reset all continuous 2D belief layers to unvisited uniform priors."""
+        self.precision.fill(0.0)
+        self.uncertainty.fill(1.0)
+        self.moisture.fill(0.50)
+        self.firmness.fill(0.50)
+        self.stand_gap.fill(0.50)
+        self.plant_density.fill(0.50)
+        self.scan_count.fill(0)
+        self.version += 1
+
+    def copy(self) -> ContinuousBeliefGrid:
+        """Return a deep snapshot of this grid for delayed gossip transmission."""
+        clone = ContinuousBeliefGrid(
+            nx=self.nx,
+            ny=self.ny,
+            x_bounds=self.x_bounds,
+            y_bounds=self.y_bounds,
+        )
+        clone.precision = self.precision.copy()
+        clone.uncertainty = self.uncertainty.copy()
+        clone.moisture = self.moisture.copy()
+        clone.firmness = self.firmness.copy()
+        clone.stand_gap = self.stand_gap.copy()
+        clone.plant_density = self.plant_density.copy()
+        clone.scan_count = self.scan_count.copy()
+        clone.version = self.version
+        return clone
+
+    def world_to_index(self, x_m: float, y_m: float) -> tuple[int, int]:
+        """Convert world `(x_m, y_m)` to nearest `(ix, iy)` grid indices."""
+        tx = (x_m - self.x_bounds[0]) / max(1e-6, self.x_bounds[1] - self.x_bounds[0])
+        ty = (y_m - self.y_bounds[0]) / max(1e-6, self.y_bounds[1] - self.y_bounds[0])
+        ix = max(0, min(self.nx - 1, int(round(tx * (self.nx - 1)))))
+        iy = max(0, min(self.ny - 1, int(round(ty * (self.ny - 1)))))
+        return ix, iy
+
+    def uncertainty_at(self, x_m: float, y_m: float) -> float:
+        ix, iy = self.world_to_index(x_m, y_m)
+        return float(self.uncertainty[iy, ix])
+
+    def precision_at(self, x_m: float, y_m: float) -> float:
+        ix, iy = self.world_to_index(x_m, y_m)
+        return float(self.precision[iy, ix])
+
+    def evaluate_at(self, x_m: float, y_m: float) -> dict[str, float]:
+        ix, iy = self.world_to_index(x_m, y_m)
+        return {
+            "moisture": round(float(self.moisture[iy, ix]), 4),
+            "firmness": round(float(self.firmness[iy, ix]), 4),
+            "stand_gap": round(float(self.stand_gap[iy, ix]), 4),
+            "plant_density": round(float(self.plant_density[iy, ix]), 4),
+            "uncertainty": round(float(self.uncertainty[iy, ix]), 4),
+            "precision": round(float(self.precision[iy, ix]), 4),
+        }
+
+    def integrate_camera_fov(
+        self,
+        pose: Pose2D,
+        camera_fov_rad: float = 1.08,
+        camera_range_m: float = 0.95,
+        sites: dict[str, Site] | None = None,
+        front_range_m: float | None = None,
+    ) -> int:
+        """Project forward camera frustum rays across the 2D grid and reduce uncertainty inside the FOV cone."""
+        dx = self.X - pose.x_m
+        dy = self.Y - pose.y_m
+        dist = np.hypot(dx, dy)
+        bearing = (np.arctan2(dy, dx) - pose.yaw_rad + pi) % (2.0 * pi) - pi
+        half_fov = 0.5 * camera_fov_rad
+
+        if front_range_m is not None and front_range_m < camera_range_m:
+            central_mask = np.abs(bearing) <= 0.22
+            cone_mask = (
+                (dist <= camera_range_m)
+                & (np.abs(bearing) <= half_fov)
+                & (~central_mask | (dist <= front_range_m + 0.12))
+            )
+        else:
+            cone_mask = (dist <= camera_range_m) & (np.abs(bearing) <= half_fov)
+
+        footprint_mask = dist <= 0.18
+        active_mask = cone_mask | footprint_mask
+        updated_count = int(np.count_nonzero(active_mask))
+        if updated_count == 0:
+            return 0
+
+        angular_weight = np.where(
+            footprint_mask,
+            1.0,
+            np.clip(np.cos(bearing / max(1e-4, half_fov) * (0.42 * pi)), 0.25, 1.0),
+        )
+        tau_vis = (2.0 / (1.0 + dist * dist)) * angular_weight
+
+        # Tier-1 visual camera scan caps visual precision at 3.2; Tier-2 physical probing reaches >= 10.0
+        self.precision = np.where(
+            active_mask,
+            np.maximum(self.precision, np.minimum(3.2, self.precision + 0.65 * tau_vis)),
+            self.precision,
+        )
+        self.scan_count = np.where(active_mask, self.scan_count + 1, self.scan_count)
+
+        if sites:
+            for site in sites.values():
+                s_dist2 = (self.X - site.center.x_m) ** 2 + (self.Y - site.center.y_m) ** 2
+                site_mask = active_mask & (s_dist2 <= 0.40 * 0.40)
+                if np.any(site_mask):
+                    k_site = np.exp(-s_dist2 / (2.0 * 0.28 * 0.28))
+                    target_gap = 0.05 if not site.permitted else 0.76
+                    alpha = np.clip(0.32 * k_site, 0.0, 0.45)
+                    self.stand_gap = np.where(
+                        site_mask,
+                        (1.0 - alpha) * self.stand_gap + alpha * target_gap,
+                        self.stand_gap,
+                    )
+
+        self.plant_density = np.clip(1.0 - self.stand_gap, 0.02, 0.98)
+        self.uncertainty = np.clip(1.0 / np.sqrt(1.0 + 0.85 * self.precision), 0.04, 1.0)
+        self.version += 1
+        return updated_count
+
+    def integrate_sample(
+        self,
+        sample: SoilSample,
+        obs_precision: float = 10.0,
+        length_scale_m: float = 0.44,
+    ) -> None:
+        """Fuse a Tier-2 physical penetrometer `SoilSample` into the continuous 2D belief grid."""
+        r2 = (self.X - sample.location.x_m) ** 2 + (self.Y - sample.location.y_m) ** 2
+        k = np.exp(-r2 / (2.0 * length_scale_m * length_scale_m))
+        alpha = np.clip((obs_precision / 12.0) * k, 0.0, 0.88)
+        if sample.kind == SensorKind.MOISTURE:
+            self.moisture = np.clip((1.0 - alpha) * self.moisture + alpha * sample.value, 0.02, 0.98)
+            self.precision = self.precision + 0.45 * obs_precision * k
+        elif sample.kind == SensorKind.FIRMNESS:
+            self.firmness = np.clip((1.0 - alpha) * self.firmness + alpha * sample.value, 0.02, 0.98)
+            self.precision = self.precision + 0.45 * obs_precision * k
+        elif sample.kind == SensorKind.STAND_GAP:
+            self.stand_gap = np.clip((1.0 - alpha) * self.stand_gap + alpha * sample.value, 0.02, 0.98)
+            self.plant_density = np.clip(1.0 - self.stand_gap, 0.02, 0.98)
+            self.precision = self.precision + 0.35 * obs_precision * k
+
+        self.uncertainty = np.clip(1.0 / np.sqrt(1.0 + 0.85 * self.precision), 0.04, 1.0)
+        self.version += 1
+
+    def merge_peer_grid(self, peer_grid: ContinuousBeliefGrid, blend_weight: float = 0.45) -> bool:
+        """Blend a peer's continuous belief grid when a delayed gossip packet arrives."""
+        if peer_grid.precision.shape != self.precision.shape:
+            return False
+        gain_mask = peer_grid.precision > (self.precision + 0.15)
+        if not np.any(gain_mask):
+            return False
+        w = float(max(0.05, min(0.85, blend_weight)))
+        self.moisture = np.where(gain_mask, (1.0 - w) * self.moisture + w * peer_grid.moisture, self.moisture)
+        self.firmness = np.where(gain_mask, (1.0 - w) * self.firmness + w * peer_grid.firmness, self.firmness)
+        self.stand_gap = np.where(gain_mask, (1.0 - w) * self.stand_gap + w * peer_grid.stand_gap, self.stand_gap)
+        self.plant_density = np.clip(1.0 - self.stand_gap, 0.02, 0.98)
+        self.precision = np.where(
+            gain_mask,
+            np.maximum(self.precision, (1.0 - w) * self.precision + w * peer_grid.precision),
+            self.precision,
+        )
+        self.uncertainty = np.clip(1.0 / np.sqrt(1.0 + 0.85 * self.precision), 0.04, 1.0)
+        self.version += 1
+        return True
+
+    def __getitem__(self, key: str) -> np.ndarray:
+        return getattr(self, key)
+
+    def to_dict(self) -> dict[str, list[list[float]]]:
+        return {
+            "moisture": np.round(self.moisture, 4).tolist(),
+            "firmness": np.round(self.firmness, 4).tolist(),
+            "stand_gap": np.round(self.stand_gap, 4).tolist(),
+            "plant_density": np.round(self.plant_density, 4).tolist(),
+            "uncertainty": np.round(self.uncertainty, 4).tolist(),
+            "precision": np.round(self.precision, 4).tolist(),
+        }
+
+
 class LocalMycelialMap:
     """Private belief map owned by a single robot (NO shared global memory with other robots)."""
 
@@ -295,14 +502,29 @@ class LocalMycelialMap:
         self,
         owner_robot_id: str,
         sites: tuple[Site, ...],
-        probe_radius_m: float = 0.60,
+        probe_radius_m: float = 0.28,
+        camera_fov_rad: float = 1.08,
+        camera_range_m: float = 0.95,
     ) -> None:
         self.owner_robot_id = owner_robot_id
         self.sites = {s.site_id: s for s in sites}
         self.probe_radius_m = probe_radius_m
+        self.camera_fov_rad = camera_fov_rad
+        self.camera_range_m = camera_range_m
         self.slam = LocalSlamGrid(resolution_m=0.15)
+        self.continuous_grid = ContinuousBeliefGrid()
         self.seen_sample_ids: set[str] = set()
         self.all_samples: dict[str, SoilSample] = {}
+        self.discovered_sites: set[str] = set()
+        self.probed_sites: set[str] = set()
+        self.visual_priors: dict[str, dict[SensorKind, GaussianChannelBelief]] = {
+            s.site_id: {
+                SensorKind.MOISTURE: GaussianChannelBelief(),
+                SensorKind.FIRMNESS: GaussianChannelBelief(),
+                SensorKind.STAND_GAP: GaussianChannelBelief(),
+            }
+            for s in sites
+        }
         self._beliefs: dict[str, dict[SensorKind, GaussianChannelBelief]] = {
             s.site_id: {
                 SensorKind.MOISTURE: GaussianChannelBelief(),
@@ -318,30 +540,157 @@ class LocalMycelialMap:
         self._sample_version: int = 0
         self._grid_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
 
-    @property
-    def state_version(self) -> tuple[int, int]:
-        """Monotonic version tuple `(sample_version, slam_version)` for zero-cost belief grid caching."""
-        return (self._sample_version, self.slam.version)
+    def reset(self) -> None:
+        """Reset all per-site beliefs, camera discovery sets, SLAM cells, and continuous belief grid."""
+        self.slam = LocalSlamGrid(resolution_m=0.15)
+        self.continuous_grid.reset()
+        self.seen_sample_ids.clear()
+        self.all_samples.clear()
+        self.discovered_sites.clear()
+        self.probed_sites.clear()
+        for sid in self.sites:
+            self.visual_priors[sid] = {
+                SensorKind.MOISTURE: GaussianChannelBelief(),
+                SensorKind.FIRMNESS: GaussianChannelBelief(),
+                SensorKind.STAND_GAP: GaussianChannelBelief(),
+            }
+            self._beliefs[sid] = {
+                SensorKind.MOISTURE: GaussianChannelBelief(),
+                SensorKind.FIRMNESS: GaussianChannelBelief(),
+                SensorKind.STAND_GAP: GaussianChannelBelief(),
+            }
+            self._sources[sid].clear()
+            self._last_updated_s[sid] = 0.0
+        self.planted_sites.clear()
+        self.attempted_sites.clear()
+        self._sample_version += 1
+        self._grid_cache.clear()
 
-    def ingest_sample(self, sample: SoilSample, obs_precision: float = 4.0) -> bool:
-        """Fuse a direct or peer-gossiped `SoilSample` if its `sample_id` has not been seen yet."""
+    @property
+    def state_version(self) -> tuple[int, int, int]:
+        """Monotonic version tuple `(sample_version, slam_version, continuous_grid_version)` for belief grid caching."""
+        return (self._sample_version, self.slam.version, self.continuous_grid.version)
+
+    def scan_camera_fov(
+        self,
+        pose: Pose2D,
+        time_s: float,
+        camera_fov_rad: float | None = None,
+        camera_range_m: float | None = None,
+        front_range_m: float | None = None,
+    ) -> set[str]:
+        """Tier-1 continuous front-facing camera / Edge CV cone scan (`camera_fov_rad=1.08`, `camera_range_m=0.95`).
+
+        Marks anchored candidate sites inside the forward camera cone as `visually_discovered` in
+        `self.discovered_sites`, records moderate-precision (`tau_vis = 2.0 / (1.0 + dist^2)`) visual
+        surface priors for surface moisture sheen and canopy stand-gap, and updates `self.continuous_grid`
+        along the camera frustum rays.
+        """
+        fov = self.camera_fov_rad if camera_fov_rad is None else float(camera_fov_rad)
+        rng = self.camera_range_m if camera_range_m is None else float(camera_range_m)
+        half_fov = 0.5 * fov
+        newly_discovered: set[str] = set()
+
+        for site_id, site in self.sites.items():
+            dx = site.center.x_m - pose.x_m
+            dy = site.center.y_m - pose.y_m
+            dist = hypot(dx, dy)
+            if dist > rng:
+                continue
+            bearing_err = _wrap_angle(atan2(dy, dx) - pose.yaw_rad)
+            if abs(bearing_err) > half_fov:
+                continue
+            if front_range_m is not None and front_range_m < dist - 0.14 and abs(bearing_err) <= 0.22:
+                continue
+
+            if site_id not in self.discovered_sites:
+                newly_discovered.add(site_id)
+            self.discovered_sites.add(site_id)
+
+            tau_vis = round(2.0 / (1.0 + dist * dist), 4)
+            vis_ch = self.visual_priors[site_id]
+            # Cap accumulated Tier-1 visual precision at 1.5 so total precision tau_0 + tau_vis <= 2.5
+            rem_g = max(0.0, 1.5 - vis_ch[SensorKind.STAND_GAP].precision)
+            if rem_g > 1e-4:
+                gap_prior = (
+                    0.05
+                    if not site.permitted
+                    else (
+                        self._beliefs[site_id][SensorKind.STAND_GAP].mean
+                        if self._beliefs[site_id][SensorKind.STAND_GAP].count > 0
+                        else 0.78
+                    )
+                )
+                vis_ch[SensorKind.STAND_GAP].fuse(gap_prior, obs_precision=min(tau_vis, rem_g))
+            rem_m = max(0.0, 1.5 - vis_ch[SensorKind.MOISTURE].precision)
+            if rem_m > 1e-4:
+                moist_prior = (
+                    0.58
+                    if not site.permitted
+                    else (
+                        self._beliefs[site_id][SensorKind.MOISTURE].mean
+                        if self._beliefs[site_id][SensorKind.MOISTURE].count > 0
+                        else 0.56
+                    )
+                )
+                vis_ch[SensorKind.MOISTURE].fuse(moist_prior, obs_precision=min(0.85 * tau_vis, rem_m))
+            self._last_updated_s[site_id] = max(self._last_updated_s[site_id], time_s)
+
+        self.continuous_grid.integrate_camera_fov(
+            pose=pose,
+            camera_fov_rad=fov,
+            camera_range_m=rng,
+            sites=self.sites,
+            front_range_m=front_range_m,
+        )
+        return newly_discovered
+
+    def ingest_sample(self, sample: SoilSample, obs_precision: float = 10.0) -> bool:
+        """Fuse a Tier-2 physical penetrometer or peer-gossiped `SoilSample` if not seen yet."""
         if not sample.valid or sample.sample_id in self.seen_sample_ids:
             return False
         site = self.sites.get(sample.site_id)
         if site is None or not site.permitted:
             return False
-        if hypot(sample.location.x_m - site.center.x_m, sample.location.y_m - site.center.y_m) > self.probe_radius_m:
+        if hypot(sample.location.x_m - site.center.x_m, sample.location.y_m - site.center.y_m) > max(self.probe_radius_m + 1e-4, 0.60):
             return False
 
         self.seen_sample_ids.add(sample.sample_id)
         self.all_samples[sample.sample_id] = sample
+        self.discovered_sites.add(sample.site_id)
+        self.probed_sites.add(sample.site_id)
         self._beliefs[sample.site_id][sample.kind].fuse(sample.value, obs_precision=obs_precision)
         self._sources[sample.site_id].add(sample.robot_id)
         self._last_updated_s[sample.site_id] = max(
             self._last_updated_s[sample.site_id], sample.sampled_at_s
         )
+        self.continuous_grid.integrate_sample(sample, obs_precision=obs_precision)
         self._sample_version += 1
         return True
+
+    def channel_precision(self, site_id: str, kind: SensorKind) -> float:
+        """Return total posterior precision `tau_{i,s,k}` combining prior (`1.0`), Tier-1 vision, and Tier-2 probe."""
+        vis_p = self.visual_priors[site_id][kind].precision if site_id in self.visual_priors else 0.0
+        probe_p = self._beliefs[site_id][kind].precision if site_id in self._beliefs else 0.0
+        return round(1.0 + vis_p + probe_p, 4)
+
+    def expected_information_gain(
+        self,
+        site_id: str,
+        tau_sensor: float = 10.0,
+        w_spatial: float = 0.25,
+    ) -> float:
+        """Compute Expected Information Gain `EIG(s)` for physical stop-and-probe at `site_id`."""
+        site = self.sites.get(site_id)
+        if site is None:
+            return 0.0
+        shannon_sum = 0.0
+        for kind in (SensorKind.MOISTURE, SensorKind.FIRMNESS, SensorKind.STAND_GAP):
+            tau_k = max(1.0, self.channel_precision(site_id, kind))
+            shannon_sum += 0.5 * log(1.0 + (tau_sensor / tau_k))
+        sigma_neigh = self.continuous_grid.uncertainty_at(site.center.x_m, site.center.y_m)
+        eig = shannon_sum + w_spatial * (sigma_neigh * sigma_neigh)
+        return round(eig, 4)
 
     def estimate(self, site_id: str) -> SiteEstimate:
         """Return this robot's local `SiteEstimate` for `site_id`."""
@@ -359,7 +708,14 @@ class LocalMycelialMap:
     def uncertainty(self, site_id: str) -> float:
         ch = self._beliefs[site_id]
         total_count = sum(b.count for b in ch.values())
-        return round(1.0 / sqrt(total_count), 4) if total_count else 1.0
+        if total_count > 0:
+            total_prec = sum(b.precision for b in ch.values())
+            return round(1.0 / (1.0 + 0.45 * total_prec), 4)
+        if site_id in self.discovered_sites and site_id in self.visual_priors:
+            vis_prec = 0.5 * sum(b.precision for b in self.visual_priors[site_id].values())
+            if vis_prec > 0.0:
+                return round(1.0 / sqrt(1.0 + vis_prec), 4)
+        return 1.0
 
     def nearest_site_id(self, pose: Pose2D) -> str | None:
         if not self.sites:
@@ -383,6 +739,10 @@ class LocalMycelialMap:
         return near_moisture_limit or near_firmness_limit
 
 
+# Alias requested by multi-modal sensing contract
+LocalBayesianFieldMap = LocalMycelialMap
+
+
 class DecentralizedRobotNode:
     """Autonomous onboard intelligence for a single rover (local SLAM + belief fusion + task bidding)."""
 
@@ -393,12 +753,24 @@ class DecentralizedRobotNode:
         envelope: SoilSafetyEnvelope = SoilSafetyEnvelope(),
         limits: ControlLimits = ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22),
         advisor: SupervisoryAdvisor | None = None,
+        camera_fov_rad: float = 1.08,
+        camera_range_m: float = 0.95,
+        probe_radius_m: float = 0.28,
     ) -> None:
         self.capability = capability
         self.robot_id = capability.robot_id
         self.envelope = envelope
         self.limits = limits
-        self.local_map = LocalMycelialMap(owner_robot_id=capability.robot_id, sites=sites)
+        self.camera_fov_rad = camera_fov_rad
+        self.camera_range_m = camera_range_m
+        self.probe_radius_m = probe_radius_m
+        self.local_map = LocalMycelialMap(
+            owner_robot_id=capability.robot_id,
+            sites=sites,
+            probe_radius_m=probe_radius_m,
+            camera_fov_rad=camera_fov_rad,
+            camera_range_m=camera_range_m,
+        )
         self.last_pose: Pose2D | None = None
         self.last_time_s: float | None = None
         self.last_commanded_linear_m_s: float = 0.0
@@ -407,12 +779,23 @@ class DecentralizedRobotNode:
         self.peer_distress_signals: dict[str, DistressSignal] = {}
         self.rescue_engine: RescueEngine = RescueEngine()
 
+    def reset(self) -> None:
+        """Reset node-local belief map and internal state for a fresh episode."""
+        self.local_map.reset()
+        self.last_pose = None
+        self.last_time_s = None
+        self.last_commanded_linear_m_s = 0.0
+        self.pending_plant_task = None
+        self.active_distress = None
+        self.peer_distress_signals.clear()
+        self.rescue_engine = RescueEngine()
+
     def process_local_sensors(
         self,
         obs: RobotObservation,
         peer_poses: dict[str, Pose2D],
     ) -> tuple[OnboardSensorTelemetry, int, list[SlamHazardCell]]:
-        """Process raw onboard sensor readings into local SLAM & soil belief updates."""
+        """Process raw onboard sensor readings into local SLAM & two-tier soil belief updates."""
         v_true = 0.0
         if self.last_pose is not None and self.last_time_s is not None and obs.time_s > self.last_time_s:
             dt = obs.time_s - self.last_time_s
@@ -423,9 +806,19 @@ class DecentralizedRobotNode:
         if v_wheel > 0.05:
             raw_slip = max(0.0, min(1.0, 1.0 - (v_true / max(v_wheel, 1e-3))))
 
+        # Tier 1: Continuous front-facing camera / edge CV cone (~62 deg, 0.95m range)
+        self.local_map.scan_camera_fov(
+            obs.pose,
+            obs.time_s,
+            camera_fov_rad=self.camera_fov_rad,
+            camera_range_m=self.camera_range_m,
+            front_range_m=obs.front_range_m,
+        )
+
+        # Tier 2: Physical stop-and-probe penetrometer / soil probe confirmation (tau_probe = 10.0)
         ingested = 0
         for sample in obs.samples:
-            if self.local_map.ingest_sample(sample, obs_precision=4.0):
+            if self.local_map.ingest_sample(sample, obs_precision=10.0):
                 ingested += 1
             if sample.kind == SensorKind.MOISTURE and sample.value > 0.80:
                 raw_slip = max(raw_slip, 0.72)
@@ -493,7 +886,7 @@ class DecentralizedRobotNode:
         return telemetry, ingested, new_hazards
 
     def compute_task_bids(self, obs: RobotObservation) -> list[TaskBidProposal]:
-        """Compute capability-aware local auction bids using only THIS robot's local belief map."""
+        """Compute capability-aware local auction bids using Expected Information Gain (EIG) and local belief."""
         bids: list[TaskBidProposal] = []
         speed_nom = max(0.22, self.limits.speed_m_s * 0.80)
         excluded = self.local_map.planted_sites | self.local_map.attempted_sites
@@ -505,6 +898,7 @@ class DecentralizedRobotNode:
                 continue
             est = self.local_map.estimate(site_id)
             unc = self.local_map.uncertainty(site_id)
+            eig = self.local_map.expected_information_gain(site_id)
             dist = max(0.05, hypot(site.center.x_m - obs.pose.x_m, site.center.y_m - obs.pose.y_m))
             eta_s = round(dist / speed_nom, 2)
             conf = round(1.0 - unc, 2)
@@ -533,28 +927,51 @@ class DecentralizedRobotNode:
                     )
                 )
 
-            # 2. Unmeasured or borderline site -> Active Sensing / Thompson-like exploration bid
+            # 2. Unmeasured or borderline site -> Expected Information Gain (EIG) Active Sensing bid
             if self.capability.can_sample and (
                 not est.complete or self.local_map.needs_remeasurement(site_id, self.envelope)
             ):
-                # Natural spatial sector partitioning so even during RF blackout robots don't collide on the same site:
-                # Planter (carrying heavy seeds) prefers surveying forward along the main row (patch_b, patch_c)
-                # while Scout screens the near mud trap (patch_a) and northern terrace (patch_d)
+                # Role-aware spatial spread bonus so multiple scouts/planters naturally fan out
+                # across different planting rows rather than clustering on the same site.
                 sector_bonus = 0.0
                 if self.capability.can_plant:
-                    if site_id in ("patch_b", "patch_c"):
+                    if self.robot_id.endswith("_2"):
+                        if site_id in ("patch_d", "patch_c", "patch_e"):
+                            sector_bonus = 0.34
+                    elif site_id in ("patch_b", "patch_c"):
                         sector_bonus = 0.32
                 else:
-                    if site_id in ("patch_a", "patch_d"):
+                    if self.robot_id.endswith("_2"):
+                        if site_id in ("patch_c", "patch_d", "patch_f"):
+                            sector_bonus = 0.42
+                    elif site_id in ("patch_a", "patch_d"):
                         sector_bonus = 0.45
 
-                uncertainty_bonus = 0.80 * unc
-                bid_val = round(1.2 + sector_bonus + uncertainty_bonus - 0.45 * dist, 4)
-                reason_tag = (
-                    "remeasure borderline soil before planting"
-                    if est.sample_count > 0
-                    else "acquire initial soil & stand-gap evidence"
-                )
+                # Normalize Shannon/Gaussian EIG (unvisited site EIG_0 ≈ 3.8468 -> eig_norm ≈ 1.0)
+                eig_norm = min(1.15, eig / 3.8468)
+                eig_bonus = 0.80 * eig_norm
+
+                # High Value-of-Information (VoI) physical stop-and-probe bonus when a site in this
+                # robot's sector or immediate approach has been visually discovered with a promising
+                # stand-gap, ensuring the rover completes physical subsurface penetrometer probing.
+                visual_voi_bonus = 0.0
+                if (
+                    site_id in self.local_map.discovered_sites
+                    and site_id not in self.local_map.probed_sites
+                    and (sector_bonus > 0.0 or dist <= 0.62)
+                ):
+                    vis_gap_ch = self.local_map.visual_priors.get(site_id, {}).get(SensorKind.STAND_GAP)
+                    vis_gap = vis_gap_ch.mean if (vis_gap_ch is not None and vis_gap_ch.count > 0) else 0.72
+                    if vis_gap >= self.envelope.min_gap:
+                        visual_voi_bonus = max(0.0, 0.80 - eig_bonus)
+
+                bid_val = round(1.2 + sector_bonus + eig_bonus + visual_voi_bonus - 0.45 * dist, 4)
+                if est.sample_count > 0:
+                    reason_tag = "remeasure borderline soil before planting"
+                elif site_id in self.local_map.discovered_sites:
+                    reason_tag = f"confirm visually discovered gap via stop-and-probe (EIG={eig:.2f})"
+                else:
+                    reason_tag = f"explore high-EIG candidate site (EIG={eig:.2f})"
                 bids.append(
                     TaskBidProposal(
                         robot_id=self.robot_id,
@@ -563,7 +980,7 @@ class DecentralizedRobotNode:
                         bid_score=bid_val,
                         eta_s=eta_s,
                         confidence=conf,
-                        proposal_text=f"{site_id} uncertainty={unc:.2f}, ETA {eta_s:.1f}s -> Proposal: {reason_tag}",
+                        proposal_text=f"{site_id} uncertainty={unc:.2f}, EIG={eig:.2f}, ETA {eta_s:.1f}s -> Proposal: {reason_tag}",
                     )
                 )
 
@@ -800,7 +1217,10 @@ class DecentralizedMycelialRuntime:
         orchestrator: SwarmOrchestratorAgent | None = None,
         operator_policy: OperatorPolicy | None = None,
         rescue_policy: str = "react_orchestrator",
+        gossip_delay_s: float = 0.4,
     ) -> None:
+        self._sites_tuple = sites
+        self._capabilities_tuple = capabilities
         self.sites = {s.site_id: s for s in sites}
         self.capabilities = {c.robot_id: c for c in capabilities}
         self.comm_range_m = comm_range_m
@@ -810,6 +1230,7 @@ class DecentralizedMycelialRuntime:
         self.orchestrator = orchestrator or SwarmOrchestratorAgent()
         self.operator_policy = operator_policy or OperatorPolicy()
         self.rescue_policy = rescue_policy
+        self.gossip_delay_s = float(gossip_delay_s)
         self.nodes: dict[str, DecentralizedRobotNode] = {
             c.robot_id: DecentralizedRobotNode(c, sites=sites, envelope=envelope, limits=limits)
             for c in capabilities
@@ -831,6 +1252,81 @@ class DecentralizedMycelialRuntime:
         self.recovery_monitoring_history: list[dict[str, object]] = []
         self.last_advisor_recommendation: str | None = None
         self._sos_broadcast_sent: set[str] = set()
+        self._in_flight_gossip: list[tuple[float, str, MycelialGossipPacket]] = []
+        self._in_flight_meta: dict[str, dict[str, Any]] = {}
+        self._sent_sample_ids: dict[tuple[str, str], set[str]] = {}
+        self._sent_hazard_keys: dict[tuple[str, str], set[tuple[int, int]]] = {}
+        self._sent_planted_sites: dict[tuple[str, str], set[str]] = {}
+
+    def reset(self) -> None:
+        """Reset all robot nodes, local maps, in-flight gossip queues, and fault monitors."""
+        for node in self.nodes.values():
+            node.reset()
+        self._last_time_s = None
+        self._last_episode_id = None
+        self._negotiated_conflicts.clear()
+        self.gossip_history.clear()
+        self.latest_gossip_packets = ()
+        self.latest_sensor_telemetry.clear()
+        self.total_gossip_bytes = 0
+        self.total_gossip_packets = 0
+        self._bogged_since_s.clear()
+        self._stuck_counts.clear()
+        self.last_fault_evidence.clear()
+        self.last_rescue_assessments.clear()
+        self.last_orchestrator_decisions.clear()
+        self.recovery_monitoring_history.clear()
+        self.last_advisor_recommendation = None
+        self._sos_broadcast_sent.clear()
+        self._in_flight_gossip.clear()
+        self._in_flight_meta.clear()
+        self._sent_sample_ids.clear()
+        self._sent_hazard_keys.clear()
+        self._sent_planted_sites.clear()
+        if hasattr(self.orchestrator, "aborted_techniques_by_robot"):
+            self.orchestrator.aborted_techniques_by_robot.clear()
+
+    def _deliver_gossip_packet(
+        self,
+        receiver_id: str,
+        pkt: MycelialGossipPacket,
+    ) -> None:
+        """Deliver an arriving gossip packet into `receiver_node.local_map`."""
+        receiver_node = self.nodes.get(receiver_id)
+        if receiver_node is None:
+            return
+        for s in pkt.samples:
+            receiver_node.local_map.ingest_sample(s, obs_precision=3.5)
+        for cell in pkt.slam_hazards:
+            receiver_node.local_map.slam.merge_peer_cell(cell)
+        meta = self._in_flight_meta.pop(pkt.packet_id, None)
+        if meta is not None:
+            for planted_site in meta.get("planted_sites", ()):
+                receiver_node.local_map.planted_sites.add(planted_site)
+                receiver_node.local_map.attempted_sites.add(planted_site)
+            for disc_site in meta.get("discovered_sites", ()):
+                receiver_node.local_map.discovered_sites.add(disc_site)
+            for probed_site in meta.get("probed_sites", ()):
+                receiver_node.local_map.probed_sites.add(probed_site)
+                receiver_node.local_map.discovered_sites.add(probed_site)
+            for sid, vpriors in meta.get("visual_priors", {}).items():
+                if sid not in receiver_node.local_map.probed_sites:
+                    cur = receiver_node.local_map.visual_priors.setdefault(sid, {})
+                    for k, val in vpriors.items():
+                        if isinstance(val, GaussianChannelBelief):
+                            if val.count > 0 and (k not in cur or val.precision > cur[k].precision):
+                                cur[k] = GaussianChannelBelief(
+                                    mean=val.mean,
+                                    precision=val.precision,
+                                    count=val.count,
+                                )
+                        elif k not in cur:
+                            cur[k] = val
+            peer_grid: ContinuousBeliefGrid | None = meta.get("continuous_grid")
+            if peer_grid is not None:
+                receiver_node.local_map.continuous_grid.merge_peer_grid(peer_grid, blend_weight=0.55)
+            else:
+                receiver_node.local_map.continuous_grid.version += 1
 
     def _is_link_open(self, time_s: float, dist_m: float) -> bool:
         """Evaluate whether peer-to-peer Wi-Fi HaLow / UWB link can carry packets at `time_s`."""
@@ -949,7 +1445,21 @@ class DecentralizedMycelialRuntime:
             rid: self.nodes[rid].compute_task_bids(obs) for rid, obs in obs_by_robot.items()
         }
 
-        # 4. Event-Triggered Peer-to-Peer Mycelial Gossip (ONLY between reachable peers within comm_range_m)
+        # 4. Event-Triggered Peer-to-Peer Mycelial Gossip (with realistic gossip_delay_s transit queue)
+        if self._in_flight_gossip:
+            still_in_flight: list[tuple[float, str, MycelialGossipPacket]] = []
+            delivered_receivers: set[str] = set()
+            for deliver_at_s, receiver_id, queued_pkt in self._in_flight_gossip:
+                if deliver_at_s <= frame.time_s + 1e-6:
+                    self._deliver_gossip_packet(receiver_id, queued_pkt)
+                    delivered_receivers.add(receiver_id)
+                else:
+                    still_in_flight.append((deliver_at_s, receiver_id, queued_pkt))
+            self._in_flight_gossip = still_in_flight
+            for rec_id in delivered_receivers:
+                if rec_id in obs_by_robot:
+                    local_bids_by_robot[rec_id] = self.nodes[rec_id].compute_task_bids(obs_by_robot[rec_id])
+
         cycle_packets: list[MycelialGossipPacket] = []
         robot_ids = sorted(obs_by_robot.keys())
         for sender_id in robot_ids:
@@ -970,17 +1480,28 @@ class DecentralizedMycelialRuntime:
                 if not self._is_link_open(frame.time_s, dist_m):
                     continue
 
+                pair_key = (sender_id, receiver_id)
+                already_sent_samples = self._sent_sample_ids.setdefault(pair_key, set())
+                already_sent_hazards = self._sent_hazard_keys.setdefault(pair_key, set())
+                already_sent_planted = self._sent_planted_sites.setdefault(pair_key, set())
+
                 unseen_samples = tuple(
                     s
                     for sid, s in sender_node.local_map.all_samples.items()
                     if sid not in receiver_node.local_map.seen_sample_ids
+                    and sid not in already_sent_samples
                 )
                 unseen_hazards = tuple(
                     cell
                     for key, cell in sender_node.local_map.slam.cells.items()
                     if key not in receiver_node.local_map.slam.cells
+                    and key not in already_sent_hazards
                 )
-                unseen_planted = sender_node.local_map.planted_sites - receiver_node.local_map.planted_sites
+                unseen_planted = (
+                    sender_node.local_map.planted_sites
+                    - receiver_node.local_map.planted_sites
+                    - already_sent_planted
+                )
 
                 receiver_top_bid = (
                     local_bids_by_robot[receiver_id][0] if local_bids_by_robot[receiver_id] else None
@@ -1008,6 +1529,7 @@ class DecentralizedMycelialRuntime:
                     continue
 
                 dialogue: list[str] = []
+                # Emergency SOS distress broadcasts are always delivered immediately so rescue latency is unaffected
                 if has_new_distress and sender_node.active_distress is not None:
                     receiver_node.peer_distress_signals[sender_id] = sender_node.active_distress
                     if sender_node.active_distress.residual_weights:
@@ -1015,7 +1537,9 @@ class DecentralizedMycelialRuntime:
                             sender_node.active_distress.residual_weights
                         )
                     dialogue.append(f"{sender_id}->{receiver_id}: {sender_node.active_distress.summary_text}")
+
                 for s in unseen_samples:
+                    already_sent_samples.add(s.sample_id)
                     if s.kind == SensorKind.MOISTURE:
                         est_s = sender_node.local_map.estimate(s.site_id)
                         verdict = (
@@ -1027,17 +1551,15 @@ class DecentralizedMycelialRuntime:
                             f"{sender_id}->{receiver_id}: {s.site_id} moisture={est_s.moisture}, "
                             f"firmness={est_s.firmness}, gap={est_s.stand_gap} ({verdict})"
                         )
-                    receiver_node.local_map.ingest_sample(s, obs_precision=3.5)
 
                 for cell in unseen_hazards:
-                    if receiver_node.local_map.slam.merge_peer_cell(cell):
-                        dialogue.append(
-                            f"{sender_id}->{receiver_id}: SLAM {cell.kind} mapped at ({cell.x_m:.2f}, {cell.y_m:.2f})"
-                        )
+                    already_sent_hazards.add((cell.cell_ix, cell.cell_iy))
+                    dialogue.append(
+                        f"{sender_id}->{receiver_id}: SLAM {cell.kind} mapped at ({cell.x_m:.2f}, {cell.y_m:.2f})"
+                    )
 
                 for planted_site in unseen_planted:
-                    receiver_node.local_map.planted_sites.add(planted_site)
-                    receiver_node.local_map.attempted_sites.add(planted_site)
+                    already_sent_planted.add(planted_site)
                     dialogue.append(f"{sender_id}->{receiver_id}: {planted_site} confirmed PLANTED")
 
                 if top_bid is not None and (new_bid_conflict or unseen_samples):
@@ -1058,6 +1580,26 @@ class DecentralizedMycelialRuntime:
                     dialogue_summary=tuple(dialogue),
                     distress_signal=sender_node.active_distress,
                 )
+
+                has_fieldwork_payload = bool(
+                    unseen_samples or unseen_hazards or unseen_planted or new_bid_conflict
+                )
+                if has_fieldwork_payload:
+                    self._in_flight_meta[pkt.packet_id] = {
+                        "planted_sites": tuple(unseen_planted),
+                        "discovered_sites": tuple(sender_node.local_map.discovered_sites),
+                        "probed_sites": tuple(sender_node.local_map.probed_sites),
+                        "visual_priors": {
+                            k: dict(v) for k, v in sender_node.local_map.visual_priors.items()
+                        },
+                        "continuous_grid": sender_node.local_map.continuous_grid.copy(),
+                    }
+                    if self.gossip_delay_s > 0.0:
+                        deliver_at_s = round(frame.time_s + self.gossip_delay_s, 4)
+                        self._in_flight_gossip.append((deliver_at_s, receiver_id, pkt))
+                    else:
+                        self._deliver_gossip_packet(receiver_id, pkt)
+
                 cycle_packets.append(pkt)
                 self.gossip_history.append(pkt)
                 self.total_gossip_bytes += byte_size
@@ -1358,6 +1900,19 @@ def evaluate_continuous_belief_field(
             acc_g += k * sample.value
             w_g += k
 
+    # 2b. Fuse Tier-1 camera FOV cone precision & visual surface priors from local_map.continuous_grid
+    if hasattr(local_map, "continuous_grid") and local_map.continuous_grid is not None:
+        cg = local_map.continuous_grid
+        gx, gy = cg.world_to_index(x_m, y_m)
+        cam_prec = float(cg.precision[gy, gx]) - cg.prior_precision
+        if cam_prec > 1e-3:
+            w_cam = min(1.8, 0.35 * cam_prec)
+            acc_m += w_cam * float(cg.moisture[gy, gx])
+            w_m += w_cam
+            acc_g += w_cam * float(cg.stand_gap[gy, gx])
+            w_g += w_cam
+            info_density += 0.45 * cam_prec
+
     mean_m = max(0.02, min(0.98, acc_m / w_m))
     mean_f = max(0.02, min(0.98, acc_f / w_f))
     mean_g = max(0.02, min(0.98, acc_g / w_g))
@@ -1449,6 +2004,36 @@ def sample_continuous_belief_grid(
         elif sample.kind == SensorKind.STAND_GAP:
             acc_g += k * sample.value
             w_g += k
+
+    # 2b. Fuse Tier-1 camera FOV cone precision & visual surface priors from local_map.continuous_grid
+    if hasattr(local_map, "continuous_grid") and local_map.continuous_grid is not None:
+        cg = local_map.continuous_grid
+        if cg.nx == nx and cg.ny == ny:
+            cam_prec = np.maximum(0.0, cg.precision - cg.prior_precision)
+            w_cam = np.minimum(1.8, 0.35 * cam_prec)
+            acc_m += w_cam * cg.moisture
+            w_m += w_cam
+            acc_g += w_cam * cg.stand_gap
+            w_g += w_cam
+            info_density += 0.45 * cam_prec
+        else:
+            gx_idx = np.clip(
+                np.round((X - cg.x_bounds[0]) / max(1e-6, cg.x_bounds[1] - cg.x_bounds[0]) * (cg.nx - 1)).astype(int),
+                0,
+                cg.nx - 1,
+            )
+            gy_idx = np.clip(
+                np.round((Y - cg.y_bounds[0]) / max(1e-6, cg.y_bounds[1] - cg.y_bounds[0]) * (cg.ny - 1)).astype(int),
+                0,
+                cg.ny - 1,
+            )
+            cam_prec = np.maximum(0.0, cg.precision[gy_idx, gx_idx] - cg.prior_precision)
+            w_cam = np.minimum(1.8, 0.35 * cam_prec)
+            acc_m += w_cam * cg.moisture[gy_idx, gx_idx]
+            w_m += w_cam
+            acc_g += w_cam * cg.stand_gap[gy_idx, gx_idx]
+            w_g += w_cam
+            info_density += 0.45 * cam_prec
 
     mean_m = np.clip(acc_m / w_m, 0.02, 0.98)
     mean_f = np.clip(acc_f / w_f, 0.02, 0.98)
