@@ -120,5 +120,29 @@ class ScaledFieldIntegrationTest(unittest.TestCase):
         self.assertEqual(record.llm_requests_sent, 0)
 
 
+    def test_matched_gossip_ablation_runs_same_scaled_world(self) -> None:
+        """Independent grader runs two actual acting controllers on an identical field."""
+        from scripts.run_scaled_field_study import run_study
+        study = run_study(
+            seeds=[8], fleets=[4], scales=[1.6], policies=["mycelial"],
+            comms_modes=["normal", "isolated"],
+            rescue_policies=["react_orchestrator"], steps=30,
+        )
+        self.assertEqual(study["summary"]["trials"], 2)
+        self.assertEqual(study["summary"]["matched_gossip_pairs"], 1)
+        normal, isolated = study["runs"]
+        self.assertEqual(normal["num_rovers"], isolated["num_rovers"])
+        self.assertEqual(normal["map_scale"], isolated["map_scale"])
+        self.assertEqual(normal["seed"], isolated["seed"])
+        self.assertEqual(normal["patches_total"], isolated["patches_total"])
+        self.assertEqual(normal["active_policy_type"], "DecentralizedMycelialRuntime")
+        self.assertEqual(isolated["active_policy_type"], "DecentralizedMycelialRuntime")
+        self.assertEqual(normal["gossip_source"], "active")
+        self.assertEqual(isolated["gossip_source"], "active")
+        # Outcomes are measured, not assumed to favour communication.
+        self.assertEqual(study["paired_comparisons"][0]["comparison"],
+                         "active_mycelial_gossip_vs_isolated")
+
+
 if __name__ == "__main__":
     unittest.main()
