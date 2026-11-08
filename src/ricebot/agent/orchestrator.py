@@ -304,6 +304,13 @@ class OrchestratorToolBelt:
                 f"Estimated helper loss risk {estimated_helper_risk} exceeds operator ceiling {policy.max_helper_loss_risk}."
             )
 
+        # Rule 3: Helper battery threshold for heavy mechanical towing
+        if helper.battery_ratio < 0.20:
+            violations.append(
+                f"Helper {helper_id} battery ratio ({helper.battery_ratio:.0%}) is critically low (<20%). "
+                f"High-torque towing current risks stranding both rovers."
+            )
+
         allowed = len(violations) == 0
         return {
             "helper_id": helper_id,
@@ -468,6 +475,55 @@ class DeterministicReasoner:
             )
         )
 
+        # Handle surface obstruction (high-center bund belly) -> self recovery with dibber jack
+        if incident.failure_mode == FailureMode.SURFACE_OBSTRUCTION:
+            obs_pred = self.tool_belt.predict_recovery_displacement(
+                technique_str=MechanicalRescueTechnique.SELF_OSCILLATE_DIBBER.value,
+                moisture=incident.local_moisture or 0.28,
+                firmness=incident.local_firmness or 0.65,
+                slip_ratio=incident.slip_ratio,
+            )
+            trace.append(
+                ToolCallRecord(
+                    round_index=2,
+                    thought="High-centered belly on bund ridge. Evaluating self-jacking via vertical penetrometer dibber oscillation.",
+                    tool_name="predict_recovery_displacement",
+                    arguments={"technique": MechanicalRescueTechnique.SELF_OSCILLATE_DIBBER.value},
+                    observation=obs_pred,
+                )
+            )
+            obs_auth = self.tool_belt.authorize_recovery_skill(
+                incident,
+                technique_str=MechanicalRescueTechnique.SELF_OSCILLATE_DIBBER.value,
+                helper_id=incident.stranded_robot_id,
+            )
+            trace.append(
+                ToolCallRecord(
+                    round_index=3,
+                    thought="Sufficient traction predicted. Authorizing vertical dibber oscillation and grouser reverse pulse.",
+                    tool_name="authorize_recovery_skill",
+                    arguments={"technique": MechanicalRescueTechnique.SELF_OSCILLATE_DIBBER.value, "helper_id": incident.stranded_robot_id},
+                    observation=obs_auth,
+                )
+            )
+            return OrchestratorDecision(
+                incident_id=incident.incident_id,
+                verdict=RescueVerdict.SELF_RECOVER,
+                failure_mode=FailureMode.SURFACE_OBSTRUCTION,
+                chosen_technique=MechanicalRescueTechnique.SELF_OSCILLATE_DIBBER,
+                helper_robot_id=None,
+                standoff_pose=None,
+                mechanical_setpoint=compute_mechanical_recovery_setpoint(
+                    robot_id=incident.stranded_robot_id,
+                    technique=MechanicalRescueTechnique.SELF_OSCILLATE_DIBBER,
+                    step_index=0,
+                ),
+                rationale="High-centered belly on bund ridge: executed bounded self-recovery with vertical dibber jack.",
+                tool_trace=tuple(trace),
+                fallback_used=True,
+                elapsed_time_s=time.perf_counter() - t0,
+            )
+
         # Handle sensor dropout false alarms
         if obs_inspect["is_sensor_dropout_only"]:
             return OrchestratorDecision(
@@ -622,8 +678,8 @@ class OrchestratorSafetyGate:
         incident: IncidentReport,
         decision: OrchestratorDecision,
     ) -> OrchestratorDecision:
-        # Veto 1: Stranded robot cannot rescue itself as a helper
-        if decision.helper_robot_id == incident.stranded_robot_id:
+        # Veto 1: Stranded robot cannot rescue itself as a helper for RESCUE_NOW
+        if decision.verdict == RescueVerdict.RESCUE_NOW and decision.helper_robot_id == incident.stranded_robot_id:
             return OrchestratorDecision(
                 incident_id=decision.incident_id,
                 verdict=RescueVerdict.ABANDON_ESCALATE,
@@ -680,6 +736,28 @@ class OrchestratorSafetyGate:
                         f"Safety Veto: Helper {helper.robot_id} holds all remaining seed stock "
                         f"({helper.seeds_remaining} seeds) and terrain firmness is critically soft ({incident.local_firmness:.2f}). "
                         f"Secondary casualty prohibited."
+                    ),
+                    tool_trace=decision.tool_trace,
+                    safety_veto_applied=True,
+                    fallback_used=decision.fallback_used,
+                    elapsed_time_s=decision.elapsed_time_s,
+                )
+
+        # Veto 4: Cannot assign helper with critically low battery (< 20%) for heavy tow
+        if decision.verdict == RescueVerdict.RESCUE_NOW and decision.helper_robot_id:
+            helper = next((h for h in incident.available_helpers if h.robot_id == decision.helper_robot_id), None)
+            if helper and helper.battery_ratio < 0.20:
+                return OrchestratorDecision(
+                    incident_id=decision.incident_id,
+                    verdict=RescueVerdict.ABANDON_ESCALATE,
+                    failure_mode=decision.failure_mode,
+                    chosen_technique=MechanicalRescueTechnique.NONE,
+                    helper_robot_id=None,
+                    standoff_pose=None,
+                    mechanical_setpoint=None,
+                    rationale=(
+                        f"Safety Veto: Helper {helper.robot_id} has critically low battery "
+                        f"({helper.battery_ratio:.0%} < 20%). Heavy towing causes secondary stranding."
                     ),
                     tool_trace=decision.tool_trace,
                     safety_veto_applied=True,

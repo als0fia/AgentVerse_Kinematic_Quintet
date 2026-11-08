@@ -7,6 +7,8 @@ Generates diverse agricultural emergency scenarios covering:
 4. Hazardous Perimeter (Anti-Cascading Refusal)
 5. Severe Rollover / Ditch Tilt (Anchor Spades & Unsafe to Dock)
 6. Asymmetric Bund Rut (Yaw / Pitch Realignment)
+7. Low-Battery Helper Abort (Secondary Casualty Avoidance)
+8. High-Center Bund Belly (Self-Jacking Dibber Oscillation)
 
 Uses `DeterministicReasoner` to compute verified Pareto-optimal tool call traces,
 outputting universal Hugging Face / OpenAI `messages` format JSONL datasets.
@@ -196,7 +198,7 @@ def create_incident(category: str, seed: int, idx: int) -> IncidentReport:
             operator_policy=OperatorPolicy(),
         )
 
-    else:  # asymmetric_bund_rut
+    elif category == "asymmetric_bund_rut":
         # Nose-down pitch into bund with elevated rear strike bar
         return IncidentReport(
             incident_id=f"inc-bund-rut-{idx:03d}",
@@ -215,6 +217,56 @@ def create_incident(category: str, seed: int, idx: int) -> IncidentReport:
                 HelperStatus(helper_id, Pose2D(0.6, -0.3, 0.0), seeds_remaining=0),
             ),
             operator_policy=OperatorPolicy(max_helper_loss_risk=0.25),
+        )
+
+    elif category == "low_battery_abort":
+        # Trapped in mud, but only available helper has critically low battery (<20%)
+        return IncidentReport(
+            incident_id=f"inc-low-batt-{idx:03d}",
+            time_s=time_s,
+            stranded_robot_id=stranded_id,
+            failure_mode=FailureMode.CONTAGIOUS_MUD_TRAP,
+            stalled_window_s=round(rng.uniform(3.5, 8.0), 1),
+            slip_ratio=round(rng.uniform(0.85, 0.95), 3),
+            imu_pitch_deg=round(rng.uniform(-3.0, 3.0), 1),
+            imu_roll_deg=round(rng.uniform(-2.0, 2.0), 1),
+            front_range_m=0.18,
+            local_moisture=0.74,
+            local_firmness=0.32,
+            seeds_remaining=0,
+            available_helpers=(
+                HelperStatus(
+                    robot_id=helper_id,
+                    pose=Pose2D(1.4, -0.4, 0.0),
+                    seeds_remaining=0,
+                    battery_ratio=round(rng.uniform(0.12, 0.18), 2),
+                    is_operational=True,
+                ),
+            ),
+            operator_policy=OperatorPolicy(
+                max_helper_loss_risk=0.25,
+            ),
+        )
+
+    else:  # high_center_bund_belly
+        # Chassis beached/high-centered on dry dividing bund berm, wheels spinning in air
+        return IncidentReport(
+            incident_id=f"inc-bund-belly-{idx:03d}",
+            time_s=time_s,
+            stranded_robot_id=stranded_id,
+            failure_mode=FailureMode.SURFACE_OBSTRUCTION,
+            stalled_window_s=round(rng.uniform(4.0, 9.0), 1),
+            slip_ratio=round(rng.uniform(0.92, 0.99), 3),
+            imu_pitch_deg=round(rng.uniform(-2.0, 2.0), 1),
+            imu_roll_deg=round(rng.uniform(-2.0, 2.0), 1),
+            front_range_m=0.35,
+            local_moisture=round(rng.uniform(0.22, 0.32), 2),
+            local_firmness=round(rng.uniform(0.62, 0.72), 2),
+            seeds_remaining=rng.choice([0, 1]),
+            available_helpers=(
+                HelperStatus(helper_id, Pose2D(1.8, 0.5, 0.0), seeds_remaining=0),
+            ),
+            operator_policy=OperatorPolicy(),
         )
 
 
@@ -242,6 +294,8 @@ def build_dataset(num_train: int = 150, num_eval: int = 30, seed: int = 42) -> t
         "hazardous_perimeter",
         "rollover_trench",
         "asymmetric_bund_rut",
+        "low_battery_abort",
+        "high_center_bund_belly",
     ]
 
     total_episodes = num_train + num_eval

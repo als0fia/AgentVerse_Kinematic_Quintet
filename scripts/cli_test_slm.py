@@ -55,6 +55,34 @@ SCENARIOS = {
   "available_helpers": [{"robot_id": "scout", "seeds_remaining": 0, "battery_ratio": 1.0}],
   "operator_policy": {"protect_seed_carrier": true, "max_helper_loss_risk": 0.2}
 }"""
+    },
+    "4": {
+        "name": "Low-Battery Helper Abort (Helper at 14% battery -> Refuse to avoid dual stranding)",
+        "json": """{
+  "incident_id": "inc-low-batt-004",
+  "stranded_robot_id": "ant-alpha",
+  "failure_mode": "contagious_mud_trap",
+  "stalled_window_s": 5.0,
+  "slip_ratio": 0.90,
+  "local_moisture": 0.74,
+  "local_firmness": 0.32,
+  "available_helpers": [{"robot_id": "scout", "seeds_remaining": 0, "battery_ratio": 0.14}],
+  "operator_policy": {"protect_seed_carrier": true, "max_helper_loss_risk": 0.25}
+}"""
+    },
+    "5": {
+        "name": "High-Center Bund Belly (Chassis beached on berm, wheels in air -> Self-Oscillate Dibber)",
+        "json": """{
+  "incident_id": "inc-bund-belly-005",
+  "stranded_robot_id": "planter",
+  "failure_mode": "surface_obstruction",
+  "stalled_window_s": 6.0,
+  "slip_ratio": 0.98,
+  "local_moisture": 0.25,
+  "local_firmness": 0.68,
+  "available_helpers": [{"robot_id": "scout", "seeds_remaining": 0, "battery_ratio": 0.90}],
+  "operator_policy": {"protect_seed_carrier": true, "max_helper_loss_risk": 0.25}
+}"""
     }
 }
 
@@ -69,7 +97,7 @@ def main():
     for k, v in SCENARIOS.items():
         print(f"  [{k}] {v['name']}")
     
-    choice = input("\nEnter choice (1-3) [default: 1]: ").strip() or "1"
+    choice = sys.argv[1] if len(sys.argv) > 1 else (input("\nEnter choice (1-5) [default: 1]: ").strip() or "1")
     selected = SCENARIOS.get(choice, SCENARIOS["1"])
     
     prompt = (

@@ -146,7 +146,7 @@ def main():
     print(" LAUNCHING SWARM SLM FINE-TUNING ON MODAL GPU")
     print("=" * 70)
     print("-> Base model: Qwen/Qwen2.5-0.5B-Instruct")
-    print("-> Dataset: 150 train episodes + 30 eval episodes (ReAct traces)")
+    print("-> Dataset: 240 train episodes + 48 eval episodes (ReAct traces)")
     print("-> Hardware: Nvidia T4 GPU (~5-8 mins runtime)\n")
 
     result = train_slm.remote()
