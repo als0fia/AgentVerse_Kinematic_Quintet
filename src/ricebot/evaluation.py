@@ -237,6 +237,7 @@ def run_canonical_episode(
         active_mycelial_in_rescue=config.active_mycelial_in_rescue,
         orchestrator_model=config.orchestrator_model,
         orchestrator_timeout_s=config.orchestrator_timeout_s,
+        enable_live_llm=config.enable_live_llm,
     )
 
     eff_label = policy_label or (
