@@ -207,11 +207,14 @@ class MujocoPaddySimulation:
         num_rovers: int = 2,
         map_scale: float = 1.0,
         field_layout: FieldLayout | None = None,
+        rover_specs: tuple[RoverChassisSpec, ...] | None = None,
     ) -> None:
         self.num_rovers = max(2, min(6, int(num_rovers)))
         self.map_scale = float(map_scale)
         self.layout = field_layout or build_field_layout(map_scale, seed=7, scenario=scenario)
-        self.rover_specs: tuple[RoverChassisSpec, ...] = make_fleet_specs(self.num_rovers)
+        self.rover_specs: tuple[RoverChassisSpec, ...] = rover_specs or make_fleet_specs(self.num_rovers)
+        if len(self.rover_specs) != self.num_rovers:
+            raise ValueError("fleet size and physical rover specifications disagree")
         self._spec_by_id: dict[str, RoverChassisSpec] = {s.robot_id: s for s in self.rover_specs}
         self._ctrl_offset_by_id: dict[str, int] = {
             s.robot_id: 4 * idx for idx, s in enumerate(self.rover_specs)
