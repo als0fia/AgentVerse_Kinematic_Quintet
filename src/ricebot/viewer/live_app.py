@@ -1854,7 +1854,7 @@ class LiveSwarmDashboardApp:
             completed_recoveries=self.sim.completed_recoveries,
         )
         if cue.victim_id and cue.helper_id and cue.phase in (
-            "assigned", "approach", "docking", "extracting", "extracted", "resumed"
+            "assigned", "approach", "docking", "extracting"
         ):
             for robot in self.frame.robots:
                 if robot.robot_id == cue.helper_id:
@@ -2196,6 +2196,8 @@ class LiveSwarmDashboardApp:
         # 2. Render 3D mud-sinkage collars / splash rings around each rover's wheels
         obs_by_id = {r.robot_id: r for r in self.frame.robots}
         for rid, r_obs in obs_by_id.items():
+            if self.presentation_mode:
+                break  # 3D mud collars are engineering-only overlays
             sink = self.sim.latest_terramechanics.get(rid)
             if sink is None:
                 continue
@@ -2685,7 +2687,7 @@ class LiveSwarmDashboardApp:
             13,
             anchor="w",
             text=(
-                "FUSED SENSOR ESTIMATE   ·   solid = observed track   ·   dashed = target, NOT a route"
+                "SENSOR ESTIMATE  |  SOLID: past motion  |  DASH: target only (not a route)"
                 if self.presentation_mode else
                 f"View: {view_mode.upper()}  |  Layer: {layer_title} [{vmin:.2f} .. {vmax:.2f}]  (Click any of the {len(obs_by_id)} rovers on map to inspect)"
             ),
