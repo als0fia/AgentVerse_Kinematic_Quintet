@@ -1,6 +1,22 @@
 # Reproducible setup, run and recovery
 
-**Post-PR #48 status (7 Nov 2026, `main` `16768dc`):** The single `scripts/run_mujoco_paddypatch.py --scenario golden_rescue` MuJoCo path now includes a typed `TaskMode.RESCUE`, a bounded docking/extraction command, `RecoveryFeedback` and post-rescue planting. [PR #48](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/48) merged; [combined GitHub CI](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/actions/runs/42418413738) ran **78 tests successfully**. The integrated test now checks two seed drops, maximum recorded equality-constraint force below 250 N and pitch below 0.12 rad in its fixture. **This proves the checked-in simulation/test path only:** helper survivability across hazardous traction, policy-only sensing without privileged simulator fault flags, independent multi-seed baselines, live model benefit, physical hardware and a finished submission video/PDF are *not* established by that CI.
+## Current integrated launch paths and limits (8 November 2026)
+
+Use the canonical `EpisodeSession`/MuJoCo runtime from `main` after PRs #62, #63, #69 and #70. The older PR #48 status below is historical. With Python 3.11+ and `requirements-mujoco.txt` installed:
+
+```bash
+python -m unittest discover -s tests -v
+python scripts/run_mujoco_paddypatch.py --scenario golden_rescue --policy cooperative --headless
+python scripts/run_mujoco_paddypatch.py --scenario high_risk_abstain --policy cooperative --headless
+python scripts/run_mujoco_paddypatch.py --scenario randomized --policy cooperative --seed 8 --headless
+python scripts/diagnose_mujoco.py --scenario golden_rescue --seed 7 --steps 195
+python scripts/run_mujoco_paddypatch.py --dashboard --scenario golden_rescue
+```
+
+The GUI has a separate **Randomized Episode** control and a numeric seed entry for reproduction. Under the shared-map cooperative policy the RF selector is inapplicable and is marked disabled. Randomized mud failure occurs when a rover enters a configured hazardous patch; this is not unrestricted, fully emergent terrain failure. The diagnostic CLI is developer-only and must not feed privileged truth into the planner. CLI/headless tests do not verify that Tkinter and the live 3D viewer render successfully on a teammate's graphical computer; record an actual Windows GUI smoke test before relying on it for the video.
+
+**Known limits relevant to the demo:** the golden rescue and refusal presets are regression fixtures, not randomized validity proofs. The 12-seed randomized test covers a limited set of six spawn archetypes and varying soil/hazards; it does not establish natural failure rates or general physical recovery reliability. The rollover/pitch-specialized paths are checked at the orchestrator/controller level but not yet forwarded as these failure modes by the canonical planner. Live LLM advantage, hardware/radios, independently measured agricultural performance, and final recorded submission assets are unverified. See [TESTING](TESTING.md) for the evidence matrix.
+**Historical PR #48 milestone (7 Nov 2026, superseded by #63/#69/#70):** The single `scripts/run_mujoco_paddypatch.py --scenario golden_rescue` MuJoCo path now includes a typed `TaskMode.RESCUE`, a bounded docking/extraction command, `RecoveryFeedback` and post-rescue planting. [PR #48](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/48) merged; [combined GitHub CI](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/actions/runs/42418413738) ran **78 tests successfully**. The integrated test now checks two seed drops, maximum recorded equality-constraint force below 250 N and pitch below 0.12 rad in its fixture. **This proves the checked-in simulation/test path only:** helper survivability across hazardous traction, policy-only sensing without privileged simulator fault flags, independent multi-seed baselines, live model benefit, physical hardware and a finished submission video/PDF are *not* established by that CI.
 
 **Canonical verification commands (already exercised in the linked CI, not rerun in this documentation pass):** `python scripts/check_repo.py`, `python scripts/sync_skills.py --check`, `python -m unittest discover -s tests -v`. For the rescue scenario use `python scripts/run_mujoco_paddypatch.py --scenario golden_rescue --headless`, and run the continuous viewer on a local MuJoCo machine before recording. Keep visual footage and independently measured success separate from automated CI.
 
