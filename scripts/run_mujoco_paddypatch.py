@@ -329,6 +329,7 @@ def run_demo(
     steps: int = 140,
     viewer_seconds: float = 0.0,
     single_rover_only: bool = False,
+    rescue_policy: str = "react_orchestrator",
 ) -> dict[str, object]:
     cfg = EpisodeConfig(
         scenario=scenario,
@@ -337,6 +338,7 @@ def run_demo(
         seed=seed,
         steps=steps,
         single_rover_only=single_rover_only,
+        rescue_policy=rescue_policy,
     )
     steps = cfg.steps
     truth = generate_hidden_soil_truth(cfg.scenario, cfg.seed)
@@ -426,6 +428,7 @@ def run_demo(
         "engine": f"MuJoCo {mujoco.__version__} (3D Rice Terrace + 4-Wheel Articulated Rovers SimulationPort)",
         "episode_id": trace.episode_id,
         "policy": cfg.effective_policy_label,
+        "rescue_policy": rescue_policy,
         "comms_mode": comms,
         "scenario": scenario,
         "seed": seed,
@@ -435,6 +438,11 @@ def run_demo(
         "viable_seed_placements": viable_seed_placements,
         "total_seeds_dropped": len(sim.completed_drops),
         "completed_recoveries": [asdict(r) for r in sim.completed_recoveries],
+        "end_state_bogged_robots": sorted(sim._bogged_origins.keys()),
+        "fault_evidence": {k: asdict(v) for k, v in session.fault_evidence.items()},
+        "orchestrator_decisions": {k: v.to_dict() for k, v in session.orchestrator_decisions.items()},
+        "rescue_assessments": {k: v.to_dict() for k, v in session.rescue_assessments.items()},
+        "recovery_monitoring": [m if isinstance(m, dict) else asdict(m) for m in session.recovery_monitoring],
         "completion_time_s": last_plant_time_s,
         "travel_distance_m": recorder.travel_distance_m,
         "total_travel_m": round(sum(recorder.travel_distance_m.values()), 3),
@@ -450,19 +458,20 @@ def run_demo(
 
 
 def run_policy_comparison_matrix(seed: int = 7) -> dict[str, object]:
-    """Execute the 4-scenario Policy A vs Policy B vs Single-Rover evaluation matrix."""
+    """Execute the Policy A vs Policy B vs Cooperative Rescue evaluation matrix."""
     cases = [
-        ("1_normal_comms_single_rover", "nominal", "centralized", "normal", True, 165),
-        ("2_normal_comms_policy_A_centralized", "nominal", "centralized", "normal", False, 140),
-        ("3_normal_comms_policy_B_mycelial", "nominal", "mycelial", "normal", False, 140),
-        ("4_intermittent_comms_policy_B_mycelial", "nominal", "mycelial", "intermittent", False, 145),
-        ("5_unexpected_bad_soil_policy_B_mycelial", "bad_soil", "mycelial", "normal", False, 155),
-        ("6_obstacle_surprise_policy_A_centralized", "obstacle", "centralized", "normal", False, 155),
-        ("7_obstacle_surprise_policy_B_mycelial_slam", "obstacle", "mycelial", "normal", False, 155),
-        ("8_golden_rescue_episode_cooperative_swarm", "golden_rescue", "centralized", "normal", False, 195),
+        ("1_normal_comms_single_rover", "nominal", "centralized", "normal", True, 165, "react_orchestrator"),
+        ("2_normal_comms_policy_A_centralized", "nominal", "centralized", "normal", False, 140, "react_orchestrator"),
+        ("3_normal_comms_policy_B_mycelial", "nominal", "mycelial", "normal", False, 140, "react_orchestrator"),
+        ("4_intermittent_comms_policy_B_mycelial", "nominal", "mycelial", "intermittent", False, 145, "react_orchestrator"),
+        ("5_unexpected_bad_soil_policy_B_mycelial", "bad_soil", "mycelial", "normal", False, 155, "react_orchestrator"),
+        ("6_obstacle_surprise_policy_A_centralized", "obstacle", "centralized", "normal", False, 155, "react_orchestrator"),
+        ("7_obstacle_surprise_policy_B_mycelial_slam", "obstacle", "mycelial", "normal", False, 155, "react_orchestrator"),
+        ("8_golden_rescue_episode_cooperative_swarm", "golden_rescue", "cooperative", "normal", False, 195, "react_orchestrator"),
+        ("9_high_risk_refusal_episode_cooperative_swarm", "high_risk_abstain", "cooperative", "normal", False, 175, "react_orchestrator"),
     ]
     results: dict[str, object] = {}
-    for label, scen, pol, comm, single, st in cases:
+    for label, scen, pol, comm, single, st, rpol in cases:
         res = run_demo(
             scenario=scen,
             policy=pol,
@@ -471,13 +480,16 @@ def run_policy_comparison_matrix(seed: int = 7) -> dict[str, object]:
             steps=st,
             viewer_seconds=0.0,
             single_rover_only=single,
+            rescue_policy=rpol,
         )
         results[label] = {
             "policy": res["policy"],
+            "rescue_policy": res["rescue_policy"],
             "scenario": res["scenario"],
             "comms_mode": res["comms_mode"],
             "viable_seed_placements": res["viable_seed_placements"],
             "completed_recoveries": res["completed_recoveries"],
+            "end_state_bogged_robots": res["end_state_bogged_robots"],
             "completion_time_s": res["completion_time_s"],
             "total_travel_m": res["total_travel_m"],
             "comm_packets": res["comm_packets"],
@@ -488,19 +500,65 @@ def run_policy_comparison_matrix(seed: int = 7) -> dict[str, object]:
     return results
 
 
+def run_baseline_comparison(seed: int = 7) -> dict[str, object]:
+    """Compare Agent D's ReAct orchestrator against numerical_triage, always_rescue, and never_rescue baselines."""
+    scenarios = [
+        ("golden_rescue", 195, "planter"),
+        ("high_risk_abstain", 175, "scout"),
+    ]
+    rescue_policies = ("react_orchestrator", "numerical_triage", "always_rescue", "never_rescue")
+    comparison: dict[str, dict[str, object]] = {}
+    for scen, st, primary_victim in scenarios:
+        scen_results: dict[str, object] = {}
+        for rpol in rescue_policies:
+            res = run_demo(
+                scenario=scen,
+                policy="cooperative",
+                comms="normal",
+                seed=seed,
+                steps=st,
+                viewer_seconds=0.0,
+                rescue_policy=rpol,
+            )
+            bogged_end = cast(list[str], res["end_state_bogged_robots"])
+            secondary_casualties = [r for r in bogged_end if r != primary_victim]
+            scen_results[rpol] = {
+                "rescue_policy": rpol,
+                "viable_seed_placements": res["viable_seed_placements"],
+                "completed_recoveries_count": len(cast(list[Any], res["completed_recoveries"])),
+                "completed_recoveries": res["completed_recoveries"],
+                "end_state_bogged_robots": bogged_end,
+                "secondary_casualties": secondary_casualties,
+                "orchestrator_decisions": res["orchestrator_decisions"],
+                "completion_time_s": res["completion_time_s"],
+                "total_travel_m": res["total_travel_m"],
+            }
+        comparison[scen] = scen_results
+    return comparison
+
+
 def export_multi_scenario_dashboard(output_path: str | Path, seed: int = 7) -> Path:
-    """Run the 4 key Mycelial scenarios and export a single interactive top-down HTML dashboard."""
+    """Run the key Mycelial & Rescue scenarios and export a single interactive top-down HTML dashboard."""
     from ricebot.viewer import SwarmBeliefDashboardRecorder, render_dashboard_html
 
     scenarios_cfg = [
-        ("1. Nominal Comms (Mycelial SLAM + Gossip)", "nominal", "normal", 130),
-        ("2. Intermittent RF Blackouts (Diverge & Reconcile)", "nominal", "intermittent", 135),
-        ("3. Surprise Bad Soil (Scout Educates Planter)", "bad_soil", "normal", 145),
-        ("4. Mid-Episode Obstacle Surprise (SLAM Bypass)", "obstacle", "normal", 145),
+        ("1. Golden Rescue Episode (Planter Bogged -> Scout Extracts)", "golden_rescue", "normal", 195),
+        ("2. High-Risk Refusal (Scout Bogged -> Protect Seed-Carrier Planter)", "high_risk_abstain", "normal", 175),
+        ("3. Nominal Comms (Mycelial SLAM + Gossip)", "nominal", "normal", 130),
+        ("4. Intermittent RF Blackouts (Diverge & Reconcile)", "nominal", "intermittent", 135),
+        ("5. Surprise Bad Soil (Scout Educates Planter)", "bad_soil", "normal", 145),
+        ("6. Mid-Episode Obstacle Surprise (SLAM Bypass)", "obstacle", "normal", 145),
     ]
     bundles: dict[str, dict[str, Any]] = {}
     for label, scen, comm, st in scenarios_cfg:
-        cfg = EpisodeConfig(scenario=scen, policy="mycelial", comms=comm, seed=seed, steps=st)
+        cfg = EpisodeConfig(
+            scenario=scen,
+            policy="mycelial",
+            comms=comm,
+            seed=seed,
+            steps=st,
+            rescue_policy="react_orchestrator",
+        )
         session = create_mujoco_episode_session(cfg)
         sim = cast(MujocoPaddySimulation, session.sim)
         runtime = cast(DecentralizedMycelialRuntime, session.policy)
@@ -525,16 +583,34 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=("nominal", "obstacle", "bad_soil", "shifted_moisture", "sensor_degraded", "golden_rescue"),
+        choices=(
+            "nominal",
+            "obstacle",
+            "bad_soil",
+            "shifted_moisture",
+            "sensor_degraded",
+            "golden_rescue",
+            "high_risk_abstain",
+        ),
         default="nominal",
     )
-    parser.add_argument("--policy", choices=("mycelial", "cooperative", "centralized", "single_rover"), default="mycelial")
+    parser.add_argument(
+        "--policy",
+        choices=("mycelial", "cooperative", "centralized", "single_rover"),
+        default="mycelial",
+    )
+    parser.add_argument(
+        "--rescue-policy",
+        choices=("react_orchestrator", "numerical_triage", "always_rescue", "never_rescue"),
+        default="react_orchestrator",
+    )
     parser.add_argument("--comms", choices=("normal", "intermittent", "isolated"), default="normal")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--steps", type=int, default=140)
     parser.add_argument("--headless", action="store_true", help="Run without launching interactive viewer")
     parser.add_argument("--viewer-seconds", type=float, default=0.0, help="Launch interactive 3D MuJoCo viewer for N seconds")
     parser.add_argument("--compare-policies", action="store_true", help="Run the Policy A vs Policy B evaluation matrix")
+    parser.add_argument("--compare-baselines", action="store_true", help="Run the matched-scenario rescue baseline comparison")
     parser.add_argument("--export-dashboard", type=str, default=None, help="Export interactive top-down HTML belief & terramechanics dashboard to path")
     parser.add_argument(
         "--dashboard",
@@ -550,7 +626,9 @@ def main() -> int:
 
         launch_live_dashboard(
             scenario=args.scenario,
-            comms=args.comms, policy=args.policy,
+            comms=args.comms,
+            policy=args.policy,
+            rescue_policy=args.rescue_policy,
             seed=args.seed,
             auto_play=True,
         )
@@ -559,6 +637,11 @@ def main() -> int:
     if args.export_dashboard:
         out = export_multi_scenario_dashboard(args.export_dashboard, seed=args.seed)
         print(json.dumps({"dashboard_exported_to": str(out.resolve())}, indent=2))
+        return 0
+
+    if args.compare_baselines:
+        comparison = run_baseline_comparison(seed=args.seed)
+        print(json.dumps(comparison, indent=2))
         return 0
 
     if args.compare_policies:
@@ -574,6 +657,7 @@ def main() -> int:
         seed=args.seed,
         steps=args.steps,
         viewer_seconds=v_sec,
+        rescue_policy=args.rescue_policy,
     )
     print(json.dumps(summary, indent=2))
     return 0

@@ -46,7 +46,7 @@ class SwarmBeliefDashboardRecorder:
 
     def __init__(
         self,
-        runtime: DecentralizedMycelialRuntime,
+        runtime: Any,
         terrain: ContinuousPaddyTerrain | None = None,
         sites: tuple[Site, ...] = DEFAULT_SITES,
         grid_nx: int = 32,
@@ -68,12 +68,22 @@ class SwarmBeliefDashboardRecorder:
 
     def consume(self, frame: ObservationFrame, decision: Decision) -> None:
         """Record a read-only telemetry & heatmap frame on key events or every `snapshot_stride` ticks."""
+        planner_obj = getattr(self.runtime, "planner", self.runtime)
+        raw_assessments = getattr(self.runtime, "last_rescue_assessments", None) or getattr(planner_obj, "last_rescue_assessments", None) or {}
+        raw_evidence = getattr(self.runtime, "last_fault_evidence", None) or getattr(planner_obj, "last_fault_evidence", None) or {}
+        raw_orch = getattr(self.runtime, "last_orchestrator_decisions", None) or getattr(planner_obj, "last_orchestrator_decisions", None) or {}
+        gossip_pkts = getattr(self.runtime, "latest_gossip_packets", ()) or ()
+        nodes_map = getattr(self.runtime, "nodes", {}) or {}
+        tel_map = getattr(self.runtime, "latest_sensor_telemetry", {}) or {}
+
         is_key_event = bool(
             self._tick_count == 0
             or frame.plant_feedback
+            or frame.recovery_feedback
             or decision.ingested_samples > 0
-            or self.runtime.latest_gossip_packets
-            or any(c.release_seed for c in decision.commands)
+            or gossip_pkts
+            or raw_assessments
+            or any(c.release_seed or c.recovery_target_id for c in decision.commands)
             or (self._tick_count % self.snapshot_stride == 0)
         )
         self._tick_count += 1
@@ -86,10 +96,11 @@ class SwarmBeliefDashboardRecorder:
         robots_snapshot: dict[str, Any] = {}
         for r_obs in frame.robots:
             rid = r_obs.robot_id
-            node = self.runtime.nodes.get(rid)
+            node = nodes_map.get(rid)
             spec = self._specs.get(rid, PLANTER_SPEC)
-            tel = self.runtime.latest_sensor_telemetry.get(rid)
-            slip = tel.slip_ratio if tel is not None else 0.08
+            tel = tel_map.get(rid)
+            ev = raw_evidence.get(rid)
+            slip = tel.slip_ratio if tel is not None else (ev.slip_ratio if ev is not None else (0.90 if r_obs.is_bogged else 0.08))
 
             # Evaluate true local terrain beneath the rover for physical sinkage telemetry
             true_pt = self.terrain.evaluate(r_obs.pose.x_m, r_obs.pose.y_m)
@@ -129,13 +140,21 @@ class SwarmBeliefDashboardRecorder:
                 "seeds_remaining": r_obs.seeds_remaining,
                 "front_range_m": r_obs.front_range_m,
                 "link_ok": r_obs.link_ok,
+                "is_bogged": r_obs.is_bogged,
                 "task_mode": intent.mode.value if intent else "hold",
                 "target_site_id": intent.target_site_id if intent else None,
+                "target_robot_id": intent.target_robot_id if intent else None,
+                "recovery_technique": (cmd.recovery_technique if cmd and cmd.recovery_technique else (intent.recovery_technique if intent else "")),
                 "task_reason": intent.reason if intent else "",
                 "command": {
                     "linear_m_s": round(cmd.linear_m_s, 3) if cmd else 0.0,
                     "angular_rad_s": round(cmd.angular_rad_s, 3) if cmd else 0.0,
                     "release_seed": bool(cmd.release_seed) if cmd else False,
+                    "recovery_target_id": cmd.recovery_target_id if cmd else None,
+                    "dock_pitch_rad": round(cmd.dock_pitch_rad, 3) if cmd else 0.0,
+                    "latch_rad": round(cmd.latch_rad, 3) if cmd else 0.0,
+                    "spade_rad": round(cmd.spade_rad, 3) if cmd else 0.0,
+                    "recovery_technique": cmd.recovery_technique if cmd else "",
                 },
                 "sensor_telemetry": asdict(tel) if tel is not None else {},
                 "terramechanics": asdict(sinkage_state),
@@ -160,17 +179,55 @@ class SwarmBeliefDashboardRecorder:
                 "byte_size": pkt.byte_size,
                 "dialogue_summary": list(pkt.dialogue_summary),
             }
-            for pkt in self.runtime.latest_gossip_packets
+            for pkt in gossip_pkts
         ]
+
+        serialized_assessments = {
+            str(k): (v.to_dict() if hasattr(v, "to_dict") else asdict(v))
+            for k, v in raw_assessments.items()
+        }
+        serialized_evidence = {
+            str(k): asdict(v)
+            for k, v in raw_evidence.items()
+        }
+        serialized_orch = {
+            str(k): {
+                "verdict": str(getattr(v.verdict, "value", v.verdict)),
+                "selected_helper_id": getattr(v, "helper_robot_id", getattr(v, "selected_helper_id", None)),
+                "selected_technique": str(
+                    getattr(
+                        getattr(v, "chosen_technique", getattr(v, "selected_technique", "")),
+                        "value",
+                        getattr(v, "chosen_technique", getattr(v, "selected_technique", "")),
+                    )
+                ),
+                "safety_veto_applied": bool(getattr(v, "safety_veto_applied", False)),
+                "fallback_used": bool(getattr(v, "fallback_used", False)),
+                "rationale": str(getattr(v, "rationale", "")),
+                "tool_trace": [
+                    {
+                        "step": getattr(s, "round_index", getattr(s, "step_index", 0)),
+                        "tool": s.tool_name,
+                        "observation": s.observation,
+                    }
+                    for s in getattr(v, "tool_trace", ())
+                ],
+            }
+            for k, v in raw_orch.items()
+        }
 
         self.frames.append(
             {
                 "time_s": frame.time_s,
                 "ingested_samples": decision.ingested_samples,
-                "total_gossip_packets": self.runtime.total_gossip_packets,
-                "total_gossip_bytes": self.runtime.total_gossip_bytes,
+                "total_gossip_packets": getattr(self.runtime, "total_gossip_packets", 0),
+                "total_gossip_bytes": getattr(self.runtime, "total_gossip_bytes", 0),
                 "gossip_events": gossip_events,
                 "plant_feedback": [asdict(fb) for fb in frame.plant_feedback],
+                "recovery_feedback": [asdict(rf) for rf in frame.recovery_feedback],
+                "rescue_assessments": serialized_assessments,
+                "fault_evidence": serialized_evidence,
+                "orchestrator_decisions": serialized_orch,
                 "robots": robots_snapshot,
             }
         )
@@ -309,6 +366,15 @@ def render_dashboard_html(
             <span id="gossipBadge" class="text-xs font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300">0 pkts (0 B)</span>
           </div>
           <div id="robotCardsContainer" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+        </div>
+
+        <!-- D Rescue Orchestrator & B Physical Recovery Status -->
+        <div class="card p-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-bold text-white">D Rescue Orchestrator & B Rigid-Dock Recovery</h2>
+            <span id="rescueVerdictBadge" class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">NOMINAL FIELDWORK</span>
+          </div>
+          <div id="rescueOrchestratorPanel" class="text-xs font-mono bg-slate-950 p-2.5 rounded border border-slate-800 space-y-1.5"></div>
         </div>
 
         <!-- Interactive Bekker-Wong Vehicle Sizing & Mud Sinkage Calculator -->
@@ -722,6 +788,44 @@ def render_dashboard_html(
       }}
       if (count === 0) {{
         logEl.innerHTML = `<div class="text-slate-500">No gossip packets transmitted yet at t=${{frame.time_s.toFixed(2)}}s.</div>`;
+      }}
+
+      // Render D Rescue Orchestrator & B Physical Recovery panel
+      const rescuePanel = document.getElementById("rescueOrchestratorPanel");
+      const rescueBadge = document.getElementById("rescueVerdictBadge");
+      const assessments = frame.rescue_assessments || {{}};
+      const orchMap = frame.orchestrator_decisions || {{}};
+      const recEvents = frame.recovery_feedback || [];
+      const assessmentKeys = Object.keys(assessments);
+      if (recEvents.length > 0) {{
+        const rf = recEvents[recEvents.length - 1];
+        rescueBadge.className = "text-xs font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40";
+        rescueBadge.textContent = rf.extracted ? "EXTRACTED CLEAR" : rf.phase.toUpperCase();
+        rescuePanel.innerHTML = `
+          <div class="text-cyan-300 font-semibold">${{rf.helper_robot_id.toUpperCase()}} → ${{rf.target_robot_id.toUpperCase()}} (${{rf.phase}})</div>
+          <div class="text-slate-300">Latched: ${{rf.latched}} | Extracted: ${{rf.extracted}} | Disp: ${{(rf.victim_displacement_m || 0).toFixed(3)}} m</div>
+          <div class="text-slate-400">Technique: ${{rf.technique || "direct_pry_and_pull"}} | Peak Force: ${{(rf.peak_constraint_force_n || 0).toFixed(1)}} N | Helper Safe: ${{rf.helper_safe}}</div>
+        `;
+      }} else if (assessmentKeys.length > 0) {{
+        const sid = assessmentKeys[0];
+        const a = assessments[sid];
+        const o = orchMap[sid] || {{}};
+        const vStr = (a.verdict || "rescue_now").toUpperCase();
+        rescueBadge.className = vStr === "RESCUE_NOW"
+          ? "text-xs font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40"
+          : "text-xs font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40";
+        rescueBadge.textContent = `${{sid.toUpperCase()}}: ${{vStr}}`;
+        const tools = (o.tool_trace || []).map(t => t.tool).join(" → ") || "deterministic_triage";
+        rescuePanel.innerHTML = `
+          <div class="text-amber-300 font-semibold">Victim: ${{sid.toUpperCase()}} | Helper: ${{a.helper_robot_id || "NONE (REFUSED)"}} | Net U: ${{(a.net_rescue_value || 0).toFixed(2)}}</div>
+          <div class="text-slate-300">Technique: ${{a.mechanical_technique || o.selected_technique || "none"}} | Safety Gate Veto: ${{Boolean(a.safety_veto_applied)}}</div>
+          <div class="text-sky-300 truncate">ReAct Tools: ${{tools}}</div>
+          <div class="text-slate-400">${{a.reason || o.rationale || ""}}</div>
+        `;
+      }} else {{
+        rescueBadge.className = "text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300";
+        rescueBadge.textContent = "NOMINAL FIELDWORK";
+        rescuePanel.innerHTML = `<div class="text-slate-500">All rovers nominal. Sensed FaultEvidence monitoring active (0 bogged rovers).</div>`;
       }}
     }}
 

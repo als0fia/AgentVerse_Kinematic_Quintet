@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from .contracts import (
     Decision,
     EpisodeTrace,
+    FaultEvidence,
     ObservationFrame,
     OperatorCommandKind,
     OperatorRequest,
@@ -112,6 +113,7 @@ class EpisodeConfig:
 
     scenario: str = "nominal"
     policy: str = "mycelial"
+    rescue_policy: str = "react_orchestrator"
     comms: str = "normal"
     seed: int = 7
     steps: int = 140
@@ -119,24 +121,49 @@ class EpisodeConfig:
     probe_radius_m: float = 0.28
     substeps_per_tick: int = 25
     obstacle_xy: tuple[float, float] = (0.75, -0.25)
+    trap_robot_id: str | None = None
     trap_site_id: str = "patch_d"
     trap_radius_m: float = 0.28
+    sensor_dropout_robot_id: str | None = None
+    sensor_dropout_window_s: tuple[float, float] | None = None
+    expose_bogged_flag: bool = True
     comm_range_m: float = 2.15
     include_shadow_mycelial: bool = False
 
     def __post_init__(self) -> None:
         if self.seed < 0 or isinstance(self.seed, bool) or self.steps < 1:
             raise ValueError("seed must be non-negative int and steps >= 1")
-        if self.scenario == "golden_rescue" and self.steps == 140:
+        if self.scenario in {"golden_rescue", "high_risk_abstain"} and self.steps == 140:
             object.__setattr__(self, "steps", 195)
+        elif self.scenario == "sensor_degraded" and self.steps == 140:
+            object.__setattr__(self, "steps", 165)
+
+        if self.scenario == "high_risk_abstain" and self.trap_site_id == "patch_d":
+            object.__setattr__(self, "trap_site_id", "patch_a")
+
+        if self.trap_robot_id is None:
+            if self.scenario == "golden_rescue":
+                object.__setattr__(self, "trap_robot_id", "planter")
+            elif self.scenario == "high_risk_abstain":
+                object.__setattr__(self, "trap_robot_id", "scout")
+
+        if self.scenario == "sensor_degraded":
+            if self.sensor_dropout_robot_id is None:
+                object.__setattr__(self, "sensor_dropout_robot_id", "planter")
+            if self.sensor_dropout_window_s is None:
+                object.__setattr__(self, "sensor_dropout_window_s", (1.2, 2.4))
 
     @property
     def is_golden_rescue(self) -> bool:
         return self.scenario == "golden_rescue"
 
     @property
+    def is_rescue_scenario(self) -> bool:
+        return self.scenario in {"golden_rescue", "high_risk_abstain"} or self.trap_robot_id is not None
+
+    @property
     def effective_policy_label(self) -> str:
-        if self.is_golden_rescue:
+        if self.is_golden_rescue or self.scenario == "high_risk_abstain":
             return "cooperative_swarm_rescue"
         if self.single_rover_only or self.policy == "single_rover":
             return "single_rover"
@@ -165,6 +192,7 @@ class EpisodeSession:
         seed: int = 7,
         scenario: str = "nominal",
         policy_name: str = "mycelial",
+        rescue_policy: str = "react_orchestrator",
         comms_mode: str = "normal",
         operator_handler: Callable[[SimulationPort, PolicyRuntime, OperatorRequest], None] | None = None,
     ) -> None:
@@ -177,6 +205,7 @@ class EpisodeSession:
         self.seed = seed
         self.scenario = scenario
         self.policy_name = policy_name
+        self.rescue_policy = rescue_policy
         self.comms_mode = comms_mode
         self.operator_handler = operator_handler
 
@@ -188,6 +217,10 @@ class EpisodeSession:
         self._pending_operator_requests: list[OperatorRequest] = []
         self.applied_operator_requests: list[OperatorRequest] = []
         self.rescue_assessments: dict[str, RescueAssessment] = {}
+        self.fault_evidence: dict[str, FaultEvidence] = {}
+        self.orchestrator_decisions: dict[str, Any] = {}
+        self.recovery_monitoring: list[dict[str, Any]] = []
+        self.teleop_overrides: dict[str, tuple[float, float]] = {}
 
     def submit_operator_request(self, request: OperatorRequest) -> None:
         """Queue a typed operator request to be applied at the session boundary (never mid-substep)."""
@@ -217,6 +250,10 @@ class EpisodeSession:
         self._pending_operator_requests.clear()
         self.applied_operator_requests.clear()
         self.rescue_assessments.clear()
+        self.fault_evidence.clear()
+        self.orchestrator_decisions.clear()
+        self.recovery_monitoring.clear()
+        self.teleop_overrides.clear()
         return self.current_frame
 
     def _collect_normalized_rescue_assessments(self) -> dict[str, RescueAssessment]:
@@ -228,6 +265,33 @@ class EpisodeSession:
             return {}
         return {str(k): RescueAssessment.from_any(v) for k, v in raw.items()}
 
+    def _collect_fault_evidence(self) -> dict[str, FaultEvidence]:
+        """Extract sensed FaultEvidence objects from policy or policy.planner."""
+        raw = getattr(self.policy, "last_fault_evidence", None)
+        if raw is None and hasattr(self.policy, "planner"):
+            raw = getattr(getattr(self.policy, "planner"), "last_fault_evidence", None)
+        if not raw or not isinstance(raw, dict):
+            return {}
+        return {str(k): v for k, v in raw.items() if isinstance(v, FaultEvidence)}
+
+    def _collect_orchestrator_decisions(self) -> dict[str, Any]:
+        """Extract validated OrchestratorDecision objects from policy or policy.planner."""
+        raw = getattr(self.policy, "last_orchestrator_decisions", None)
+        if raw is None and hasattr(self.policy, "planner"):
+            raw = getattr(getattr(self.policy, "planner"), "last_orchestrator_decisions", None)
+        if not raw or not isinstance(raw, dict):
+            return {}
+        return dict(raw)
+
+    def _collect_recovery_monitoring(self) -> list[dict[str, Any]]:
+        """Extract closed-loop physical recovery monitoring records from policy or policy.planner."""
+        raw = getattr(self.policy, "recovery_monitoring_history", None)
+        if raw is None and hasattr(self.policy, "planner"):
+            raw = getattr(getattr(self.policy, "planner"), "recovery_monitoring_history", None)
+        if not raw or not isinstance(raw, list):
+            return []
+        return list(raw)
+
     def step_once(self) -> TickTrace:
         """Advance the episode by exactly one policy decision and one simulation physics step."""
         if self.current_frame is None:
@@ -237,13 +301,40 @@ class EpisodeSession:
         applied_this_tick: list[OperatorRequest] = []
         while self._pending_operator_requests:
             req = self._pending_operator_requests.pop(0)
-            if self.operator_handler is not None:
+            if req.kind == OperatorCommandKind.TELEOP_OVERRIDE:
+                params = dict(req.payload)
+                target_rid = str(params.get("robot_id", "planter"))
+                if params.get("active", False):
+                    lin = max(-0.5, min(0.5, float(params.get("linear_m_s", 0.0))))
+                    ang = max(-2.0, min(2.0, float(params.get("angular_rad_s", 0.0))))
+                    self.teleop_overrides[target_rid] = (lin, ang)
+                else:
+                    self.teleop_overrides.pop(target_rid, None)
+            elif self.operator_handler is not None:
                 self.operator_handler(self.sim, self.policy, req)
             applied_this_tick.append(req)
             self.applied_operator_requests.append(req)
 
         frame_before = self.current_frame
         decision = self.policy.decide(frame_before)
+        if self.teleop_overrides:
+            overridden_cmds: list[RobotCommand] = []
+            for cmd in decision.commands:
+                if cmd.robot_id in self.teleop_overrides:
+                    lin, ang = self.teleop_overrides[cmd.robot_id]
+                    overridden_cmds.append(
+                        RobotCommand(
+                            robot_id=cmd.robot_id,
+                            issued_at_s=frame_before.time_s,
+                            expires_at_s=frame_before.time_s + 0.25,
+                            linear_m_s=lin,
+                            angular_rad_s=ang,
+                            task_id="teleop:override",
+                        )
+                    )
+                else:
+                    overridden_cmds.append(cmd)
+            decision = Decision(decision.intents, tuple(overridden_cmds), decision.ingested_samples)
         self.last_decision = decision
 
         if self.shadow_policy is not None and self.shadow_policy is not self.policy:
@@ -252,6 +343,9 @@ class EpisodeSession:
             self.shadow_policy.decide(frame_before)
 
         self.rescue_assessments = self._collect_normalized_rescue_assessments()
+        self.fault_evidence = self._collect_fault_evidence()
+        self.orchestrator_decisions = self._collect_orchestrator_decisions()
+        self.recovery_monitoring = self._collect_recovery_monitoring()
 
         for view in self.views:
             view.consume(frame_before, decision)
@@ -364,6 +458,17 @@ def _default_mujoco_operator_handler(
         mode = str(params.get("comm_mode", "normal"))
         if hasattr(policy, "comm_mode"):
             setattr(policy, "comm_mode", mode)
+    elif request.kind == OperatorCommandKind.INJECT_OBSTACLE:
+        x_m = float(params.get("x_m", 1.25))
+        y_m = float(params.get("y_m", -0.50))
+        inject_fn = getattr(sim, "inject_dynamic_obstacle", None)
+        if callable(inject_fn):
+            inject_fn(x_m, y_m)
+    elif request.kind == OperatorCommandKind.INJECT_MUD_FAULT:
+        robot_id = str(params.get("robot_id", "planter"))
+        inject_mud = getattr(sim, "inject_mud_fault", None)
+        if callable(inject_mud):
+            inject_mud(robot_id)
     elif request.kind == OperatorCommandKind.EXPERIMENT_VEHICLE_SIZING:
         target_robot = str(params.get("robot_id", "all"))
         targets = ("planter", "scout") if target_robot == "all" else (target_robot,)
@@ -398,9 +503,12 @@ def create_mujoco_episode_session(
         inject_obstacle_at_s=inject_at,
         obstacle_xy=cfg.obstacle_xy,
         hidden_truth=truth,
-        trap_robot_id="planter" if cfg.is_golden_rescue else None,
+        trap_robot_id=cfg.trap_robot_id,
         trap_site_id=cfg.trap_site_id,
         trap_radius_m=cfg.trap_radius_m,
+        sensor_dropout_robot_id=cfg.sensor_dropout_robot_id,
+        sensor_dropout_window_s=cfg.sensor_dropout_window_s,
+        expose_bogged_flag=cfg.expose_bogged_flag,
     )
     caps = (
         (
@@ -411,9 +519,13 @@ def create_mujoco_episode_session(
         else DEFAULT_CAPABILITIES
     )
 
-    if cfg.is_golden_rescue or cfg.policy == "cooperative":
+    if cfg.is_rescue_scenario or cfg.policy == "cooperative":
         field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
-        planner: SimpleMissionPlanner = CooperativeSwarmPlanner(caps, advisor=advisor)
+        planner: SimpleMissionPlanner = CooperativeSwarmPlanner(
+            caps,
+            advisor=advisor,
+            rescue_policy=cfg.rescue_policy,
+        )
         controller = LocalController(
             ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
         )
@@ -425,6 +537,7 @@ def create_mujoco_episode_session(
             comm_range_m=cfg.comm_range_m,
             comm_mode=cfg.comms,
             advisor=advisor,
+            rescue_policy=cfg.rescue_policy,
         )
     else:
         field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
@@ -442,6 +555,7 @@ def create_mujoco_episode_session(
             comm_range_m=0.0 if is_single else 99.0,
             comm_mode="isolated" if is_single else "normal",
             advisor=advisor,
+            rescue_policy=cfg.rescue_policy,
         )
 
     return EpisodeSession(
@@ -452,6 +566,7 @@ def create_mujoco_episode_session(
         seed=cfg.seed,
         scenario=cfg.scenario,
         policy_name=cfg.effective_policy_label,
+        rescue_policy=cfg.rescue_policy,
         comms_mode=cfg.comms,
         operator_handler=_default_mujoco_operator_handler,
     )

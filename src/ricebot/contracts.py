@@ -135,14 +135,24 @@ class RecoveryFeedback:
     victim_displacement_m: float
     observed_at_s: float
     phase: str = ""
+    peak_constraint_force_n: float = 0.0
+    helper_pitch_rad: float = 0.0
+    helper_safe: bool = True
+    technique: str = "direct_pry_and_pull"
 
     def __post_init__(self) -> None:
-        _finite(self.victim_displacement_m, self.observed_at_s)
+        _finite(
+            self.victim_displacement_m,
+            self.observed_at_s,
+            self.peak_constraint_force_n,
+            self.helper_pitch_rad,
+        )
         if (
             not self.helper_robot_id
             or not self.target_robot_id
             or self.observed_at_s < 0
             or self.victim_displacement_m < 0
+            or self.peak_constraint_force_n < 0
         ):
             raise ValueError("invalid recovery feedback")
 
@@ -187,6 +197,7 @@ class TaskIntent:
     target_site_id: str | None = None
     target_robot_id: str | None = None
     reason: str = ""
+    recovery_technique: str = ""
 
     def __post_init__(self) -> None:
         _finite(self.issued_at_s, self.expires_at_s)
@@ -212,6 +223,7 @@ class RobotCommand:
     dock_pitch_rad: float = 0.0
     latch_rad: float = 0.0
     spade_rad: float = 0.0
+    recovery_technique: str = ""
 
     def __post_init__(self) -> None:
         _finite(
@@ -325,7 +337,7 @@ class RescueVerdict(str, Enum):
 
 @dataclass(frozen=True)
 class RescueAssessment:
-    """Canonical cost-benefit rescue assessment reconciling Policy A, Policy B, and Viewer fields.
+    """Canonical cost-benefit rescue assessment reconciling Policy A, Policy B, Orchestrator D, and Viewer E fields.
 
     Synchronises canonical attributes (`helper_robot_id`, `rescue_benefit`, `opportunity_cost`,
     `net_rescue_value`, `reason`) and Policy B / UI inspector aliases (`rescuer_robot_id`,
@@ -335,11 +347,20 @@ class RescueAssessment:
 
     stranded_robot_id: str
     verdict: RescueVerdict
+    failure_mode: Any = "unknown_terrain_trap"
+    recovery_action: Any = "investigate_perimeter"
+    mechanical_technique: Any = "none"
     nearest_site_id: str | None = None
+    perimeter_probe_site_id: str | None = None
     rescue_benefit: float = 0.0
     opportunity_cost: float = 0.0
     hazard_risk: float = 0.0
+    trap_probability: float = 0.0
+    expected_trap_loss: float = 0.0
     net_rescue_value: float = 0.0
+    required_pull_n: float = 0.0
+    trap_odds_uncertain: bool = False
+    active_compute_nodes: int = 1
     helper_robot_id: str | None = None
     reason: str = ""
     rescuer_robot_id: str | None = None
@@ -347,6 +368,10 @@ class RescueAssessment:
     rescue_opportunity_cost: float = 0.0
     net_rescue_utility: float = 0.0
     rationale: str = ""
+    safety_veto_applied: bool = False
+    fallback_used: bool = True
+    tool_call_count: int = 0
+    tool_trace: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.stranded_robot_id:
@@ -361,7 +386,10 @@ class RescueAssessment:
             self.rescue_benefit,
             self.opportunity_cost,
             self.hazard_risk,
+            self.trap_probability,
+            self.expected_trap_loss,
             self.net_rescue_value,
+            self.required_pull_n,
             self.expected_saved_benefit,
             self.rescue_opportunity_cost,
             self.net_rescue_utility,
@@ -386,6 +414,35 @@ class RescueAssessment:
         object.__setattr__(self, "reason", why)
         object.__setattr__(self, "rationale", why)
 
+    def to_dict(self) -> dict[str, object]:
+        def _val(v: Any) -> object:
+            return v.value if isinstance(v, Enum) else v
+
+        return {
+            "stranded_robot_id": self.stranded_robot_id,
+            "verdict": self.verdict.value,
+            "failure_mode": _val(self.failure_mode),
+            "recovery_action": _val(self.recovery_action),
+            "mechanical_technique": _val(self.mechanical_technique),
+            "nearest_site_id": self.nearest_site_id,
+            "perimeter_probe_site_id": self.perimeter_probe_site_id,
+            "rescue_benefit": self.rescue_benefit,
+            "opportunity_cost": self.opportunity_cost,
+            "hazard_risk": self.hazard_risk,
+            "trap_probability": self.trap_probability,
+            "expected_trap_loss": self.expected_trap_loss,
+            "net_rescue_value": self.net_rescue_value,
+            "required_pull_n": self.required_pull_n,
+            "trap_odds_uncertain": self.trap_odds_uncertain,
+            "active_compute_nodes": self.active_compute_nodes,
+            "helper_robot_id": self.helper_robot_id,
+            "reason": self.reason,
+            "safety_veto_applied": self.safety_veto_applied,
+            "fallback_used": self.fallback_used,
+            "tool_call_count": self.tool_call_count,
+            "tool_trace": list(self.tool_trace),
+        }
+
     @classmethod
     def from_any(cls, assessment: Any) -> RescueAssessment:
         """Convert any duck-typed planner/rescue RescueAssessment into a canonical RescueAssessment."""
@@ -394,11 +451,20 @@ class RescueAssessment:
         return cls(
             stranded_robot_id=getattr(assessment, "stranded_robot_id", ""),
             verdict=getattr(assessment, "verdict", RescueVerdict.HEALTHY),
+            failure_mode=getattr(assessment, "failure_mode", "unknown_terrain_trap"),
+            recovery_action=getattr(assessment, "recovery_action", "investigate_perimeter"),
+            mechanical_technique=getattr(assessment, "mechanical_technique", "none"),
             nearest_site_id=getattr(assessment, "nearest_site_id", None),
+            perimeter_probe_site_id=getattr(assessment, "perimeter_probe_site_id", None),
             rescue_benefit=float(getattr(assessment, "rescue_benefit", 0.0) or 0.0),
             opportunity_cost=float(getattr(assessment, "opportunity_cost", 0.0) or 0.0),
             hazard_risk=float(getattr(assessment, "hazard_risk", 0.0) or 0.0),
+            trap_probability=float(getattr(assessment, "trap_probability", 0.0) or 0.0),
+            expected_trap_loss=float(getattr(assessment, "expected_trap_loss", 0.0) or 0.0),
             net_rescue_value=float(getattr(assessment, "net_rescue_value", 0.0) or 0.0),
+            required_pull_n=float(getattr(assessment, "required_pull_n", 0.0) or 0.0),
+            trap_odds_uncertain=bool(getattr(assessment, "trap_odds_uncertain", False)),
+            active_compute_nodes=int(getattr(assessment, "active_compute_nodes", 1) or 1),
             helper_robot_id=getattr(assessment, "helper_robot_id", None),
             reason=str(getattr(assessment, "reason", "") or ""),
             rescuer_robot_id=getattr(assessment, "rescuer_robot_id", None),
@@ -406,6 +472,10 @@ class RescueAssessment:
             rescue_opportunity_cost=float(getattr(assessment, "rescue_opportunity_cost", 0.0) or 0.0),
             net_rescue_utility=float(getattr(assessment, "net_rescue_utility", 0.0) or 0.0),
             rationale=str(getattr(assessment, "rationale", "") or ""),
+            safety_veto_applied=bool(getattr(assessment, "safety_veto_applied", False)),
+            fallback_used=bool(getattr(assessment, "fallback_used", True)),
+            tool_call_count=int(getattr(assessment, "tool_call_count", 0) or 0),
+            tool_trace=tuple(getattr(assessment, "tool_trace", ()) or ()),
         )
 
 
@@ -417,8 +487,10 @@ class OperatorCommandKind(str, Enum):
     RESET = "reset"
     STEP_ONCE = "step_once"
     INJECT_OBSTACLE = "inject_obstacle"
+    INJECT_MUD_FAULT = "inject_mud_fault"
     SET_COMMS_MODE = "set_comms_mode"
     EXPERIMENT_VEHICLE_SIZING = "experiment_vehicle_sizing"
+    TELEOP_OVERRIDE = "teleop_override"
 
 
 @dataclass(frozen=True)

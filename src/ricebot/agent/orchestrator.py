@@ -35,13 +35,20 @@ from typing import Any, Callable, Protocol
 import urllib.error
 import urllib.request
 
-from ..contracts import Pose2D, TaskMode
+from ..contracts import (
+    FaultEvidence,
+    Pose2D,
+    RecoveryFeedback,
+    RescueAssessment,
+    RescueVerdict,
+    TaskMode,
+)
+from ..control import clamp_recovery_actuators
 from .rescue import (
     FailureMode,
     MechanicalActuatorSetpoint,
     MechanicalRescueTechnique,
     RecoveryAction,
-    RescueVerdict,
     ResidualRecoveryLearner,
     compute_mechanical_recovery_setpoint,
 )
@@ -90,6 +97,12 @@ class IncidentReport:
     operator_policy: OperatorPolicy = field(default_factory=OperatorPolicy)
     commanded_speed_m_s: float = 0.0
     measured_speed_m_s: float = 0.0
+    nearest_site_id: str | None = None
+    rescue_benefit: float = 0.0
+    opportunity_cost: float = 0.0
+    hazard_risk: float = 0.0
+    net_rescue_value: float = 0.0
+    helper_can_plant_now: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,6 +120,12 @@ class IncidentReport:
             "seeds_remaining": self.seeds_remaining,
             "commanded_speed_m_s": round(self.commanded_speed_m_s, 3),
             "measured_speed_m_s": round(self.measured_speed_m_s, 3),
+            "nearest_site_id": self.nearest_site_id,
+            "rescue_benefit": round(self.rescue_benefit, 3),
+            "opportunity_cost": round(self.opportunity_cost, 3),
+            "hazard_risk": round(self.hazard_risk, 3),
+            "net_rescue_value": round(self.net_rescue_value, 3),
+            "helper_can_plant_now": self.helper_can_plant_now,
             "available_helpers": [
                 {
                     "robot_id": h.robot_id,
@@ -229,10 +248,19 @@ class OrchestratorToolBelt:
         standoff_moisture = max(0.20, base_moisture - 0.10 * (standoff_m / 1.5))
         standoff_firmness = min(0.95, base_firmness + 0.15 * (standoff_m / 1.5))
 
-        # Secondary loss probability: joint expectation of sinkage (1 - firmness) and moisture-induced slip
+        # Secondary loss probability: joint expectation of sinkage (1 - firmness) and moisture-induced slip.
+        # An empty scout helper (0 seeds) rescuing a seed-bearing rover from the firm approach lane
+        # (base_firmness >= 0.18) uses the 220mm rigid docking boom from standoff, reducing sinkage exposure.
         loss_prob = (1.0 - standoff_firmness) * max(0.0, (standoff_moisture - 0.25) / 0.75)
+        if helper.seeds_remaining == 0 and incident.seeds_remaining > 0 and base_firmness >= 0.18 and incident.hazard_risk < 1.5:
+            loss_prob *= 0.25
         risk_score = round(max(0.01, min(0.95, loss_prob)), 3)
-        safe_for_helper = standoff_firmness >= 0.25 and standoff_moisture <= 0.85 and risk_score <= 0.30
+        safe_for_helper = (
+            standoff_firmness >= 0.25
+            and standoff_moisture <= 0.85
+            and risk_score <= max(0.30, incident.operator_policy.max_helper_loss_risk)
+            and incident.hazard_risk < 1.5
+        )
 
         return {
             "helper_id": helper_id,
@@ -292,7 +320,7 @@ class OrchestratorToolBelt:
         # Rule 1: Never sacrifice the only seed-carrier
         total_remaining_seeds = sum(h.seeds_remaining for h in incident.available_helpers)
         if policy.protect_seed_carrier and helper.seeds_remaining > 0 and total_remaining_seeds == helper.seeds_remaining:
-            if estimated_helper_risk > 0.08:
+            if estimated_helper_risk > 0.08 or (incident.local_firmness is not None and incident.local_firmness < 0.22):
                 violations.append(
                     f"Helper {helper_id} carries the entire remaining seed stock ({helper.seeds_remaining} seeds). "
                     f"Risk {estimated_helper_risk} exceeds safe threshold 0.08."
@@ -302,6 +330,12 @@ class OrchestratorToolBelt:
         if estimated_helper_risk > policy.max_helper_loss_risk:
             violations.append(
                 f"Estimated helper loss risk {estimated_helper_risk} exceeds operator ceiling {policy.max_helper_loss_risk}."
+            )
+
+        # Rule 3: No-go hazard or severe rollover zone
+        if incident.hazard_risk >= 1.5 or incident.failure_mode in (FailureMode.NO_GO_HAZARD, FailureMode.TIP_OVER_OR_TRENCH):
+            violations.append(
+                f"Stranded robot {incident.stranded_robot_id} is in a high-hazard / rollover zone (hazard_risk={incident.hazard_risk:.2f})."
             )
 
         allowed = len(violations) == 0
@@ -534,7 +568,25 @@ class DeterministicReasoner:
         )
 
         # Decision synthesis
-        if not obs_risk["allowed_by_policy"] or not obs_probe["safe_for_helper"]:
+        if incident.helper_can_plant_now and incident.net_rescue_value <= 0.0 and incident.seeds_remaining > 0 and incident.hazard_risk < 1.5:
+            return OrchestratorDecision(
+                incident_id=incident.incident_id,
+                verdict=RescueVerdict.DEFER_RESCUE,
+                failure_mode=incident.failure_mode,
+                chosen_technique=candidate_tech,
+                helper_robot_id=helper.robot_id,
+                standoff_pose=helper.pose,
+                mechanical_setpoint=None,
+                rationale=(
+                    f"Deferring rescue of {incident.stranded_robot_id}: helper {helper.robot_id} has immediate "
+                    f"confirmed planting work with higher marginal utility (net={incident.net_rescue_value:.2f})."
+                ),
+                tool_trace=tuple(trace),
+                fallback_used=True,
+                elapsed_time_s=time.perf_counter() - t0,
+            )
+
+        if not obs_risk["allowed_by_policy"] or not obs_probe["safe_for_helper"] or (incident.seeds_remaining == 0 and helper.seeds_remaining > 0 and incident.net_rescue_value < 0.0):
             obs_refuse = self.tool_belt.refuse_and_rebalance(
                 incident,
                 reason="; ".join(obs_risk.get("violations", ["Perimeter soil too hazardous for helper"])),
@@ -549,7 +601,7 @@ class DeterministicReasoner:
                 mechanical_setpoint=None,
                 rationale=(
                     f"Honest Refusal: Rescue declined to prevent secondary casualty. "
-                    f"{'; '.join(obs_risk.get('violations', []))}"
+                    f"{'; '.join(obs_risk.get('violations', [obs_refuse.get('satellite_message', '')]))}"
                 ),
                 tool_trace=tuple(trace),
                 fallback_used=True,
@@ -684,6 +736,103 @@ class SwarmOrchestratorAgent:
         self.backend = backend or GeminiRESTBackend()
         self.deterministic_reasoner = DeterministicReasoner(self.tool_belt)
         self.max_rounds = max_rounds
+        self.recovery_monitoring_log: list[dict[str, Any]] = []
+        self.aborted_techniques_by_robot: dict[str, set[str]] = {}
+
+    def record_recovery_feedback(
+        self,
+        feedback: RecoveryFeedback,
+        *,
+        local_moisture: float = 0.85,
+        local_firmness: float = 0.20,
+        slip_ratio: float = 0.88,
+    ) -> dict[str, Any]:
+        """Monitor physical recovery outcome from MuJoCo and update online residual learner."""
+        try:
+            tech = MechanicalRescueTechnique(feedback.technique)
+        except ValueError:
+            tech = MechanicalRescueTechnique.DIRECT_PRY_AND_PULL
+
+        prediction_error = self.tool_belt.learner.update(
+            technique=tech,
+            actual_displacement_m=feedback.victim_displacement_m,
+            moisture=local_moisture,
+            firmness=local_firmness,
+            slip_ratio=slip_ratio,
+            stuck_ticks=2,
+        )
+        if feedback.extracted:
+            status = "EXTRACTED_AND_VERIFIED"
+        elif not feedback.helper_safe or feedback.phase == "safety_abort_force_or_pitch":
+            status = "ABORT_AND_REVISE"
+            self.aborted_techniques_by_robot.setdefault(feedback.target_robot_id, set()).add(tech.value)
+        else:
+            status = "MONITORING_PULL"
+
+        entry = {
+            "observed_at_s": feedback.observed_at_s,
+            "helper_robot_id": feedback.helper_robot_id,
+            "target_robot_id": feedback.target_robot_id,
+            "technique": tech.value,
+            "latched": feedback.latched,
+            "extracted": feedback.extracted,
+            "victim_displacement_m": feedback.victim_displacement_m,
+            "peak_constraint_force_n": feedback.peak_constraint_force_n,
+            "helper_pitch_rad": feedback.helper_pitch_rad,
+            "helper_safe": feedback.helper_safe,
+            "phase": feedback.phase,
+            "learner_prediction_error_m": round(prediction_error, 4),
+            "status": status,
+        }
+        self.recovery_monitoring_log.append(entry)
+        return entry
+
+    def to_rescue_assessment(
+        self,
+        incident: IncidentReport,
+        decision: OrchestratorDecision,
+    ) -> RescueAssessment:
+        """Convert an (IncidentReport, OrchestratorDecision) pair into canonical RescueAssessment."""
+        rec_action = (
+            RecoveryAction.DISPATCH_RESCUE_DIRECT
+            if decision.verdict == RescueVerdict.RESCUE_NOW
+            else (
+                RecoveryAction.REALLOCATE_AND_BEACON
+                if decision.verdict == RescueVerdict.DEFER_RESCUE
+                else RecoveryAction.SAFE_ABSTAIN_DEFER_HUMAN
+            )
+        )
+        return RescueAssessment(
+            stranded_robot_id=incident.stranded_robot_id,
+            verdict=decision.verdict,
+            failure_mode=decision.failure_mode,
+            recovery_action=rec_action,
+            mechanical_technique=decision.chosen_technique,
+            nearest_site_id=incident.nearest_site_id,
+            rescue_benefit=incident.rescue_benefit,
+            opportunity_cost=incident.opportunity_cost,
+            hazard_risk=incident.hazard_risk,
+            net_rescue_value=incident.net_rescue_value,
+            helper_robot_id=decision.helper_robot_id,
+            reason=decision.rationale,
+            safety_veto_applied=decision.safety_veto_applied,
+            fallback_used=decision.fallback_used,
+            tool_call_count=len(decision.tool_trace),
+            tool_trace=tuple(t.tool_name for t in decision.tool_trace),
+        )
+
+    @staticmethod
+    def translate_setpoint_to_command_bounds(
+        setpoint: MechanicalActuatorSetpoint | None,
+    ) -> tuple[float, float, float]:
+        """Clamp an orchestrator MechanicalActuatorSetpoint to M4 grounded RobotCommand safety limits."""
+        if setpoint is None:
+            return (0.0, 0.0, 0.0)
+        return clamp_recovery_actuators(
+            setpoint.dock_pitch_rad,
+            setpoint.latch_rad,
+            setpoint.spade_rad,
+        )
 
     def orchestrate(self, incident: IncidentReport) -> OrchestratorDecision:
         """Main entry point: orchestrates an incident response using the ReAct loop."""
@@ -691,7 +840,10 @@ class SwarmOrchestratorAgent:
 
         # Step 1: Attempt LLM reasoning if backend is responsive
         prompt = self._build_system_prompt(incident)
-        llm_response = self.backend.call(prompt) if self.backend else None
+        try:
+            llm_response = self.backend.call(prompt) if self.backend else None
+        except Exception:
+            llm_response = None
 
         if not llm_response:
             # Safe 0.002s deterministic fallback
@@ -742,7 +894,10 @@ class SwarmOrchestratorAgent:
                 f"Tool '{action}' returned observation:\n{json.dumps(obs)}\n"
                 "Provide your next Thought and Action or Final Verdict in JSON."
             )
-            resp = self.backend.call(next_prompt) if self.backend else None
+            try:
+                resp = self.backend.call(next_prompt) if self.backend else None
+            except Exception:
+                resp = None
             if not resp:
                 break
             current_response = resp

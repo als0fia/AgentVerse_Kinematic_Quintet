@@ -45,11 +45,21 @@ try:
 except ImportError:
     np = None
 
-from .rescue import DistressSignal, FailureMode, RescueEngine
+from .orchestrator import (
+    HelperStatus,
+    IncidentReport,
+    OperatorPolicy,
+    OrchestratorDecision,
+    SwarmOrchestratorAgent,
+)
+from .rescue import DistressSignal, FailureMode, MechanicalRescueTechnique, RescueEngine
 from ..contracts import (
     Decision,
+    FaultEvidence,
     ObservationFrame,
     Pose2D,
+    RescueAssessment,
+    RescueVerdict,
     RobotCapability,
     RobotCommand,
     RobotObservation,
@@ -59,9 +69,9 @@ from ..contracts import (
     TaskIntent,
     TaskMode,
 )
-from ..control import ControlLimits
+from ..control import ControlLimits, clamp_recovery_actuators
 from ..mission import SiteEstimate
-from .planner import RescueAssessment, RescueVerdict, SupervisoryAdvisor
+from .planner import SupervisoryAdvisor
 
 
 def _wrap_angle(angle: float) -> float:
@@ -783,6 +793,9 @@ class DecentralizedMycelialRuntime:
         envelope: SoilSafetyEnvelope = SoilSafetyEnvelope(),
         limits: ControlLimits = ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22),
         advisor: SupervisoryAdvisor | None = None,
+        orchestrator: SwarmOrchestratorAgent | None = None,
+        operator_policy: OperatorPolicy | None = None,
+        rescue_policy: str = "react_orchestrator",
     ) -> None:
         self.sites = {s.site_id: s for s in sites}
         self.capabilities = {c.robot_id: c for c in capabilities}
@@ -790,6 +803,9 @@ class DecentralizedMycelialRuntime:
         self.comm_mode = comm_mode
         self.envelope = envelope
         self.limits = limits
+        self.orchestrator = orchestrator or SwarmOrchestratorAgent()
+        self.operator_policy = operator_policy or OperatorPolicy()
+        self.rescue_policy = rescue_policy
         self.nodes: dict[str, DecentralizedRobotNode] = {
             c.robot_id: DecentralizedRobotNode(c, sites=sites, envelope=envelope, limits=limits)
             for c in capabilities
@@ -804,7 +820,10 @@ class DecentralizedMycelialRuntime:
         self.total_gossip_packets: int = 0
         self.advisor = advisor
         self._bogged_since_s: dict[str, float] = {}
+        self.last_fault_evidence: dict[str, FaultEvidence] = {}
         self.last_rescue_assessments: dict[str, RescueAssessment] = {}
+        self.last_orchestrator_decisions: dict[str, OrchestratorDecision] = {}
+        self.recovery_monitoring_history: list[dict[str, object]] = []
         self.last_advisor_recommendation: str | None = None
         self._sos_broadcast_sent: set[str] = set()
 
@@ -852,13 +871,38 @@ class DecentralizedMycelialRuntime:
                     node.local_map.attempted_sites.add(site_id)
 
         # 2. Each robot independently processes its own physical sensor suite into its private local map
+        for rf in frame.recovery_feedback:
+            mon = self.orchestrator.record_recovery_feedback(rf)
+            self.recovery_monitoring_history.append(mon)
         total_ingested = 0
         self.latest_sensor_telemetry = {}
+        self.last_fault_evidence = {}
         for robot_id, obs in obs_by_robot.items():
             node = self.nodes[robot_id]
+            prev_cmd_lin = node.last_commanded_linear_m_s
             telemetry, count, _ = node.process_local_sensors(obs, peer_poses)
             self.latest_sensor_telemetry[robot_id] = telemetry
             total_ingested += count
+            actively_cmd = abs(prev_cmd_lin) >= 0.04
+            clear_rng = obs.front_range_m is not None and obs.front_range_m > self.limits.stop_range_m
+            is_stall = bool(actively_cmd and clear_rng and obs.link_ok and telemetry.true_ground_speed_m_s < 0.02)
+            self.last_fault_evidence[robot_id] = FaultEvidence(
+                robot_id=robot_id,
+                observed_at_s=obs.time_s,
+                commanded_linear_m_s=prev_cmd_lin,
+                commanded_angular_rad_s=0.0,
+                observed_displacement_m=round(telemetry.true_ground_speed_m_s * 0.1, 5),
+                observed_yaw_delta_rad=0.0,
+                observed_speed_m_s=obs.true_speed_m_s,
+                slip_ratio=telemetry.slip_ratio,
+                pitch_rad=obs.pitch_rad,
+                roll_rad=obs.roll_rad,
+                front_range_m=obs.front_range_m,
+                link_ok=obs.link_ok,
+                stalled_ticks=2 if (obs.is_bogged or is_stall) else 0,
+                is_commanded_motion_stall=is_stall,
+                confidence=0.95 if (obs.is_bogged or is_stall) else 0.85,
+            )
 
         # 3. Each robot independently computes its initial local task bids before peer negotiation
         local_bids_by_robot: dict[str, list[TaskBidProposal]] = {
@@ -1069,20 +1113,78 @@ class DecentralizedMycelialRuntime:
             saved_benefit = round((1.80 if self.capabilities[stranded_id].can_plant else 0.70) + 1.35 * stranded_obs.seeds_remaining, 4)
             opp_cost = round(0.18 * eta_s, 4)
             net_utility = round(saved_benefit - opp_cost, 4)
-            verdict = RescueVerdict.RESCUE_NOW if net_utility >= 0.0 else RescueVerdict.DEFER_RESCUE
-            assessment = RescueAssessment(
+
+            est_near = self.nodes[rescuer.robot_id].local_map.estimate(nearest_site_id)
+            local_m = est_near.moisture if est_near.moisture is not None else 0.88
+            local_f = est_near.firmness if est_near.firmness is not None else 0.19
+            incident = IncidentReport(
+                incident_id=f"inc-{stranded_id}-{frame.time_s:.2f}",
+                time_s=frame.time_s,
                 stranded_robot_id=stranded_id,
-                rescuer_robot_id=rescuer.robot_id,
-                nearest_site_id=nearest_site_id,
-                expected_saved_benefit=saved_benefit,
-                rescue_opportunity_cost=opp_cost,
-                net_rescue_utility=net_utility,
-                verdict=verdict,
-                rationale=(
-                    f"Peer rescue saves {saved_benefit:.2f} expected utility at cost {opp_cost:.2f} "
-                    f"(net={net_utility:+.2f}, ETA={eta_s:.1f}s) -> {verdict.value}"
+                failure_mode=FailureMode.CONTAGIOUS_MUD_TRAP if local_f < 0.25 else FailureMode.ASYMMETRIC_SLIP_OR_SUCTION,
+                stalled_window_s=max(0.2, frame.time_s - self._bogged_since_s.get(stranded_id, frame.time_s)),
+                slip_ratio=self.latest_sensor_telemetry[stranded_id].slip_ratio,
+                imu_pitch_deg=self.latest_sensor_telemetry[stranded_id].pitch_deg,
+                imu_roll_deg=self.latest_sensor_telemetry[stranded_id].roll_deg,
+                front_range_m=stranded_obs.front_range_m,
+                local_moisture=local_m,
+                local_firmness=local_f,
+                seeds_remaining=stranded_obs.seeds_remaining,
+                available_helpers=tuple(
+                    HelperStatus(
+                        robot_id=c.robot_id,
+                        pose=c.pose,
+                        seeds_remaining=c.seeds_remaining,
+                        battery_ratio=0.95,
+                        is_operational=c.link_ok,
+                    )
+                    for c in candidates
                 ),
+                operator_policy=self.operator_policy,
+                commanded_speed_m_s=abs(self.nodes[stranded_id].last_commanded_linear_m_s),
+                measured_speed_m_s=stranded_obs.true_speed_m_s or 0.0,
+                nearest_site_id=nearest_site_id,
+                rescue_benefit=saved_benefit,
+                opportunity_cost=opp_cost,
+                hazard_risk=0.0,
+                net_rescue_value=net_utility,
+                helper_can_plant_now=False,
             )
+            if self.rescue_policy == "react_orchestrator":
+                orch_dec = self.orchestrator.orchestrate(incident)
+                self.last_orchestrator_decisions[stranded_id] = orch_dec
+                assessment = self.orchestrator.to_rescue_assessment(incident, orch_dec)
+                verdict = assessment.verdict
+                chosen_tech_val = orch_dec.chosen_technique.value
+            elif self.rescue_policy == "never_rescue":
+                verdict = RescueVerdict.ABANDON_ESCALATE
+                chosen_tech_val = "none"
+                assessment = RescueAssessment(
+                    stranded_robot_id=stranded_id,
+                    rescuer_robot_id=None,
+                    nearest_site_id=nearest_site_id,
+                    expected_saved_benefit=saved_benefit,
+                    rescue_opportunity_cost=opp_cost,
+                    net_rescue_utility=net_utility,
+                    verdict=verdict,
+                    rationale="baseline(never_rescue): never dispatch peer rescue",
+                )
+            else:
+                verdict = RescueVerdict.RESCUE_NOW if net_utility >= 0.0 else RescueVerdict.DEFER_RESCUE
+                chosen_tech_val = "direct_pry_and_pull"
+                assessment = RescueAssessment(
+                    stranded_robot_id=stranded_id,
+                    rescuer_robot_id=rescuer.robot_id,
+                    nearest_site_id=nearest_site_id,
+                    expected_saved_benefit=saved_benefit,
+                    rescue_opportunity_cost=opp_cost,
+                    net_rescue_utility=net_utility,
+                    verdict=verdict,
+                    rationale=(
+                        f"Peer rescue saves {saved_benefit:.2f} expected utility at cost {opp_cost:.2f} "
+                        f"(net={net_utility:+.2f}, ETA={eta_s:.1f}s) -> {verdict.value}"
+                    ),
+                )
             self.last_rescue_assessments[stranded_id] = assessment
             if verdict == RescueVerdict.RESCUE_NOW:
                 rescue_intent_by_robot[rescuer.robot_id] = TaskIntent(
@@ -1094,6 +1196,7 @@ class DecentralizedMycelialRuntime:
                     target_site_id=nearest_site_id,
                     target_robot_id=stranded_id,
                     reason=f"rescue triage={verdict.value} for {stranded_id} at {nearest_site_id} ({assessment.rationale})",
+                    recovery_technique=chosen_tech_val if chosen_tech_val != "none" else "direct_pry_and_pull",
                 )
                 if stranded_id not in self._sos_broadcast_sent:
                     self._sos_broadcast_sent.add(stranded_id)

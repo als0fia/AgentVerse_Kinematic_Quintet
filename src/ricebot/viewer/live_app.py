@@ -28,6 +28,9 @@ from ..agent import (
 from ..contracts import (
     Decision,
     ObservationFrame,
+    OperatorCommandKind,
+    OperatorRequest,
+    RescueVerdict,
     RobotCapability,
     RobotCommand,
     SensorKind,
@@ -37,7 +40,7 @@ from ..contracts import (
 from ..control import ControlLimits, LocalController
 from ..mission import MeasuredFieldMap, SimpleMissionPlanner
 from ..mujoco_sim.adapter import DEFAULT_CAPABILITIES, DEFAULT_SITES, MujocoPaddySimulation
-from ..runtime import MissionCore
+from ..runtime import EpisodeConfig, EpisodeSession, MissionCore, create_mujoco_episode_session
 from ..world import generate_hidden_soil_truth
 
 
@@ -138,16 +141,17 @@ class LiveSwarmDashboardApp:
         self,
         root: tk.Tk,
         *,
-        initial_scenario: str = "nominal",
+        initial_scenario: str = "golden_rescue",
         initial_comms: str = "normal",
-        initial_policy: str = "mycelial",
+        initial_policy: str = "cooperative",
+        initial_rescue_policy: str = "react_orchestrator",
         seed: int = 7,
     ) -> None:
         self.root = root
         self.root.title(
-            "Antenna (PaddyPatch rice.v1) — Large Side-by-Side 3D MuJoCo Physics, 2D Swarm Belief & Multi-Seed Benchmark Suite"
+            "Antenna (PaddyPatch rice.v1) — Canonical ABDE 3D MuJoCo Rescue, 2D Swarm Belief & Orchestrator Suite"
         )
-        self.root.geometry("1860x1000")
+        self.root.geometry("1860x1020")
         try:
             self.root.state("zoomed")
         except Exception:
@@ -158,6 +162,7 @@ class LiveSwarmDashboardApp:
         self.seed_var = tk.IntVar(value=self.seed)
         self.scenario_var = tk.StringVar(value=initial_scenario)
         self.policy_var = tk.StringVar(value=initial_policy)
+        self.rescue_policy_var = tk.StringVar(value=initial_rescue_policy)
         self.comms_var = tk.StringVar(value=initial_comms)
         self.camera_var = tk.StringVar(value="isometric")
         self.selected_robot_var = tk.StringVar(value="planter")
@@ -181,6 +186,7 @@ class LiveSwarmDashboardApp:
         self._gl_viewer: Any = None
         self._central_core: MissionCore | None = None
         self._central_samples_count: int = 0
+        self.session: EpisodeSession
 
         self.trajectories: dict[str, list[tuple[float, float]]] = {"planter": [], "scout": []}
         self._init_simulation()
@@ -192,53 +198,33 @@ class LiveSwarmDashboardApp:
         self.seed = int(self.seed_var.get())
         scen = self.scenario_var.get()
         pol = self.policy_var.get()
+        rescue_pol = self.rescue_policy_var.get()
         comms = self.comms_var.get()
-        inject_at = 1.6 if scen == "obstacle" else None
         self.hidden_truth = generate_hidden_soil_truth(scen, self.seed)
 
-        self.sim = MujocoPaddySimulation(
-            sites=DEFAULT_SITES,
-            probe_radius_m=0.28,
-            substeps_per_tick=25,
-            inject_obstacle_at_s=inject_at,
-            obstacle_xy=(0.75, -0.25),
-            hidden_truth=self.hidden_truth,
+        cfg = EpisodeConfig(
+            scenario=scen,
+            policy=pol,
+            comms=comms,
+            seed=self.seed,
+            steps=195 if scen in ("golden_rescue", "high_risk_abstain") else 160,
+            single_rover_only=(pol == "single_rover"),
+            rescue_policy=rescue_pol,
         )
-        caps = (
-            (
-                RobotCapability("planter", can_sample=True, can_plant=True),
-                RobotCapability("scout", can_sample=False, can_plant=False),
-            )
-            if pol == "single_rover"
-            else DEFAULT_CAPABILITIES
-        )
-        # Always maintain DecentralizedMycelialRuntime so local belief maps & SLAM grids can be inspected
-        self.runtime = DecentralizedMycelialRuntime(
-            sites=DEFAULT_SITES,
-            capabilities=caps,
-            comm_range_m=2.15 if pol == "mycelial" else (0.0 if pol == "single_rover" else 99.0),
-            comm_mode=comms if pol == "mycelial" else ("isolated" if pol == "single_rover" else "normal"),
-        )
-        if pol in ("centralized", "single_rover"):
-            field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
-            planner = SimpleMissionPlanner(caps)
-            controller = LocalController(
-                ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
-            )
-            self._central_core = MissionCore(field_map, planner, controller)
-        else:
+        t0 = time.perf_counter()
+        self.session = create_mujoco_episode_session(cfg, include_shadow_mycelial=True)
+        self.sim = self.session.sim  # type: ignore[assignment]
+        if isinstance(self.session.policy, DecentralizedMycelialRuntime):
+            self.runtime = self.session.policy
             self._central_core = None
+        else:
+            self.runtime = self.session.shadow_policy  # type: ignore[assignment]
+            self._central_core = self.session.policy  # type: ignore[assignment]
         self._central_samples_count = 0
 
+        self.frame: ObservationFrame = self.session.reset(self.seed)
+        self.decision: Decision = self.session.last_decision  # type: ignore[assignment]
         self._apply_vehicle_sizing_to_sim()
-        t0 = time.perf_counter()
-        self.frame: ObservationFrame = self.sim.reset(self.seed)
-        if self._central_core is not None:
-            # Mirror samples into runtime nodes for 2D/3D belief visualization while using MissionCore decisions
-            self.runtime.decide(self.frame)
-            self.decision: Decision = self._central_core.decide(self.frame)
-        else:
-            self.decision = self.runtime.decide(self.frame)
         self.last_compute_ms = (time.perf_counter() - t0) * 1000.0
         self.step_count = 0
         self.trajectories = {
@@ -267,18 +253,36 @@ class LiveSwarmDashboardApp:
         r_m = float(self.wheel_radius_mm_var.get()) / 1000.0
         b_m = float(self.wheel_width_mm_var.get()) / 1000.0
         sel = self.selected_robot_var.get()
-        if sel in ("planter", "scout"):
-            self.sim.robot_mass_kg[sel] = m_kg
-            self.sim.robot_wheel_radius_m[sel] = r_m
-            self.sim.robot_wheel_width_m[sel] = b_m
-        else:
-            for rid in ("planter", "scout"):
-                self.sim.robot_mass_kg[rid] = m_kg
-                self.sim.robot_wheel_radius_m[rid] = r_m
-                self.sim.robot_wheel_width_m[rid] = b_m
-        self.sim._update_rover_terramechanics()
-        self.sim._apply_3d_terrain_and_mud_sinkage_pose()
-        mujoco.mj_forward(self.sim.model, self.sim.data)
+        if hasattr(self, "session") and self.session is not None:
+            t_now = self.frame.time_s if hasattr(self, "frame") and self.frame is not None else 0.0
+            self.session.submit_operator_request(
+                OperatorRequest(
+                    request_id=f"sizing-{self.step_count}-{int(time.time()*1000)%10000}",
+                    kind=OperatorCommandKind.EXPERIMENT_VEHICLE_SIZING,
+                    issued_at_s=t_now,
+                    payload=(
+                        ("robot_id", sel if sel in ("planter", "scout") else "all"),
+                        ("mass_kg", m_kg),
+                        ("wheel_radius_m", r_m),
+                        ("wheel_width_m", b_m),
+                    ),
+                )
+            )
+
+    def trigger_mud_fault_injection(self) -> None:
+        """Route a validated INJECT_MUD_FAULT command through EpisodeSession."""
+        sel = self.selected_robot_var.get()
+        t_now = self.frame.time_s if hasattr(self, "frame") and self.frame is not None else 0.0
+        site_id = "patch_a" if sel == "scout" else "patch_d"
+        self.session.submit_operator_request(
+            OperatorRequest(
+                request_id=f"inject-mud-{self.step_count}",
+                kind=OperatorCommandKind.INJECT_MUD_FAULT,
+                issued_at_s=t_now,
+                payload=(("robot_id", sel), ("site_id", site_id)),
+            )
+        )
+        self._refresh_all_views()
 
     def _build_ui(self) -> None:
         # Row 1: Top Control Toolbar (Play/Step/Reset + Seed + Scenario + Policy + Comms)
@@ -321,6 +325,17 @@ class LiveSwarmDashboardApp:
 
         tk.Button(
             toolbar,
+            text="⚡ Inject Mud Fault",
+            command=self.trigger_mud_fault_injection,
+            bg="#9a3412",
+            fg="white",
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=2,
+        ).pack(side=tk.LEFT, padx=2, pady=4)
+
+        tk.Button(
+            toolbar,
             text="⚠ 13kg Mud Belly-Out",
             command=self.trigger_mud_belly_out_demo,
             bg="#b91c1c",
@@ -328,7 +343,7 @@ class LiveSwarmDashboardApp:
             font=("Segoe UI", 8, "bold"),
             padx=7,
             pady=2,
-        ).pack(side=tk.LEFT, padx=4, pady=4)
+        ).pack(side=tk.LEFT, padx=3, pady=4)
 
         tk.Button(
             toolbar,
@@ -371,14 +386,16 @@ class LiveSwarmDashboardApp:
                 font=("Consolas", 8, "bold"),
             ).pack(side=tk.LEFT, padx=1)
 
-        # Scenario Selector (Reconciled with Benchmark Harness)
+        # Scenario Selector (Reconciled with Canonical Rescue + Benchmark Harness)
         tk.Label(toolbar, text="| Scenario:", bg="#111d2c", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(
             side=tk.LEFT, padx=(6, 2)
         )
         for scen_id, scen_lbl in (
+            ("golden_rescue", "★ Golden Rescue"),
+            ("high_risk_abstain", "★ High-Risk Refusal"),
             ("nominal", "Nominal"),
             ("bad_soil", "Bad Soil"),
-            ("shifted_moisture", "Seed-Shifted Moisture"),
+            ("shifted_moisture", "Shifted Moisture"),
             ("obstacle", "Obstacle"),
             ("sensor_degraded", "Degraded Sensor"),
         ):
@@ -389,17 +406,18 @@ class LiveSwarmDashboardApp:
                 value=scen_id,
                 command=self.reset_episode,
                 bg="#111d2c",
-                fg="#e2e8f0",
+                fg="#fef08a" if scen_id in ("golden_rescue", "high_risk_abstain") else "#e2e8f0",
                 selectcolor="#0284c7",
                 activebackground="#111d2c",
-                font=("Segoe UI", 8),
+                font=("Segoe UI", 8, "bold" if scen_id in ("golden_rescue", "high_risk_abstain") else "normal"),
             ).pack(side=tk.LEFT, padx=1)
 
-        # Policy Selector (Mycelial SLAM Policy B vs Centralised Policy A vs Single Rover)
+        # Policy Selector (Cooperative Rescue vs Mycelial SLAM Policy B vs Centralised Policy A vs Single Rover)
         tk.Label(toolbar, text="| Policy:", bg="#111d2c", fg="#38bdf8", font=("Segoe UI", 9, "bold")).pack(
             side=tk.LEFT, padx=(6, 2)
         )
         for pol_id, pol_lbl in (
+            ("cooperative", "Cooperative Rescue (A+D)"),
             ("mycelial", "Mycelial SLAM (B)"),
             ("centralized", "Centralised (A)"),
             ("single_rover", "Single Rover"),
@@ -450,7 +468,7 @@ class LiveSwarmDashboardApp:
 
         # Row 2: Live Independent Benchmark Grader & D-0010 Equal-Work Comm Telemetry Bar
         bench_bar = tk.Frame(self.root, bg="#0d1826", highlightthickness=1, highlightbackground="#1f3247")
-        bench_bar.pack(fill=tk.X, padx=8, pady=(0, 3))
+        bench_bar.pack(fill=tk.X, padx=8, pady=(0, 2))
 
         self.bench_metrics_lbl = tk.Label(
             bench_bar,
@@ -466,7 +484,7 @@ class LiveSwarmDashboardApp:
 
         tk.Button(
             bench_bar,
-            text="📊 Show 5-Seed Benchmark Table",
+            text="📊 Show Benchmark & Rescue Baseline Tables",
             command=self._show_multiseed_benchmark_popup,
             bg="#1e293b",
             fg="#fbbf24",
@@ -486,6 +504,48 @@ class LiveSwarmDashboardApp:
             activebackground="#0d1826",
             font=("Segoe UI", 8, "bold"),
         ).pack(side=tk.RIGHT, padx=6, pady=2)
+
+        # Row 2A: Agent D Rescue Orchestrator & B Physical Recovery Telemetry Bar
+        rescue_bar = tk.Frame(self.root, bg="#131c2e", highlightthickness=1, highlightbackground="#334155")
+        rescue_bar.pack(fill=tk.X, padx=8, pady=(0, 2))
+
+        tk.Label(
+            rescue_bar,
+            text="🧠 Rescue Policy (D):",
+            bg="#131c2e",
+            fg="#fbbf24",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side=tk.LEFT, padx=(6, 2))
+        for rpol_id, rpol_lbl in (
+            ("react_orchestrator", "D: ReAct Orchestrator"),
+            ("numerical_triage", "Numerical Triage"),
+            ("always_rescue", "Always Rescue"),
+            ("never_rescue", "Never Rescue"),
+        ):
+            tk.Radiobutton(
+                rescue_bar,
+                text=rpol_lbl,
+                variable=self.rescue_policy_var,
+                value=rpol_id,
+                command=self.reset_episode,
+                bg="#131c2e",
+                fg="#e2e8f0",
+                selectcolor="#0284c7",
+                activebackground="#131c2e",
+                font=("Segoe UI", 8, "bold" if rpol_id == "react_orchestrator" else "normal"),
+            ).pack(side=tk.LEFT, padx=1)
+
+        self.rescue_banner_lbl = tk.Label(
+            rescue_bar,
+            text="Rescue Orchestrator (D) & Physical Recovery (B): Nominal Fieldwork",
+            bg="#131c2e",
+            fg="#a7f3d0",
+            font=("Consolas", 8, "bold"),
+            anchor="w",
+            padx=8,
+            pady=2,
+        )
+        self.rescue_banner_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Row 2B: Compact Multi-Robot Color-Coded Status, Plan Summary & Emergency Teleop Bar
         plan_bar = tk.Frame(self.root, bg="#09131f", highlightthickness=1, highlightbackground="#1f3247")
@@ -920,18 +980,36 @@ class LiveSwarmDashboardApp:
         self.human_control_var.set(active)
         self.manual_lin_m_s = 0.0
         self.manual_ang_rad_s = 0.0
+        sel_rid = self.selected_robot_var.get()
+        t_now = self.frame.time_s if hasattr(self, "frame") and self.frame is not None else 0.0
         if active:
-            sel = self.selected_robot_var.get().upper()
+            sel = sel_rid.upper()
             self.human_ctrl_btn.configure(
                 text=f"🛑 HUMAN CONTROL ACTIVE ({sel})",
                 bg="#9333ea",
                 fg="#ffffff",
+            )
+            self.session.submit_operator_request(
+                OperatorRequest(
+                    request_id=f"teleop-on-{self.step_count}",
+                    kind=OperatorCommandKind.TELEOP_OVERRIDE,
+                    issued_at_s=t_now,
+                    payload=(("robot_id", sel_rid), ("active", True), ("linear_m_s", 0.0), ("angular_rad_s", 0.0)),
+                )
             )
         else:
             self.human_ctrl_btn.configure(
                 text="🛑 Emergency Human Control: OFF",
                 bg="#4c1d95",
                 fg="#f3e8ff",
+            )
+            self.session.submit_operator_request(
+                OperatorRequest(
+                    request_id=f"teleop-off-{self.step_count}",
+                    kind=OperatorCommandKind.TELEOP_OVERRIDE,
+                    issued_at_s=t_now,
+                    payload=(("robot_id", sel_rid), ("active", False)),
+                )
             )
         self._refresh_all_views()
 
@@ -941,6 +1019,21 @@ class LiveSwarmDashboardApp:
             self.toggle_emergency_human_control()
         self.manual_lin_m_s = float(lin_m_s)
         self.manual_ang_rad_s = float(ang_rad_s)
+        sel_rid = self.selected_robot_var.get()
+        t_now = self.frame.time_s if hasattr(self, "frame") and self.frame is not None else 0.0
+        self.session.submit_operator_request(
+            OperatorRequest(
+                request_id=f"teleop-cmd-{self.step_count}",
+                kind=OperatorCommandKind.TELEOP_OVERRIDE,
+                issued_at_s=t_now,
+                payload=(
+                    ("robot_id", sel_rid),
+                    ("active", True),
+                    ("linear_m_s", self.manual_lin_m_s),
+                    ("angular_rad_s", self.manual_ang_rad_s),
+                ),
+            )
+        )
         if not self.playing:
             self.step_once()
         else:
@@ -949,30 +1042,43 @@ class LiveSwarmDashboardApp:
     def _format_robot_plan_sentence(self, rid: str) -> tuple[str, str, str]:
         """Return (status_label, hex_color, human_readable_plan) for a robot."""
         sink = self.sim.latest_terramechanics.get(rid)
-        bellied = bool(sink and sink.bellied_out)
+        obs_by_id = {r.robot_id: r for r in self.frame.robots}
+        r_obs = obs_by_id.get(rid)
+        bellied = bool((sink and sink.bellied_out) or (r_obs and r_obs.is_bogged))
         if self.human_control_var.get() and rid == self.selected_robot_var.get():
             return (
                 "HUMAN CONTROL",
                 "#a855f7",
                 f"{rid.upper()} is under Emergency Human Control (v={self.manual_lin_m_s:+.2f}m/s, ω={self.manual_ang_rad_s:+.2f}r/s)",
             )
+        intents_by_id = {i.robot_id: i for i in self.decision.intents}
+        intent = intents_by_id.get(rid)
+        if intent is not None and intent.mode == TaskMode.RESCUE:
+            tech = intent.recovery_technique or "rigid_dock_tow"
+            tgt = (intent.target_robot_id or "peer").upper()
+            return (
+                "RESCUING PEER",
+                "#f59e0b",
+                f"{rid.upper()} is executing [{tech}] to extract stranded {tgt}",
+            )
         if bellied:
-            peer = "SCOUT" if rid == "planter" else "PLANTER"
+            orch_dec = self.session.orchestrator_decisions.get(rid)
+            if orch_dec is not None and orch_dec.verdict == RescueVerdict.ABANDON_ESCALATE:
+                return (
+                    "STRANDED (REFUSED)",
+                    "#ef4444",
+                    f"{rid.upper()} bogged -> D REFUSED rescue (protecting seed-carrier)",
+                )
+            helper = (
+                orch_dec.helper_robot_id.upper()
+                if orch_dec and orch_dec.helper_robot_id
+                else ("SCOUT" if rid == "planter" else "PLANTER")
+            )
             return (
                 "IMMOBILIZED (S1)",
                 "#ef4444",
-                f"{rid.upper()} is bellied out in deep mud -> {peer} assigned to assist/retrieve",
+                f"{rid.upper()} is immobilized in mud -> {helper} assessing/executing physical rescue",
             )
-        other_rid = "planter" if rid == "scout" else "scout"
-        other_sink = self.sim.latest_terramechanics.get(other_rid)
-        if other_sink and other_sink.bellied_out:
-            return (
-                "RETRIEVING PEER",
-                "#f59e0b",
-                f"{rid.upper()} is going to retrieve immobilized {other_rid.upper()}",
-            )
-        intents_by_id = {i.robot_id: i for i in self.decision.intents}
-        intent = intents_by_id.get(rid)
         if intent is None or intent.mode == TaskMode.HOLD:
             return ("HOLD / STANDBY", "#94a3b8", f"{rid.upper()} is holding position on standby")
         if intent.mode == TaskMode.PLANT:
@@ -1001,10 +1107,10 @@ class LiveSwarmDashboardApp:
             pass
 
     def _show_multiseed_benchmark_popup(self) -> None:
-        """Display the reconciled 5-seed x 6-scenario Independent Benchmark Suite summary in a popup window."""
+        """Display the reconciled 5-seed x 6-scenario Independent Benchmark Suite + Matched Rescue Baselines."""
         win = tk.Toplevel(self.root)
-        win.title("Independent Multi-Seed Benchmark Suite Summary (Seeds 1..5, D-0010 Equal-Work Comm)")
-        win.geometry("920x480")
+        win.title("Independent Multi-Seed Benchmark & Matched-Scenario Rescue Baselines")
+        win.geometry("980x580")
         win.configure(bg="#0b131e")
         txt = tk.Text(
             win,
@@ -1017,27 +1123,33 @@ class LiveSwarmDashboardApp:
         )
         txt.pack(fill=tk.BOTH, expand=True)
         summary_table = (
-            "=== INDEPENDENT MULTI-SEED BENCHMARK SUITE (SEEDS 1, 2, 3, 4, 5 — 30 EPISODES / POLICY) ===\n"
-            "Reconciled between `sim/benchmark_harness.py`, `docs/BENCHMARK_AND_STATUS.md`, and `src/ricebot/`:\n\n"
+            "=== 1. MATCHED-SCENARIO RESCUE BASELINE COMPARISON (AGENT D ORCHESTRATOR vs BASELINES) ===\n"
+            "Evaluated on identical MuJoCo seeds & physical mud traps (`scripts/run_mujoco_paddypatch.py --compare-baselines`):\n\n"
+            "Scenario / Rescue Policy         | Orchestrator Action | Physical Recoveries | Viable Seeds | Secondary Casualties | End-State Bogged\n"
+            "---------------------------------+---------------------+---------------------+--------------+----------------------+-----------------\n"
+            "golden_rescue / react_orchestr.  | DISPATCH_RESCUE     |          1 (t=9.7s) |    2 / 2 ✓   |          0           | [] (All Free)\n"
+            "golden_rescue / numerical_triage | DISPATCH_RESCUE     |          1 (t=9.7s) |    2 / 2 ✓   |          0           | [] (All Free)\n"
+            "golden_rescue / always_rescue    | DISPATCH_RESCUE     |          0 (locked) |    0 / 2 ✗   |          0           | []\n"
+            "golden_rescue / never_rescue     | REFUSE_HIGH_RISK    |          0          |    0 / 2 ✗   |          0           | ['planter']\n"
+            "---------------------------------+---------------------+---------------------+--------------+----------------------+-----------------\n"
+            "high_risk_abstain / react_orch.  | REFUSE_HIGH_RISK    |          0 (refused)|    2 / 2 ✓   |          0 ✓         | ['scout']\n"
+            "high_risk_abstain / num_triage   | REFUSE_HIGH_RISK    |          0 (refused)|    2 / 2 ✓   |          0 ✓         | ['scout']\n"
+            "high_risk_abstain / always_resc. | DISPATCH_RESCUE     |          0 (failed) |    0 / 2 ✗   |          1 (PLANTER) | ['scout','planter']\n"
+            "high_risk_abstain / never_rescue | REFUSE_HIGH_RISK    |          0          |    2 / 2 ✓   |          0 ✓         | ['scout']\n\n"
+            "=== 2. INDEPENDENT MULTI-SEED FIELDWORK BENCHMARK SUITE (SEEDS 1..5 — 30 EPISODES / POLICY) ===\n"
             "Policy                          | Viable Yield | Wasted Drops | Completion (s) | Map RMSE | Wire Bytes | vs 10Hz Stream\n"
             "--------------------------------+--------------+--------------+----------------+----------+------------+---------------\n"
             "1. Blind Grid (No Sensors)      |  65.6% ±11%  |  0.90 / ep   |   7.56 ± 0.04  |  0.2999  |       0 B  | (No Sensing)\n"
             "2. Single Rover (No Swarm)      |  72.2% ±14%  |  0.00 / ep   |   9.72 ± 2.86  |  0.1456  |       0 B  | (1 Rover Idle)\n"
             "3. Centralised Simple (Pol A)   |  94.4% ±11%  |  0.00 / ep   |   7.74 ± 2.75  |  0.0889  |  18,546 B  | 10Hz Baseline\n"
             "4. Centralised Auction          |  94.4% ±11%  |  0.00 / ep   |   7.74 ± 2.75  |  0.0889  |  20,418 B  | +10.1% Overhead\n"
-            "5. Mycelial SLAM + Gossip (B)   | 100.0% ± 0%  |  0.00 / ep   |   7.38 ± 1.65  |  0.0365  |   1,056 B  | 94.3% SAVED ✓\n\n"
-            "=== COMPUTATIONAL SCALABILITY & VECTORIZATION BENCHMARK ===\n"
-            "• ContinuousPaddyTerrain.sample_grid(44x30)   : 19.84 ms (scalar Python) -> 0.21 ms (NumPy) / 0.001 ms (cached) [>90x speedup]\n"
-            "• sample_continuous_belief_grid(44x30)        :  6.24 ms (scalar Python) -> 0.17 ms (NumPy) / 0.001 ms (cached) [>36x speedup]\n"
-            "• 2D Heatmap Canvas Renderer (44x30 = 1,320)  : 532 Tcl/Tk rectangles   -> 1 vectorized RGB PPM PhotoImage      [>25x speedup]\n\n"
-            "Tip: Use the Seed (1..7), Scenario (including Seed-Shifted Moisture), and Policy radio buttons in the top bar\n"
-            "to inspect any seed/scenario/policy combination live in 3D and 2D!"
+            "5. Mycelial SLAM + Gossip (B)   | 100.0% ± 0%  |  0.00 / ep   |   7.38 ± 1.65  |  0.0365  |   1,056 B  | 94.3% SAVED ✓\n"
         )
         txt.insert(tk.END, summary_table)
         txt.configure(state=tk.DISABLED)
 
     # ------------------------------------------------------------------
-    # Simulation Stepping & Play Loop
+    # Simulation Stepping & Play Loop (Authoritative EpisodeSession)
     # ------------------------------------------------------------------
 
     def toggle_play(self) -> None:
@@ -1055,39 +1167,36 @@ class LiveSwarmDashboardApp:
         if not self.playing:
             return
         self.step_once()
-        if self.step_count >= 160:
+        max_steps = max(160, self.session.config.steps)
+        if self.step_count >= max_steps:
             self.toggle_play()
             return
         self.after_id = self.root.after(45, self._tick_loop)
 
     def step_once(self) -> None:
         t0 = time.perf_counter()
-        self._apply_vehicle_sizing_to_sim()
-        cmds_to_run = list(self.decision.commands)
         if self.human_control_var.get():
             sel_rid = self.selected_robot_var.get()
-            t_now = self.frame.time_s
-            override_cmd = RobotCommand(
-                robot_id=sel_rid,
-                issued_at_s=t_now,
-                expires_at_s=t_now + 0.5,
-                task_id=f"human-teleop-{self.step_count}",
-                linear_m_s=self.manual_lin_m_s,
-                angular_rad_s=self.manual_ang_rad_s,
-                release_seed=False,
-                target_site_id=None,
+            self.session.submit_operator_request(
+                OperatorRequest(
+                    request_id=f"teleop-step-{self.step_count}",
+                    kind=OperatorCommandKind.TELEOP_OVERRIDE,
+                    issued_at_s=self.frame.time_s,
+                    payload=(
+                        ("robot_id", sel_rid),
+                        ("active", True),
+                        ("linear_m_s", self.manual_lin_m_s),
+                        ("angular_rad_s", self.manual_ang_rad_s),
+                    ),
+                )
             )
-            cmds_to_run = [c for c in cmds_to_run if c.robot_id != sel_rid] + [override_cmd]
-        self.frame = self.sim.step(tuple(cmds_to_run))
+        tick = self.session.step_once()
+        self.frame = tick.frame
+        self.decision = tick.decision
         if self._central_core is not None:
-            # Update local belief maps in passive mirror mode while executing Centralised/Single-Rover commands
-            self.runtime.decide(self.frame)
-            self.decision = self._central_core.decide(self.frame)
             self._central_samples_count += self.decision.ingested_samples
-        else:
-            self.decision = self.runtime.decide(self.frame)
         self.last_compute_ms = (time.perf_counter() - t0) * 1000.0
-        self.step_count += 1
+        self.step_count = self.session.tick_index
         for r in self.frame.robots:
             self.trajectories.setdefault(r.robot_id, []).append((r.pose.x_m, r.pose.y_m))
         if self._gl_viewer is not None and self._gl_viewer.is_running():
@@ -1206,12 +1315,51 @@ class LiveSwarmDashboardApp:
                 f"📊 Independent Grader [Seed={self.seed}, Scen={self.scenario_var.get()}, Pol={self.policy_var.get().upper()}]:  "
                 f"Viable Seeds: {bm['viable_planted']}/{bm['viable_target']} ({100.0*bm['viable_planted']/bm['viable_target']:.0f}%)  |  "
                 f"Wasted Drops: {bm['wasted_drops']}  |  "
+                f"Recoveries: {len(self.sim.completed_recoveries)}  |  "
                 f"Site RMSE: {bm['discrete_rmse']:.3f}  |  "
                 f"2D Field RMSE: {bm['cont_rmse']:.3f}  |  "
                 f"D-0010 Comm: {bm['actual_wire_bytes']} B vs {bm['stream_10hz_bytes']} B 10Hz ({bm['saved_pct']:+.1f}% Saved)  |  "
                 f"Planted: {planted_sites or 'none'}"
             )
         )
+        # Update Agent D Rescue Orchestrator & B Physical Recovery Banner
+        orch_decs = self.session.orchestrator_decisions
+        if orch_decs:
+            parts: list[str] = []
+            for vid, odec in orch_decs.items():
+                tools_str = "->".join(tc.tool_name for tc in odec.tool_trace) if odec.tool_trace else "deterministic"
+                gate_str = "✗VETO" if odec.safety_veto_applied else "✓GATE"
+                parts.append(
+                    f"[{vid.upper()}] {odec.verdict.value.upper()} (helper={odec.helper_robot_id or 'none'}, "
+                    f"tech={odec.chosen_technique.value}, {gate_str}, tools={tools_str})"
+                )
+            if self.frame.recovery_feedback:
+                rf = self.frame.recovery_feedback[-1]
+                parts.append(
+                    f" | B-RECOVERY: latch={rf.latched} "
+                    f"pull={rf.victim_displacement_m:.2f}m F={rf.peak_constraint_force_n:.1f}N extracted={rf.extracted}"
+                )
+            self.rescue_banner_lbl.configure(
+                text="  ".join(parts),
+                fg="#fbbf24" if any(d.verdict == RescueVerdict.RESCUE_NOW for d in orch_decs.values()) else "#f87171",
+            )
+        elif self.sim.completed_recoveries:
+            last_rec = self.sim.completed_recoveries[-1]
+            self.rescue_banner_lbl.configure(
+                text=(
+                    f"✓ Physical Recovery Complete at t={last_rec.observed_at_s:.1f}s: "
+                    f"{last_rec.helper_robot_id.upper()} extracted {last_rec.target_robot_id.upper()} "
+                    f"({last_rec.victim_displacement_m:.2f}m displacement, peak F={last_rec.peak_constraint_force_n:.1f}N, "
+                    f"tech={last_rec.technique}) -> Resumed autonomous fieldwork"
+                ),
+                fg="#4ade80",
+            )
+        else:
+            self.rescue_banner_lbl.configure(
+                text=f"Rescue Orchestrator ({self.rescue_policy_var.get()}) & Physical Recovery (B): Nominal Fieldwork (0 stranded)",
+                fg="#a7f3d0",
+            )
+
         p_stat, _p_col, p_plan = self._format_robot_plan_sentence("planter")
         s_stat, _s_col, s_plan = self._format_robot_plan_sentence("scout")
         self.robot_plans_lbl.configure(
@@ -1325,7 +1473,7 @@ class LiveSwarmDashboardApp:
             z_s = sink.sinkage_z_m
             collar_rgba = (
                 [0.95, 0.18, 0.15, 0.82]
-                if sink.bellied_out
+                if (sink.bellied_out or r_obs.is_bogged)
                 else ([0.85, 0.48, 0.12, 0.68] if z_s > 0.024 else [0.32, 0.23, 0.14, 0.52])
             )
             for dx_w in (-0.11, 0.11):
@@ -1381,12 +1529,14 @@ class LiveSwarmDashboardApp:
                     [0.10, 0.98, 0.92, 0.92],
                 )
 
-        # 6. Render LiDAR rays & task vectors
+        # 6. Render LiDAR rays, distress beacons & rescue tow vectors
         for intent in self.decision.intents:
             if intent.robot_id not in obs_by_id:
                 continue
             r = obs_by_id[intent.robot_id]
             rx, ry, ryaw = r.pose.x_m, r.pose.y_m, r.pose.yaw_rad
+            if r.is_bogged:
+                add_sphere([rx, ry, 0.24], 0.042, [1.0, 0.12, 0.12, 0.92])
             beam_len = min(r.front_range_m if r.front_range_m is not None else 0.75, 0.75)
             bx = rx + beam_len * cos(ryaw)
             by = ry + beam_len * sin(ryaw)
@@ -1396,7 +1546,15 @@ class LiveSwarmDashboardApp:
                 else [0.25, 0.95, 0.55, 0.45]
             )
             add_line([rx, ry, 0.08], [bx, by, 0.08], 0.004, beam_rgba)
-            if intent.target_site_id and intent.target_site_id in self.sim.sites:
+            if intent.mode == TaskMode.RESCUE and intent.target_robot_id in obs_by_id:
+                peer_r = obs_by_id[intent.target_robot_id]
+                add_line(
+                    [rx, ry, 0.14],
+                    [peer_r.pose.x_m, peer_r.pose.y_m, 0.14],
+                    0.009,
+                    [1.0, 0.45, 0.10, 0.92],
+                )
+            elif intent.target_site_id and intent.target_site_id in self.sim.sites:
                 tsite = self.sim.sites[intent.target_site_id]
                 line_rgba = (
                     [0.98, 0.84, 0.15, 0.82]
@@ -1426,11 +1584,14 @@ class LiveSwarmDashboardApp:
 
         # Overlay live 3D sinkage & slip telemetry badge directly on the 3D view
         sel = self.selected_robot_var.get()
+        obs_by_id = {r.robot_id: r for r in self.frame.robots}
+        r_obs = obs_by_id.get(sel)
         sink = self.sim.latest_terramechanics.get(sel)
         pt = self.sim.latest_terrain_points.get(sel)
         slip = self.sim.latest_slip_ratios.get(sel, 0.08)
         if sink and pt:
-            badge_col = "#ef4444" if sink.bellied_out else ("#f59e0b" if sink.sinkage_z_m > 0.025 else "#38bdf8")
+            is_stuck = bool(sink.bellied_out or (r_obs and r_obs.is_bogged))
+            badge_col = "#ef4444" if is_stuck else ("#f59e0b" if sink.sinkage_z_m > 0.025 else "#38bdf8")
             self.canvas_3d.create_rectangle(8, 8, self.RENDER_W - 8, 32, fill="#09131f", outline="#1f3247")
             self.canvas_3d.create_text(
                 14,
@@ -1439,7 +1600,7 @@ class LiveSwarmDashboardApp:
                 text=(
                     f"3D Physics [{sel.upper()}]: Terrain z={pt.elevation_m*1000:+.1f}mm | "
                     f"Mud Sinkage z={sink.sinkage_z_m*1000:.1f}mm (Belly Clr={sink.belly_clearance_m*1000:+.1f}mm) | "
-                    f"Wheel Slip={slip*100:.0f}% | {'BELLIED OUT!' if sink.bellied_out else 'DRIVING'}"
+                    f"Wheel Slip={slip*100:.0f}% | {'STRANDED IN MUD!' if is_stuck else 'DRIVING'}"
                 ),
                 fill=badge_col,
                 font=("Consolas", 9, "bold"),
@@ -1594,8 +1755,6 @@ class LiveSwarmDashboardApp:
 
             rx, ry = self._world_to_canvas(r_obs.pose.x_m, r_obs.pose.y_m)
             is_selected = rid == self.selected_robot_var.get()
-            sink_st = self.sim.latest_terramechanics.get(rid)
-            bellied = bool(sink_st.bellied_out) if sink_st else False
 
             if is_selected:
                 c.create_oval(
@@ -1609,7 +1768,11 @@ class LiveSwarmDashboardApp:
             c.create_line(rx, ry, hx, hy, fill="#fef08a", width=2)
 
             intent = intents_by_rid.get(rid)
-            if intent and intent.target_site_id and intent.target_site_id in self.sim.sites:
+            if intent and intent.mode == TaskMode.RESCUE and intent.target_robot_id in obs_by_id:
+                peer_obs = obs_by_id[intent.target_robot_id]
+                tx_c, ty_c = self._world_to_canvas(peer_obs.pose.x_m, peer_obs.pose.y_m)
+                c.create_line(rx, ry, tx_c, ty_c, fill="#f97316", width=3, dash=(6, 2))
+            elif intent and intent.target_site_id and intent.target_site_id in self.sim.sites:
                 tsite = self.sim.sites[intent.target_site_id]
                 tx_c, ty_c = self._world_to_canvas(tsite.center.x_m, tsite.center.y_m)
                 c.create_line(rx, ry, tx_c, ty_c, fill=fill_col, width=2, dash=(4, 3))
@@ -1657,6 +1820,7 @@ class LiveSwarmDashboardApp:
 
         lines: list[str] = []
         if r_obs is not None:
+            r_rng = f"{r_obs.front_range_m:.2f}m" if r_obs.front_range_m is not None else "NULL"
             lines.append(
                 f"Pose     : ({r_obs.pose.x_m:.2f}m, {r_obs.pose.y_m:.2f}m, yaw={r_obs.pose.yaw_rad:.2f}r)"
             )
@@ -1664,13 +1828,40 @@ class LiveSwarmDashboardApp:
                 f"3D Tilt  : Pitch={r_obs.pitch_rad*57.3:+.1f}° | Roll={r_obs.roll_rad*57.3:+.1f}°"
             )
             lines.append(
-                f"Seeds    : {r_obs.seeds_remaining}  | Front LiDAR: {r_obs.front_range_m:.2f}m"
+                f"Seeds    : {r_obs.seeds_remaining}  | Front LiDAR: {r_rng} | Bogged={r_obs.is_bogged}"
             )
         if r_intent is not None:
             lines.append(
-                f"Task     : {r_intent.mode.value.upper()} -> {r_intent.target_site_id or 'none'}"
+                f"Task     : {r_intent.mode.value.upper()} -> {r_intent.target_site_id or r_intent.target_robot_id or 'none'}"
             )
             lines.append(f"Reason   : {r_intent.reason}")
+
+        # Agent D Rescue Orchestrator & B Physical Recovery section
+        lines.append(f"\n--- AGENT D ORCHESTRATOR ({self.rescue_policy_var.get().upper()}) ---")
+        if self.session.orchestrator_decisions:
+            for vid, odec in self.session.orchestrator_decisions.items():
+                lines.append(
+                    f"• Stranded: {vid.upper()} -> {odec.verdict.value.upper()}"
+                )
+                lines.append(
+                    f"  Helper  : {odec.helper_robot_id or 'none'} | Tech: {odec.chosen_technique.value}"
+                )
+                lines.append(
+                    f"  Veto    : {odec.safety_veto_applied} | Fallback: {odec.fallback_used}"
+                )
+                if odec.tool_trace:
+                    lines.append(
+                        f"  Tools   : {' -> '.join(tc.tool_name for tc in odec.tool_trace)}"
+                    )
+                lines.append(f"  Rationale: {odec.rationale}")
+        else:
+            lines.append("• Active Incidents: 0 (nominal fieldwork)")
+        if self.sim.completed_recoveries:
+            last_rec = self.sim.completed_recoveries[-1]
+            lines.append(
+                f"• Completed Recovery (t={last_rec.observed_at_s:.1f}s): {last_rec.helper_robot_id}->{last_rec.target_robot_id} "
+                f"pull={last_rec.victim_displacement_m:.2f}m F={last_rec.peak_constraint_force_n:.1f}N"
+            )
 
         if pt is not None and sink is not None:
             lines.append("\n--- 3D TERRAIN, SLIP & BEKKER SINKAGE ---")
@@ -1690,7 +1881,7 @@ class LiveSwarmDashboardApp:
                 f"WheelSlip: s={slip_r*100:.1f}% | Drag Rc={sink.compaction_resistance_n:.1f}N"
             )
             lines.append(
-                f"Status   : {'⚠ BELLIED OUT (S1 STUCK)' if sink.bellied_out else '✓ TRAVERSABLE'}"
+                f"Status   : {'⚠ BELLIED OUT (S1 STUCK)' if (sink.bellied_out or (r_obs and r_obs.is_bogged)) else '✓ TRAVERSABLE'}"
                 f" (Risk={sink.immobilization_risk*100:.0f}%)"
             )
 
@@ -1745,13 +1936,14 @@ class LiveSwarmDashboardApp:
             s_st = self.sim.latest_terramechanics.get(rid)
             t_pt = self.sim.latest_terrain_points.get(rid)
             slp = self.sim.latest_slip_ratios.get(rid, 0.08)
+            ro = obs_by_id.get(rid)
             if s_st and t_pt:
                 card_lines.append(
                     f"{rid.upper():7s} (m={s_st.mass_kg:4.1f}kg, r={s_st.wheel_radius_m*1000:2.0f}mm) | "
                     f"Topo z={t_pt.elevation_m*1000:+5.1f}mm | Sink z={s_st.sinkage_z_m*1000:5.1f}mm | "
                     f"Clr={s_st.belly_clearance_m*1000:+5.1f}mm | Slip={slp*100:2.0f}% | "
                     f"Drag={s_st.compaction_resistance_n:4.1f}N | "
-                    f"{'BELLIED OUT (S1)!' if s_st.bellied_out else 'DRIVING'}"
+                    f"{'STRANDED (S1)!' if (s_st.bellied_out or (ro and ro.is_bogged)) else 'DRIVING'}"
                 )
         self.terramech_cards_lbl.configure(text="\n".join(card_lines))
 
@@ -1774,9 +1966,10 @@ class LiveSwarmDashboardApp:
 
 def launch_live_dashboard(
     *,
-    scenario: str = "nominal",
+    scenario: str = "golden_rescue",
     comms: str = "normal",
-    policy: str = "mycelial",
+    policy: str = "cooperative",
+    rescue_policy: str = "react_orchestrator",
     seed: int = 7,
     auto_play: bool = True,
 ) -> None:
@@ -1787,6 +1980,7 @@ def launch_live_dashboard(
         initial_scenario=scenario,
         initial_comms=comms,
         initial_policy=policy,
+        initial_rescue_policy=rescue_policy,
         seed=seed,
     )
     if auto_play:
