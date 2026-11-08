@@ -42,6 +42,7 @@ from ..control import ControlLimits, LocalController
 from ..mission import MeasuredFieldMap, SimpleMissionPlanner
 from ..mujoco_sim.adapter import DEFAULT_CAPABILITIES, DEFAULT_SITES, MujocoPaddySimulation
 from ..runtime import EpisodeConfig, EpisodeSession, MissionCore, create_mujoco_episode_session
+from .presentation import PresentationCue, presentation_cue
 from ..world import (
     RandomizedEpisodeSpec,
     generate_hidden_soil_truth,
@@ -204,12 +205,18 @@ class LiveSwarmDashboardApp:
         initial_map_scale: float | None = None,
         scenario: str | None = None,
         policy: str | None = None,
+        presentation_mode: bool = False,
     ) -> None:
         if scenario is not None:
             initial_scenario = scenario
         if policy is not None:
             initial_policy = policy
         self.root = root
+        self.presentation_mode = bool(presentation_mode)
+        self.presentation_camera_mode = tk.StringVar(value="auto")
+        self.presentation_cue = PresentationCue("Fieldwork active")
+        self.rescue_approach_tracks: dict[tuple[str, str], list[tuple[float, float]]] = {}
+        self.presentation_events: list[tuple[float, str]] = []
         self.root.title(
             "Antenna (PaddyPatch rice.v1) — Canonical ABDE 3D MuJoCo Rescue, 2D Swarm Belief & Orchestrator Suite"
         )
@@ -491,6 +498,9 @@ class LiveSwarmDashboardApp:
         self.trajectories = {
             r.robot_id: [(r.pose.x_m, r.pose.y_m)] for r in self.frame.robots
         }
+        self.rescue_approach_tracks = {}
+        self.presentation_events = []
+        self.presentation_cue = PresentationCue("Fieldwork active")
         self.visually_discovered_sites = {r.robot_id: set() for r in self.frame.robots}
         self._update_visual_camera_discoveries()
 
@@ -554,6 +564,40 @@ class LiveSwarmDashboardApp:
         self._refresh_all_views()
 
     def _build_ui(self) -> None:
+        # Always-visible navigation; advanced controls remain the original widgets.
+        self.presentation_header = tk.Frame(self.root, bg="#0a1724")
+        self.presentation_header.pack(fill=tk.X, padx=8, pady=(4, 2))
+        tk.Label(
+            self.presentation_header, text="ANTENNA   /   RESILIENT ROBOT COLLECTIVE",
+            bg="#0a1724", fg="#f8fafc", font=("Segoe UI", 14, "bold"),
+        ).pack(side=tk.LEFT, padx=(10, 14), pady=6)
+        self.mode_btn = tk.Button(
+            self.presentation_header, text="Presentation Mode",
+            command=self.toggle_presentation_mode, bg="#1e293b", fg="#f8fafc",
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.mode_btn.pack(side=tk.RIGHT, padx=7)
+        self.presentation_controls = tk.Frame(self.presentation_header, bg="#0a1724")
+        for label, mode in (("Field", "field"), ("Rescue", "rescue"), ("Auto frame", "auto")):
+            tk.Button(
+                self.presentation_controls, text=label,
+                command=lambda m=mode: self.set_presentation_camera(m),
+                bg="#233d54", fg="white", font=("Segoe UI", 9, "bold"),
+            ).pack(side=tk.LEFT, padx=2)
+        tk.Button(
+            self.presentation_controls, text="Restart", command=self.reset_episode,
+            bg="#233d54", fg="white", font=("Segoe UI", 9, "bold"),
+        ).pack(side=tk.LEFT, padx=2)
+        self.presentation_play_btn = tk.Button(
+            self.presentation_controls, text="Play", command=self.toggle_play,
+            bg="#0284c7", fg="white", font=("Segoe UI", 9, "bold"),
+        )
+        self.presentation_play_btn.pack(side=tk.LEFT, padx=2)
+        self.presentation_event_lbl = tk.Label(
+            self.presentation_header, text="", bg="#0a1724", fg="#fbbf24",
+            font=("Segoe UI", 10, "bold"), anchor="w",
+        )
+
         # Row 0: Simple, Clean Main Menu — Fleet Size (N-Rover) & Field Map Scale Setup Strip
         self.main_menu_bar = tk.Frame(
             self.root, bg="#0f172a", highlightthickness=1, highlightbackground="#38bdf8"
@@ -967,6 +1011,7 @@ class LiveSwarmDashboardApp:
 
         # Row 3: BIG Middle Split Pane (Left = 840x560+ 3D MuJoCo View, Right = 660x560+ 2D Top-Down Belief Map + Inspector)
         mid_frame = tk.Frame(self.root, bg="#0b131e")
+        self.mid_frame = mid_frame
         mid_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=2)
 
         # LEFT PANE: BIG 3D MuJoCo Visualiser
@@ -979,6 +1024,7 @@ class LiveSwarmDashboardApp:
             padx=6,
             pady=4,
         )
+        self.left_pane = left_pane
         left_pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
 
         cam_bar = tk.Frame(left_pane, bg="#111d2c")
@@ -1043,6 +1089,7 @@ class LiveSwarmDashboardApp:
             padx=6,
             pady=4,
         )
+        self.right_pane = right_pane
         right_pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         who_bar = tk.Frame(right_pane, bg="#111d2c")
@@ -1215,6 +1262,101 @@ class LiveSwarmDashboardApp:
             borderwidth=0,
         )
         self.gossip_text.pack(fill=tk.BOTH, expand=True)
+        self._advanced_top_bars = [
+            self.main_menu_bar, toolbar, bench_bar, rescue_bar, plan_bar
+        ]
+        self._advanced_inline_bars = [cam_bar, who_bar, layer_bar]
+        if self.presentation_mode:
+            self._apply_presentation_layout()
+
+    def toggle_presentation_mode(self) -> None:
+        self.presentation_mode = not self.presentation_mode
+        self._apply_presentation_layout()
+        self._refresh_all_views()
+
+    def _apply_presentation_layout(self) -> None:
+        """Presentation-only widget packing; the EpisodeSession is untouched."""
+        if self.presentation_mode:
+            for widget in self._advanced_top_bars + self._advanced_inline_bars:
+                widget.pack_forget()
+            self.inspector_frame.pack_forget()
+            self.bottom_frame.pack_forget()
+            self.presentation_controls.pack(side=tk.RIGHT, padx=4)
+            self.presentation_event_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+            self.mode_btn.configure(text="Engineering / Advanced")
+            self.left_pane.configure(text=" LIVE 3D PHYSICS   /   ROBOTS & TERRAIN ")
+            self.right_pane.configure(text=" DISCOVERED CONDITIONS   /   ACTUAL MOVEMENT ")
+            self._position_presentation_camera()
+        else:
+            for widget in self._advanced_top_bars:
+                widget.pack(before=self.mid_frame, fill=tk.X, padx=8, pady=(0, 2))
+            self._advanced_inline_bars[0].pack(
+                before=self.canvas_3d, fill=tk.X, pady=(0, 4)
+            )
+            for widget in self._advanced_inline_bars[1:]:
+                widget.pack(before=self.canvas_2d.master, fill=tk.X, pady=(0, 3))
+            if self.show_details_var.get():
+                self.inspector_frame.pack(side=tk.RIGHT, fill=tk.Y, expand=False)
+                self.inspector_frame.pack_propagate(False)
+                self.bottom_frame.pack(fill=tk.X, padx=8, pady=(2, 5))
+            self.presentation_controls.pack_forget()
+            self.presentation_event_lbl.pack_forget()
+            self.mode_btn.configure(text="Presentation Mode")
+            self.left_pane.configure(
+                text=" BIG 3D MuJoCo Physics Visualiser (Undulating Micro-Topo + 3D Mud Sinkage & Wheel Ruts + Slip + UWB HUD) "
+            )
+            self.right_pane.configure(
+                text=" BIG Interactive 2D Top-Down Belief & Rice-Fitness Visualiser (Click a Robot on Map or Select Below) "
+            )
+
+    def set_presentation_camera(self, mode: str) -> None:
+        if mode not in ("field", "rescue", "auto"):
+            raise ValueError("Unrecognised presentation camera preset")
+        self.presentation_camera_mode.set(mode)
+        self._position_presentation_camera()
+        self._render_3d_view()
+
+    def _position_presentation_camera(self) -> None:
+        if not self.presentation_mode:
+            return
+        cue = self.presentation_cue
+        poses = {r.robot_id: r.pose for r in self.frame.robots}
+        mode = self.presentation_camera_mode.get()
+        close = mode == "rescue" or (mode == "auto" and cue.victim_id in poses)
+        if close and cue.victim_id in poses:
+            victim = poses[cue.victim_id]
+            helper = poses.get(cue.helper_id) if cue.helper_id else None
+            if helper is not None:
+                x = (victim.x_m + helper.x_m) / 2
+                y = (victim.y_m + helper.y_m) / 2
+                separation = hypot(victim.x_m - helper.x_m, victim.y_m - helper.y_m)
+                distance = max(1.35, min(3.7, 1.55 + separation))
+            else:
+                x, y, distance = victim.x_m, victim.y_m, 1.8
+        else:
+            (xmin, xmax), (ymin, ymax) = self._field_bounds()
+            x, y = (xmin + xmax) / 2, (ymin + ymax) / 2
+            distance = 3.1 * max(1.0, self.map_scale)
+        self.free_cam.lookat[:] = [x, y, 0.05]
+        self.free_cam.distance = distance
+        self.free_cam.elevation = -38.0
+        self.free_cam.azimuth = 118.0
+
+    def _update_presentation_cue(self) -> None:
+        cue = presentation_cue(
+            self.frame, self.decision,
+            fault_evidence=self.session.fault_evidence,
+            rescue_assessments=self.session.rescue_assessments,
+            orchestrator_decisions=self.session.orchestrator_decisions,
+            completed_recoveries=self.sim.completed_recoveries,
+        )
+        self.presentation_cue = cue
+        self.presentation_event_lbl.configure(
+            text=f"LIVE  ·  {cue.label}  /  {cue.detail}"
+        )
+        if not self.presentation_events or self.presentation_events[-1][1] != cue.label:
+            self.presentation_events.append((self.frame.time_s, cue.label))
+            self.presentation_events = self.presentation_events[-6:]
 
     # ------------------------------------------------------------------
     # Dynamic Resize & Interactive Camera/Canvas Handlers
@@ -1655,6 +1797,8 @@ class LiveSwarmDashboardApp:
 
     def toggle_play(self) -> None:
         self.playing = not self.playing
+        if hasattr(self, "presentation_play_btn"):
+            self.presentation_play_btn.configure(text="Pause" if self.playing else "Play")
         if self.playing:
             self.play_btn.configure(text="⏸ Pause Sim", bg="#d97706")
             self._tick_loop()
@@ -1837,6 +1981,7 @@ class LiveSwarmDashboardApp:
     # ------------------------------------------------------------------
 
     def _refresh_all_views(self) -> None:
+        self._update_presentation_cue()
         self._update_comms_applicability_ui()
         planted_sites = [
             d.target_site_id for d in self.sim.completed_drops if d.contact_observed_at_s is not None
@@ -2667,6 +2812,7 @@ def launch_live_dashboard(
     rescue_policy: str = "react_orchestrator",
     seed: int = 7,
     auto_play: bool = True,
+    presentation: bool = False,
 ) -> None:
     """Launch the unified large side-by-side 3D MuJoCo + 2D Top-Down Belief & Benchmark desktop window."""
     root = tk.Tk()
@@ -2677,6 +2823,7 @@ def launch_live_dashboard(
         initial_policy=policy,
         initial_rescue_policy=rescue_policy,
         seed=seed,
+        presentation_mode=presentation,
     )
     if auto_play:
         root.after(250, app.toggle_play)
