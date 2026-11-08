@@ -172,6 +172,8 @@ class EpisodeConfig:
     map_scale: float = 1.0
     gossip_delay_s: float = 0.4
     active_mycelial_in_rescue: bool = False  # Explicitly request acting decentralized policy in rescue scenarios
+    orchestrator_model: str = "gemini-2.5-flash"
+    orchestrator_timeout_s: float = 2.5
 
     def __post_init__(self) -> None:
         if self.seed < 0 or isinstance(self.seed, bool) or self.steps < 1:
@@ -180,6 +182,8 @@ class EpisodeConfig:
             raise ValueError("num_rovers must be in 2..6")
         if self.map_scale <= 0.0 or self.gossip_delay_s < 0.0:
             raise ValueError("map_scale must be > 0 and gossip_delay_s >= 0")
+        if self.orchestrator_timeout_s <= 0:
+            raise ValueError("orchestrator timeout must be positive")
         if self.scenario == "randomized":
             from .world import generate_randomized_episode_spec
 
@@ -617,6 +621,7 @@ def create_mujoco_episode_session(
 ) -> EpisodeSession:
     """Canonical factory constructing one authoritative MuJoCo SimulationPort + PolicyRuntime session."""
     from .agent import CooperativeSwarmPlanner, DecentralizedMycelialRuntime
+    from .agent.orchestrator import GeminiRESTBackend, SwarmOrchestratorAgent
     from .mujoco_sim.adapter import DEFAULT_SITES, MujocoPaddySimulation
     from .robot import make_fleet_specs
     from .world import build_field_layout, generate_hidden_soil_truth
@@ -670,6 +675,11 @@ def create_mujoco_episode_session(
     )
 
     sites_tuple = tuple(sim.sites.values())
+    model_orchestrator = SwarmOrchestratorAgent(
+        backend=GeminiRESTBackend(
+            model=cfg.orchestrator_model, timeout_s=cfg.orchestrator_timeout_s
+        )
+    )
 
     if cfg.policy == "mycelial" and not is_single and (
         not cfg.is_rescue_scenario or cfg.active_mycelial_in_rescue
@@ -682,6 +692,7 @@ def create_mujoco_episode_session(
             comm_mode=cfg.comms,
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
+            orchestrator=model_orchestrator,
             gossip_delay_s=cfg.gossip_delay_s,
             field_bounds=(layout.x_bounds, layout.y_bounds) if layout.scale > 1.0 else None,
         )
@@ -691,6 +702,7 @@ def create_mujoco_episode_session(
             caps,
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
+            orchestrator=model_orchestrator,
         )
         controller = LocalController(
             ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
