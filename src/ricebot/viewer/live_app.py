@@ -12,7 +12,7 @@ Single-window large side-by-side layout reconciled with the Multi-Seed Independe
 """
 from __future__ import annotations
 
-from math import cos, hypot, sin, sqrt
+from math import atan2, cos, hypot, pi, sin, sqrt
 import random
 import time
 import tkinter as tk
@@ -47,6 +47,53 @@ from ..world import (
     generate_hidden_soil_truth,
     generate_randomized_episode_spec,
 )
+
+
+ROBOT_HEX_COLORS: dict[str, str] = {
+    "planter": "#38bdf8",    # blue
+    "scout": "#22c55e",      # green
+    "planter_2": "#06b6d4",  # cyan
+    "scout_2": "#f59e0b",    # amber
+    "planter_3": "#a855f7",  # purple
+    "scout_3": "#f97316",    # coral
+}
+
+ROBOT_RGBA_COLORS: dict[str, list[float]] = {
+    "planter": [0.22, 0.68, 0.98, 0.78],
+    "scout": [0.22, 0.90, 0.45, 0.78],
+    "planter_2": [0.14, 0.82, 0.92, 0.78],
+    "scout_2": [0.96, 0.68, 0.16, 0.78],
+    "planter_3": [0.68, 0.42, 0.96, 0.78],
+    "scout_3": [0.96, 0.45, 0.32, 0.78],
+}
+
+FLEET_SIZE_OPTIONS: tuple[tuple[int, str], ...] = (
+    (2, "2 Rovers (1P + 1S)"),
+    (3, "3 Rovers (2P + 1S)"),
+    (4, "4 Rovers (2P + 2S)"),
+    (6, "6 Rovers (3P + 3S)"),
+)
+
+MAP_SCALE_OPTIONS: tuple[tuple[float, str], ...] = (
+    (1.0, "1.0x Standard (6-Patch)"),
+    (1.6, "1.6x Expanded Terrace"),
+)
+
+CAMERA_FOV_RAD: float = 62.0 * (pi / 180.0)
+CAMERA_HALF_FOV_RAD: float = 0.5 * CAMERA_FOV_RAD
+CAMERA_RANGE_M: float = 0.95
+
+
+def _robot_hex_color(robot_id: str) -> str:
+    return ROBOT_HEX_COLORS.get(robot_id, "#38bdf8" if "planter" in robot_id else "#4ade80")
+
+
+def _robot_rgba_color(robot_id: str) -> list[float]:
+    return list(ROBOT_RGBA_COLORS.get(robot_id, [0.35, 0.78, 0.95, 0.72]))
+
+
+def _wrap_angle_rad(angle: float) -> float:
+    return (angle + pi) % (2.0 * pi) - pi
 
 
 def _rgb_array_to_tk_ppm(rgb: np.ndarray) -> bytes:
@@ -151,7 +198,17 @@ class LiveSwarmDashboardApp:
         initial_policy: str = "cooperative",
         initial_rescue_policy: str = "react_orchestrator",
         seed: int = 7,
+        num_rovers: int = 2,
+        map_scale: float = 1.0,
+        initial_num_rovers: int | None = None,
+        initial_map_scale: float | None = None,
+        scenario: str | None = None,
+        policy: str | None = None,
     ) -> None:
+        if scenario is not None:
+            initial_scenario = scenario
+        if policy is not None:
+            initial_policy = policy
         self.root = root
         self.root.title(
             "Antenna (PaddyPatch rice.v1) — Canonical ABDE 3D MuJoCo Rescue, 2D Swarm Belief & Orchestrator Suite"
@@ -164,15 +221,24 @@ class LiveSwarmDashboardApp:
         self.root.configure(bg="#0b131e")
 
         self.seed = int(seed)
+        self.num_rovers: int = max(2, min(6, int(initial_num_rovers if initial_num_rovers is not None else num_rovers)))
+        self.map_scale: float = float(initial_map_scale if initial_map_scale is not None else map_scale)
+        self._synced_num_rovers: int = self.num_rovers
+        self._synced_map_scale: float = self.map_scale
+
         self.seed_var = tk.IntVar(value=self.seed)
         self.seed_entry_var = tk.StringVar(value=str(self.seed))
         self.scenario_var = tk.StringVar(value=initial_scenario)
+        self.preset_var = self.scenario_var  # backward-compatible alias
         self.policy_var = tk.StringVar(value=initial_policy)
         self.rescue_policy_var = tk.StringVar(value=initial_rescue_policy)
         self.comms_var = tk.StringVar(value=initial_comms)
+        self.num_rovers_var = tk.IntVar(value=self.num_rovers)
+        self.fleet_size_var = self.num_rovers_var
+        self.map_scale_var = tk.DoubleVar(value=self.map_scale)
         self.camera_var = tk.StringVar(value="isometric")
         self.selected_robot_var = tk.StringVar(value="planter")
-        self.belief_view_var = tk.StringVar(value="planter")  # planter | scout | divergence | ground_truth
+        self.belief_view_var = tk.StringVar(value="planter")  # fused | <robot_id> | divergence | ground_truth
         self.layer_var = tk.StringVar(value="planting_fitness")
 
         self.mass_kg_var = tk.DoubleVar(value=4.2)
@@ -190,17 +256,46 @@ class LiveSwarmDashboardApp:
         self._tk_3d_img: tk.PhotoImage | None = None
         self._tk_2d_img: tk.PhotoImage | None = None
         self._gl_viewer: Any = None
+        self.gl_Ready: bool = False
+        self.con: Any = None
+        self._hfield_dirty: bool = False
         self._central_core: MissionCore | None = None
         self._central_samples_count: int = 0
         self.randomized_spec: RandomizedEpisodeSpec | None = None
         self._comms_radios: list[tk.Radiobutton] = []
+        self.who_buttons_frame: tk.Frame | None = None
         self.session: EpisodeSession
 
-        self.trajectories: dict[str, list[tuple[float, float]]] = {"planter": [], "scout": []}
+        self.trajectories: dict[str, list[tuple[float, float]]] = {}
+        self.visually_discovered_sites: dict[str, set[str]] = {}
         self._init_simulation()
         self._build_ui()
         self._bind_teleop_keys()
         self._refresh_all_views()
+
+    @property
+    def selected_robot_id(self) -> str:
+        """Currently selected rover ID for telemetry, sizing, and belief inspection."""
+        return self.selected_robot_var.get()
+
+    @selected_robot_id.setter
+    def selected_robot_id(self, robot_id: str) -> None:
+        rid = str(robot_id)
+        self.selected_robot_var.set(rid)
+        if hasattr(self, "runtime") and self.runtime is not None and rid in self.runtime.nodes:
+            self.belief_view_var.set(rid)
+
+    @property
+    def selected_belief_robot(self) -> str:
+        """Currently active 2D belief perspective ('fused', '<robot_id>', 'divergence', or 'ground_truth')."""
+        return self.belief_view_var.get()
+
+    @selected_belief_robot.setter
+    def selected_belief_robot(self, view_or_robot_id: str) -> None:
+        val = str(view_or_robot_id)
+        self.belief_view_var.set(val)
+        if hasattr(self, "runtime") and self.runtime is not None and val in self.runtime.nodes:
+            self.selected_robot_var.set(val)
 
     @property
     def comms_applies(self) -> bool:
@@ -208,6 +303,50 @@ class LiveSwarmDashboardApp:
         return self._central_core is None and not (
             self.policy_var.get() == "single_rover" or self.session.config.single_rover_only
         )
+
+    def _field_bounds(self) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Return `(x_bounds, y_bounds)` scaled by `self.map_scale` (identical to rice.v1 defaults at 1.0x)."""
+        scale = float(getattr(self, "map_scale", 1.0))
+        if abs(scale - 1.0) <= 1e-6:
+            return ((-0.25, 2.95), (-0.90, 0.90))
+        half_x = 1.60 * scale
+        half_y = 0.90 * scale
+        return ((round(1.35 - half_x, 3), round(1.35 + half_x, 3)), (round(-half_y, 3), round(half_y, 3)))
+
+    def _upload_hfield_if_needed(self, *, force: bool = False) -> None:
+        """Upload updated MuJoCo heightfield to active OpenGL context when dirty or after reset."""
+        if not hasattr(self, "sim") or self.sim is None:
+            return
+        sim_dirty = bool(getattr(self.sim, "_hfield_dirty", False))
+        app_dirty = bool(getattr(self, "_hfield_dirty", False))
+        if not (force or sim_dirty or app_dirty):
+            return
+        try:
+            con = getattr(self, "con", None) or getattr(getattr(self, "renderer", None), "_mjr_context", None)
+            if getattr(self, "gl_Ready", False) and con is not None and self.sim.model.nhfield > 0:
+                mujoco.mjr_uploadHField(self.sim.model, con, 0)
+            if hasattr(self.sim, "_hfield_dirty"):
+                setattr(self.sim, "_hfield_dirty", False)
+            self._hfield_dirty = False
+        except Exception:
+            pass
+
+    def _update_visual_camera_discoveries(self) -> None:
+        """Update Tier-1 forward optical camera cone (`62°` FOV, `0.95m` range) site discoveries per rover."""
+        if not hasattr(self, "frame") or self.frame is None:
+            return
+        for r in self.frame.robots:
+            vis_set = self.visually_discovered_sites.setdefault(r.robot_id, set())
+            for sid, site in self.sim.sites.items():
+                if not site.permitted:
+                    continue
+                dx = site.center.x_m - r.pose.x_m
+                dy = site.center.y_m - r.pose.y_m
+                dist = hypot(dx, dy)
+                if dist <= CAMERA_RANGE_M:
+                    rel_ang = abs(_wrap_angle_rad(atan2(dy, dx) - r.pose.yaw_rad))
+                    if rel_ang <= CAMERA_HALF_FOV_RAD or dist <= self.sim.probe_radius_m:
+                        vis_set.add(sid)
 
     def apply_custom_seed(self, _event: Any = None) -> None:
         """Apply an arbitrary non-negative integer seed typed into the seed entry box."""
@@ -223,10 +362,80 @@ class LiveSwarmDashboardApp:
         self.seed_var.set(val)
         self.reset_episode()
 
+    def apply_fleet_and_map_setup(
+        self,
+        num_rovers: int | None = None,
+        map_scale: float | None = None,
+    ) -> None:
+        """Update `self.num_rovers` and `self.map_scale` from Main Menu controls and rebuild simulation."""
+        if num_rovers is not None:
+            self.num_rovers = max(2, min(6, int(num_rovers)))
+            self.num_rovers_var.set(self.num_rovers)
+        else:
+            self.num_rovers = max(2, min(6, int(self.num_rovers_var.get())))
+        if map_scale is not None:
+            self.map_scale = float(map_scale)
+            self.map_scale_var.set(self.map_scale)
+        else:
+            self.map_scale = float(self.map_scale_var.get())
+        self._synced_num_rovers = self.num_rovers
+        self._synced_map_scale = self.map_scale
+        self._rebuild_simulation()
+
+    def set_fleet_size(self, num_rovers: int) -> None:
+        """Convenience setter to switch fleet size (2, 3, 4, or 6 rovers) and rebuild."""
+        self.apply_fleet_and_map_setup(num_rovers=int(num_rovers))
+
+    def set_map_scale(self, map_scale: float) -> None:
+        """Convenience setter to switch terrace map scale (1.0 or 1.6) and rebuild."""
+        self.apply_fleet_and_map_setup(map_scale=float(map_scale))
+
+    def _apply_scenario_preset(self, preset: str | None = None) -> None:
+        """Backward-compatible helper to apply a scenario preset and reset the episode."""
+        if preset is not None:
+            self.scenario_var.set(str(preset))
+        self.reset_episode()
+
+    def _randomize_episode(self) -> None:
+        """Backward-compatible alias for `trigger_random_scenario`."""
+        self.trigger_random_scenario()
+
+    def _rebuild_simulation(self) -> None:
+        """Rebuild the MuJoCo simulation and episode session with current `num_rovers` and `map_scale`."""
+        was_playing = getattr(self, "playing", False)
+        if was_playing:
+            self.toggle_play()
+        self._init_simulation()
+        if hasattr(self, "who_buttons_frame") and self.who_buttons_frame is not None:
+            self._refresh_belief_selector_buttons()
+        if hasattr(self, "canvas_2d"):
+            self._refresh_all_views()
+        if was_playing and not self.playing:
+            self.toggle_play()
+
     def _init_simulation(self) -> None:
         self.seed = int(self.seed_var.get())
         if hasattr(self, "seed_entry_var"):
             self.seed_entry_var.set(str(self.seed))
+
+        if hasattr(self, "num_rovers_var"):
+            var_nr = int(self.num_rovers_var.get())
+            if var_nr != getattr(self, "_synced_num_rovers", self.num_rovers):
+                self.num_rovers = var_nr
+            else:
+                self.num_rovers_var.set(int(self.num_rovers))
+        self.num_rovers = max(2, min(6, int(getattr(self, "num_rovers", 2))))
+        self._synced_num_rovers = self.num_rovers
+
+        if hasattr(self, "map_scale_var"):
+            var_ms = float(self.map_scale_var.get())
+            if abs(var_ms - getattr(self, "_synced_map_scale", self.map_scale)) > 1e-6:
+                self.map_scale = var_ms
+            else:
+                self.map_scale_var.set(float(self.map_scale))
+        self.map_scale = float(getattr(self, "map_scale", 1.0))
+        self._synced_map_scale = self.map_scale
+
         scen = self.scenario_var.get()
         pol = self.policy_var.get()
         rescue_pol = self.rescue_policy_var.get()
@@ -245,6 +454,8 @@ class LiveSwarmDashboardApp:
             single_rover_only=(pol == "single_rover"),
             rescue_policy=rescue_pol,
             include_shadow_mycelial=True,
+            num_rovers=getattr(self, "num_rovers", 2),
+            map_scale=getattr(self, "map_scale", 1.0),
         )
         t0 = time.perf_counter()
         self.session = create_mujoco_episode_session(cfg, include_shadow_mycelial=True)
@@ -258,17 +469,28 @@ class LiveSwarmDashboardApp:
         self._central_samples_count = 0
 
         self.frame: ObservationFrame = self.session.reset(self.seed)
+        self._hfield_dirty = True
         self.decision: Decision = (
             self.session.last_decision
             if self.session.last_decision is not None
             else Decision(intents=(), commands=(), ingested_samples=0)
         )
+        active_rids = [r.robot_id for r in self.frame.robots]
+        if hasattr(self, "selected_robot_var") and self.selected_robot_var.get() not in active_rids:
+            self.selected_robot_var.set(active_rids[0] if active_rids else "planter")
+        if hasattr(self, "belief_view_var"):
+            bv = self.belief_view_var.get()
+            if bv not in active_rids and bv not in ("fused", "divergence", "ground_truth"):
+                self.belief_view_var.set(active_rids[0] if active_rids else "planter")
+
         self._apply_vehicle_sizing_to_sim()
         self.last_compute_ms = (time.perf_counter() - t0) * 1000.0
         self.step_count = 0
         self.trajectories = {
             r.robot_id: [(r.pose.x_m, r.pose.y_m)] for r in self.frame.robots
         }
+        self.visually_discovered_sites = {r.robot_id: set() for r in self.frame.robots}
+        self._update_visual_camera_discoveries()
 
         if hasattr(self, "renderer") and self.renderer is not None:
             try:
@@ -276,15 +498,20 @@ class LiveSwarmDashboardApp:
             except Exception:
                 pass
         self.renderer = mujoco.Renderer(self.sim.model, height=self.RENDER_H, width=self.RENDER_W)
+        self.con = getattr(self.renderer, "_mjr_context", None)
+        self.gl_Ready = self.con is not None
+        self._upload_hfield_if_needed(force=True)
+
         self.free_cam = mujoco.MjvCamera()
         mujoco.mjv_defaultFreeCamera(self.sim.model, self.free_cam)
         self.free_cam.lookat[:] = [1.22, -0.05, 0.05]
-        self.free_cam.distance = 2.55
+        self.free_cam.distance = 2.55 * max(1.0, 0.85 * self.map_scale) if self.map_scale > 1.0 else 2.55
         self.free_cam.elevation = -28.0
         self.free_cam.azimuth = 118.0
 
+        x_b, y_b = self._field_bounds()
         self.truth_grid = self.sim.world.continuous_terrain.sample_grid(
-            nx=self.GRID_NX, ny=self.GRID_NY
+            nx=self.GRID_NX, ny=self.GRID_NY, x_bounds=x_b, y_bounds=y_b
         )
 
     def _apply_vehicle_sizing_to_sim(self) -> None:
@@ -294,13 +521,14 @@ class LiveSwarmDashboardApp:
         sel = self.selected_robot_var.get()
         if hasattr(self, "session") and self.session is not None:
             t_now = self.frame.time_s if hasattr(self, "frame") and self.frame is not None else 0.0
+            active_rids = {r.robot_id for r in self.frame.robots} if hasattr(self, "frame") and self.frame else {"planter", "scout"}
             self.session.submit_operator_request(
                 OperatorRequest(
                     request_id=f"sizing-{self.step_count}-{int(time.time()*1000)%10000}",
                     kind=OperatorCommandKind.EXPERIMENT_VEHICLE_SIZING,
                     issued_at_s=t_now,
                     payload=(
-                        ("robot_id", sel if sel in ("planter", "scout") else "all"),
+                        ("robot_id", sel if sel in active_rids else "all"),
                         ("mass_kg", m_kg),
                         ("wheel_radius_m", r_m),
                         ("wheel_width_m", b_m),
@@ -324,9 +552,94 @@ class LiveSwarmDashboardApp:
         self._refresh_all_views()
 
     def _build_ui(self) -> None:
+        # Row 0: Simple, Clean Main Menu — Fleet Size (N-Rover) & Field Map Scale Setup Strip
+        self.main_menu_bar = tk.Frame(
+            self.root, bg="#0f172a", highlightthickness=1, highlightbackground="#38bdf8"
+        )
+        self.main_menu_bar.pack(fill=tk.X, padx=8, pady=(5, 2))
+
+        tk.Label(
+            self.main_menu_bar,
+            text="🧭 MAIN MENU — FLEET & MAP SETUP:",
+            bg="#0f172a",
+            fg="#38bdf8",
+            font=("Segoe UI", 9, "bold"),
+        ).pack(side=tk.LEFT, padx=(8, 6), pady=3)
+
+        tk.Label(
+            self.main_menu_bar,
+            text="Fleet Size:",
+            bg="#0f172a",
+            fg="#fbbf24",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side=tk.LEFT, padx=(4, 2))
+
+        self._fleet_size_radios: list[tk.Radiobutton] = []
+        for n_rov, n_lbl in FLEET_SIZE_OPTIONS:
+            rb_f = tk.Radiobutton(
+                self.main_menu_bar,
+                text=n_lbl,
+                variable=self.num_rovers_var,
+                value=n_rov,
+                command=self.apply_fleet_and_map_setup,
+                bg="#0f172a",
+                fg="#f8fafc",
+                selectcolor="#0284c7",
+                activebackground="#0f172a",
+                font=("Segoe UI", 8, "bold"),
+            )
+            rb_f.pack(side=tk.LEFT, padx=2)
+            self._fleet_size_radios.append(rb_f)
+
+        tk.Label(
+            self.main_menu_bar,
+            text="| Field Map Scale:",
+            bg="#0f172a",
+            fg="#fbbf24",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side=tk.LEFT, padx=(10, 2))
+
+        self._map_scale_radios: list[tk.Radiobutton] = []
+        for m_sc, m_lbl in MAP_SCALE_OPTIONS:
+            rb_m = tk.Radiobutton(
+                self.main_menu_bar,
+                text=m_lbl,
+                variable=self.map_scale_var,
+                value=m_sc,
+                command=self.apply_fleet_and_map_setup,
+                bg="#0f172a",
+                fg="#f8fafc",
+                selectcolor="#0284c7",
+                activebackground="#0f172a",
+                font=("Segoe UI", 8, "bold"),
+            )
+            rb_m.pack(side=tk.LEFT, padx=2)
+            self._map_scale_radios.append(rb_m)
+
+        self.apply_setup_btn = tk.Button(
+            self.main_menu_bar,
+            text="🚀 Apply / Launch New Episode",
+            command=self.apply_fleet_and_map_setup,
+            bg="#0284c7",
+            fg="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            padx=10,
+            pady=2,
+        )
+        self.apply_setup_btn.pack(side=tk.LEFT, padx=(10, 4), pady=3)
+
+        self.fleet_summary_lbl = tk.Label(
+            self.main_menu_bar,
+            text="",
+            bg="#0f172a",
+            fg="#a7f3d0",
+            font=("Consolas", 8, "bold"),
+        )
+        self.fleet_summary_lbl.pack(side=tk.RIGHT, padx=8)
+
         # Row 1: Top Control Toolbar (Play/Step/Reset + Seed + Scenario + Policy + Comms)
         toolbar = tk.Frame(self.root, bg="#111d2c", highlightthickness=1, highlightbackground="#1f3247")
-        toolbar.pack(fill=tk.X, padx=8, pady=(5, 2))
+        toolbar.pack(fill=tk.X, padx=8, pady=(0, 2))
 
         self.play_btn = tk.Button(
             toolbar,
@@ -738,26 +1051,11 @@ class LiveSwarmDashboardApp:
             bg="#111d2c",
             fg="#fbbf24",
             font=("Segoe UI", 9, "bold"),
-        ).pack(side=tk.LEFT, padx=(2, 6))
+        ).pack(side=tk.LEFT, padx=(2, 4))
 
-        for view_id, view_lbl in (
-            ("planter", "🤖 Planter Local Belief"),
-            ("scout", "🤖 Scout Local Belief"),
-            ("divergence", "⚡ |Planter − Scout| Belief Gap"),
-            ("ground_truth", "🌍 Hidden Ground Truth f(x,y)"),
-        ):
-            tk.Radiobutton(
-                who_bar,
-                text=view_lbl,
-                variable=self.belief_view_var,
-                value=view_id,
-                command=self._on_belief_view_button,
-                bg="#111d2c",
-                fg="#f8fafc",
-                selectcolor="#0284c7",
-                activebackground="#111d2c",
-                font=("Segoe UI", 8, "bold"),
-            ).pack(side=tk.LEFT, padx=3)
+        self.who_buttons_frame = tk.Frame(who_bar, bg="#111d2c")
+        self.who_buttons_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._refresh_belief_selector_buttons()
 
         layer_bar = tk.Frame(right_pane, bg="#111d2c")
         layer_bar.pack(fill=tk.X, pady=(0, 4))
@@ -980,25 +1278,83 @@ class LiveSwarmDashboardApp:
         self.free_cam.distance = max(0.55, min(5.5, self.free_cam.distance + delta))
         self._render_3d_view()
 
+    def _refresh_belief_selector_buttons(self) -> None:
+        """Rebuild dynamic belief perspective radio buttons for ALL (Fused), every active rover, Divergence, and God View."""
+        if not hasattr(self, "who_buttons_frame") or self.who_buttons_frame is None:
+            return
+        for child in self.who_buttons_frame.winfo_children():
+            child.destroy()
+        self.belief_radio_buttons: dict[str, tk.Radiobutton] = {}
+
+        cur_frame = (
+            self.session.current_frame
+            if hasattr(self, "session") and self.session is not None and self.session.current_frame is not None
+            else getattr(self, "frame", None)
+        )
+        active_rids = [r.robot_id for r in cur_frame.robots] if cur_frame is not None else ["planter", "scout"]
+
+        options: list[tuple[str, str, str]] = [("fused", "🌐 ALL (Fused)", "#1e293b")]
+        for rid in active_rids:
+            options.append((rid, f"🤖 {rid.upper()}", "#0c4a6e" if "planter" in rid else "#14532d"))
+        options.append(("divergence", "⚡ Divergence", "#451a03"))
+        options.append(("ground_truth", "🌍 True Field", "#3b0764"))
+
+        for w_id, w_lbl, w_bg in options:
+            rb = tk.Radiobutton(
+                self.who_buttons_frame,
+                text=w_lbl,
+                variable=self.belief_view_var,
+                value=w_id,
+                command=self._on_belief_view_button,
+                bg=w_bg,
+                fg=_robot_hex_color(w_id) if w_id in active_rids else "#ffffff",
+                selectcolor="#0284c7",
+                activebackground=w_bg,
+                indicatoron=False,
+                font=("Segoe UI", 8, "bold"),
+                padx=6,
+                pady=2,
+            )
+            rb.pack(side=tk.LEFT, padx=2)
+            self.belief_radio_buttons[w_id] = rb
+
+    def select_belief_robot(self, view_or_robot_id: str) -> None:
+        """Select a belief perspective ('fused', any active robot_id, 'divergence', or 'ground_truth') and refresh."""
+        self.selected_belief_robot = view_or_robot_id
+        self._on_belief_view_button()
+
     def _on_belief_view_button(self) -> None:
         v = self.belief_view_var.get()
-        if v in ("planter", "scout"):
+        cur_frame = (
+            self.session.current_frame
+            if hasattr(self, "session") and self.session is not None and self.session.current_frame is not None
+            else getattr(self, "frame", None)
+        )
+        active_rids = {r.robot_id for r in cur_frame.robots} if cur_frame is not None else {"planter", "scout"}
+        if v in active_rids:
             self.selected_robot_var.set(v)
         self._refresh_all_views()
 
     def _on_2d_canvas_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        """Allow clicking directly on planter or scout on the 2D top-down map to inspect its belief."""
+        """Allow clicking directly on any active rover in a 2..6 rover fleet on the 2D map to inspect its belief."""
         wx, wy = self._canvas_to_world(event.x, event.y)
         best_rid: str | None = None
-        best_d = 0.32
-        for r in self.frame.robots:
+        best_d = 0.36 * max(1.0, 0.85 * float(getattr(self, "map_scale", 1.0)))
+        cur_frame = (
+            self.session.current_frame
+            if hasattr(self, "session") and self.session is not None and self.session.current_frame is not None
+            else self.frame
+        )
+        obs_by_id = {r.robot_id: r for r in cur_frame.robots}
+        for rid in [r.robot_id for r in cur_frame.robots]:
+            r = obs_by_id[rid]
             d = hypot(wx - r.pose.x_m, wy - r.pose.y_m)
             if d < best_d:
                 best_d = d
-                best_rid = r.robot_id
+                best_rid = rid
         if best_rid is not None:
-            self.selected_robot_var.set(best_rid)
-            self.belief_view_var.set(best_rid)
+            self.selected_robot_id = best_rid
+            self.selected_belief_robot = best_rid
             self._refresh_all_views()
 
     def _on_sizing_slider_change(self) -> None:
@@ -1342,6 +1698,7 @@ class LiveSwarmDashboardApp:
         self.step_count = self.session.tick_index
         for r in self.frame.robots:
             self.trajectories.setdefault(r.robot_id, []).append((r.pose.x_m, r.pose.y_m))
+        self._update_visual_camera_discoveries()
         if self._gl_viewer is not None and self._gl_viewer.is_running():
             self._gl_viewer.user_scn.ngeom = 0
             self._append_3d_hud_geoms(self._gl_viewer.user_scn)
@@ -1360,13 +1717,7 @@ class LiveSwarmDashboardApp:
             rb.configure(state=tk.NORMAL if applies else tk.DISABLED)
 
     def reset_episode(self) -> None:
-        was_playing = self.playing
-        if was_playing:
-            self.toggle_play()
-        self._init_simulation()
-        self._refresh_all_views()
-        if was_playing and not self.playing:
-            self.toggle_play()
+        self._rebuild_simulation()
 
     def trigger_random_scenario(self) -> None:
         """Generate and launch a new reproducible Randomized Episode with a fresh seed."""
@@ -1440,7 +1791,10 @@ class LiveSwarmDashboardApp:
         discrete_rmse = sqrt(sum(sq_errs) / max(1, len(sq_errs)))
 
         # Continuous 2D Field RMSE (moisture + firmness + planting_fitness) using cached grids
-        p_grid = sample_continuous_belief_grid(p_map, nx=self.GRID_NX, ny=self.GRID_NY)
+        x_b, y_b = self._field_bounds()
+        p_grid = sample_continuous_belief_grid(
+            p_map, nx=self.GRID_NX, ny=self.GRID_NY, x_bounds=x_b, y_bounds=y_b
+        )
         t_layers = self.truth_grid["layers"]
         cont_mse = (
             float(np.mean((np.asarray(p_grid["moisture"]) - np.asarray(t_layers["moisture"])) ** 2))
@@ -1450,7 +1804,7 @@ class LiveSwarmDashboardApp:
         cont_rmse = sqrt(cont_mse)
 
         # D-0010 Equal-Work Communication Accounting
-        stream_10hz_bytes = max(1, self.step_count) * 116
+        stream_10hz_bytes = max(1, self.step_count) * 58 * max(2, len(self.frame.robots))
         pol = self.policy_var.get()
         if pol == "mycelial":
             actual_wire_bytes = self.runtime.total_gossip_bytes
@@ -1563,11 +1917,13 @@ class LiveSwarmDashboardApp:
                 fg="#a7f3d0",
             )
 
-        p_stat, _p_col, p_plan = self._format_robot_plan_sentence("planter")
-        s_stat, _s_col, s_plan = self._format_robot_plan_sentence("scout")
-        self.robot_plans_lbl.configure(
-            text=f"● {p_plan}   |   ● {s_plan}"
-        )
+        active_rids = [r.robot_id for r in self.frame.robots]
+        if hasattr(self, "fleet_summary_lbl") and self.fleet_summary_lbl is not None:
+            self.fleet_summary_lbl.configure(
+                text=f"Active Fleet: {len(active_rids)} Rovers ({', '.join(r.upper() for r in active_rids)}) | Map Scale: {self.map_scale:.1f}x"
+            )
+        plan_parts = [f"● {self._format_robot_plan_sentence(rid)[2]}" for rid in active_rids]
+        self.robot_plans_lbl.configure(text="   |   ".join(plan_parts))
         self._render_3d_view()
         self._render_2d_belief_map()
         self._update_inspector_and_logs()
@@ -1717,20 +2073,21 @@ class LiveSwarmDashboardApp:
                 else:
                     add_box([cell.x_m, cell.y_m, 0.015], [0.07, 0.07, 0.012], [0.75, 0.15, 0.85, 0.45])
 
-        # 5. Render UWB / Wi-Fi HaLow gossip link beam
-        if "planter" in obs_by_id and "scout" in obs_by_id:
-            p_pose = obs_by_id["planter"].pose
-            s_pose = obs_by_id["scout"].pose
-            recent_gossip = any(
-                abs(self.frame.time_s - pkt.sent_at_s) <= 0.6 for pkt in self.runtime.gossip_history
-            )
-            if recent_gossip:
-                add_line(
-                    [p_pose.x_m, p_pose.y_m, 0.19],
-                    [s_pose.x_m, s_pose.y_m, 0.16],
-                    0.011,
-                    [0.10, 0.98, 0.92, 0.92],
-                )
+        # 5. Render UWB / Wi-Fi HaLow gossip link beams across active rover pairs
+        seen_pairs: set[tuple[str, str]] = set()
+        for pkt in self.runtime.gossip_history[-15:]:
+            if abs(self.frame.time_s - pkt.sent_at_s) <= 0.6:
+                pair = (min(pkt.sender_id, pkt.receiver_id), max(pkt.sender_id, pkt.receiver_id))
+                if pair not in seen_pairs and pair[0] in obs_by_id and pair[1] in obs_by_id:
+                    seen_pairs.add(pair)
+                    p1 = obs_by_id[pair[0]].pose
+                    p2 = obs_by_id[pair[1]].pose
+                    add_line(
+                        [p1.x_m, p1.y_m, 0.19],
+                        [p2.x_m, p2.y_m, 0.16],
+                        0.011,
+                        [0.10, 0.98, 0.92, 0.92],
+                    )
 
         # 6. Render LiDAR rays, distress beacons & rescue tow vectors
         for intent in self.decision.intents:
@@ -1762,21 +2119,28 @@ class LiveSwarmDashboardApp:
                 line_rgba = (
                     [0.98, 0.84, 0.15, 0.82]
                     if intent.mode == TaskMode.PLANT
-                    else ([0.25, 0.68, 0.98, 0.65] if intent.robot_id == "planter" else [0.25, 0.92, 0.45, 0.65])
+                    else _robot_rgba_color(intent.robot_id)
                 )
                 add_line([rx, ry, 0.11], [tsite.center.x_m, tsite.center.y_m, 0.18], 0.005, line_rgba)
 
     def _render_3d_view(self) -> None:
+        self._upload_hfield_if_needed()
         cam_choice = self.camera_var.get()
         if cam_choice == "wheel_closeup":
             sel = self.selected_robot_var.get()
-            r_xyz = self.sim.data.sensor(f"{sel}_pos").data
-            self.free_cam.lookat[:] = [float(r_xyz[0]), float(r_xyz[1]), 0.03]
+            try:
+                r_xyz = self.sim.data.sensor(f"{sel}_pos").data
+                self.free_cam.lookat[:] = [float(r_xyz[0]), float(r_xyz[1]), 0.03]
+            except Exception:
+                pass
             self.renderer.update_scene(self.sim.data, camera=self.free_cam)
         elif cam_choice == "isometric":
             self.renderer.update_scene(self.sim.data, camera=self.free_cam)
         else:
-            self.renderer.update_scene(self.sim.data, camera=cam_choice)
+            try:
+                self.renderer.update_scene(self.sim.data, camera=cam_choice)
+            except Exception:
+                self.renderer.update_scene(self.sim.data, camera=self.free_cam)
 
         self._append_3d_hud_geoms(self.renderer.scene)
         rgb = self.renderer.render()
@@ -1829,6 +2193,34 @@ class LiveSwarmDashboardApp:
         y_m = y_min + (((self.MAP_H - cy) - pad) / max(1e-6, h)) * (y_max - y_min)
         return x_m, y_m
 
+    def _sample_robot_or_fused_grid(self, view_mode: str) -> dict[str, Any]:
+        x_b, y_b = self._field_bounds()
+        if view_mode in self.runtime.nodes:
+            return sample_continuous_belief_grid(
+                self.runtime.nodes[view_mode].local_map,
+                nx=self.GRID_NX,
+                ny=self.GRID_NY,
+                x_bounds=x_b,
+                y_bounds=y_b,
+            )
+        grids = [
+            sample_continuous_belief_grid(
+                node.local_map, nx=self.GRID_NX, ny=self.GRID_NY, x_bounds=x_b, y_bounds=y_b
+            )
+            for node in self.runtime.nodes.values()
+        ]
+        if not grids:
+            return self.truth_grid["layers"]
+        if len(grids) == 1:
+            return grids[0]
+        weights = [1.0 / np.maximum(0.05, np.asarray(g["uncertainty"], dtype=np.float64)) for g in grids]
+        w_sum = np.sum(weights, axis=0)
+        fused: dict[str, Any] = {}
+        for k in ("moisture", "firmness", "planting_fitness", "traversability_risk"):
+            fused[k] = np.sum([ np.asarray(g[k], dtype=np.float64) * w for g, w in zip(grids, weights) ], axis=0) / w_sum
+        fused["uncertainty"] = np.min([np.asarray(g["uncertainty"], dtype=np.float64) for g in grids], axis=0)
+        return fused
+
     def _render_2d_belief_map(self) -> None:
         c = self.canvas_2d
         c.delete("all")
@@ -1839,12 +2231,7 @@ class LiveSwarmDashboardApp:
             layer, ("Field Layer", 0.0, 1.0, "moisture")
         )
 
-        p_grid = sample_continuous_belief_grid(
-            self.runtime.nodes["planter"].local_map, nx=self.GRID_NX, ny=self.GRID_NY
-        )
-        s_grid = sample_continuous_belief_grid(
-            self.runtime.nodes["scout"].local_map, nx=self.GRID_NX, ny=self.GRID_NY
-        )
+        x_b, y_b = self._field_bounds()
         truth_layers = self.truth_grid["layers"]
 
         if view_mode == "ground_truth":
@@ -1853,15 +2240,25 @@ class LiveSwarmDashboardApp:
             if src_layer == "mud_depth_m":
                 vmin, vmax, palette = 0.02, 0.25, "risk"
         elif view_mode == "divergence":
-            l_key = layer if layer in p_grid else "moisture"
-            pg = np.asarray(p_grid[l_key], dtype=np.float64)
-            sg = np.asarray(s_grid[l_key], dtype=np.float64)
-            grid_2d = np.abs(pg - sg)
+            grids = [
+                sample_continuous_belief_grid(
+                    node.local_map, nx=self.GRID_NX, ny=self.GRID_NY, x_bounds=x_b, y_bounds=y_b
+                )
+                for node in self.runtime.nodes.values()
+            ]
+            l_key = layer if (grids and layer in grids[0]) else "moisture"
+            if len(grids) >= 2:
+                arrs = [np.asarray(g[l_key], dtype=np.float64) for g in grids]
+                grid_2d = np.max(arrs, axis=0) - np.min(arrs, axis=0)
+            else:
+                grid_2d = np.zeros_like(np.asarray(truth_layers["moisture"], dtype=np.float64))
             vmin, vmax, palette = 0.0, 0.42, "risk"
         else:
-            active_grid = p_grid if view_mode == "planter" else s_grid
+            active_grid = self._sample_robot_or_fused_grid(view_mode)
             if layer == "elevation_m":
-                grid_2d = truth_layers["elevation_m"]
+                u_arr = np.asarray(active_grid.get("uncertainty", 0.5), dtype=np.float64)
+                conf = np.clip((0.50 - u_arr) / 0.35, 0.0, 1.0)
+                grid_2d = conf * np.asarray(truth_layers["elevation_m"], dtype=np.float64)
             else:
                 grid_2d = active_grid.get(layer, active_grid["moisture"])
 
@@ -1877,7 +2274,7 @@ class LiveSwarmDashboardApp:
         # 2. Draw SLAM hazard cells discovered by the inspected robot(s)
         nodes_to_show = (
             [self.runtime.nodes[view_mode]]
-            if view_mode in ("planter", "scout")
+            if view_mode in self.runtime.nodes
             else list(self.runtime.nodes.values())
         )
         for node in nodes_to_show:
@@ -1892,13 +2289,25 @@ class LiveSwarmDashboardApp:
             c.create_rectangle(ox - 11, oy - 11, ox + 11, oy + 11, fill="#dc2626", outline="#fef08a", width=2)
             c.create_text(ox, oy - 16, text="OBSTACLE", fill="#fef08a", font=("Consolas", 8, "bold"))
 
-        # 4. Draw the 6 terrace sites & selected robot's local site estimate status
+        # 4. Draw the 6 terrace sites & selected robot's local site estimate status (Undiscovered vs Camera Discovered vs Probed)
         planted_sites = {
             d.target_site_id for d in self.sim.completed_drops if d.contact_observed_at_s is not None
         }
         envelope = SoilSafetyEnvelope()
         inspected_rid = self.selected_robot_var.get()
-        inspected_node = self.runtime.nodes.get(inspected_rid, self.runtime.nodes["planter"])
+        inspected_node = self.runtime.nodes.get(
+            inspected_rid, next(iter(self.runtime.nodes.values()))
+        )
+        probed_set = set(getattr(inspected_node.local_map, "probed_sites", set()))
+        disc_set = set(getattr(inspected_node.local_map, "discovered_sites", set())) | self.visually_discovered_sites.get(
+            inspected_rid, set()
+        )
+        if view_mode == "fused":
+            for nd in self.runtime.nodes.values():
+                probed_set |= set(getattr(nd.local_map, "probed_sites", set()))
+                disc_set |= set(getattr(nd.local_map, "discovered_sites", set()))
+            for vs in self.visually_discovered_sites.values():
+                disc_set |= vs
 
         for sid, site in self.sim.sites.items():
             sx, sy = self._world_to_canvas(site.center.x_m, site.center.y_m)
@@ -1908,42 +2317,56 @@ class LiveSwarmDashboardApp:
             else:
                 est = inspected_node.local_map.estimate(sid)
                 is_planted = sid in planted_sites
+                is_probed = (sid in probed_set) or est.complete
+                is_vis = sid in disc_set
+                dash_pat: tuple[int, ...] | None = None
                 if is_planted:
                     ring_col = "#22c55e"
                     tag_txt = f"{sid} [PLANTED]"
-                elif not est.complete:
+                elif is_probed and est.complete:
+                    if envelope.eligible(est):
+                        ring_col = "#38bdf8"
+                        tag_txt = f"{sid} [VIABLE]"
+                    else:
+                        ring_col = "#f87171"
+                        tag_txt = f"{sid} [MUD REJECT]"
+                elif is_vis:
+                    ring_col = "#38bdf8"
+                    tag_txt = f"{sid} [VIS]"
+                    dash_pat = (4, 2)
+                else:
                     ring_col = "#fbbf24"
                     tag_txt = f"{sid} [?]"
-                elif envelope.eligible(est):
-                    ring_col = "#38bdf8"
-                    tag_txt = f"{sid} [VIABLE]"
+                    dash_pat = (2, 3)
+                if dash_pat is not None:
+                    c.create_oval(sx - 18, sy - 18, sx + 18, sy + 18, outline=ring_col, width=2, dash=dash_pat)
                 else:
-                    ring_col = "#f87171"
-                    tag_txt = f"{sid} [MUD REJECT]"
-                c.create_oval(sx - 18, sy - 18, sx + 18, sy + 18, outline=ring_col, width=2)
+                    c.create_oval(sx - 18, sy - 18, sx + 18, sy + 18, outline=ring_col, width=2)
                 c.create_text(sx, sy - 24, text=tag_txt, fill="#f8fafc", font=("Consolas", 8, "bold"))
 
-        # 5. Draw UWB / Wi-Fi HaLow wireless link between rovers
+        # 5. Draw UWB / Wi-Fi HaLow wireless links between active rovers with recent gossip
         obs_by_id = {r.robot_id: r for r in self.frame.robots}
-        if "planter" in obs_by_id and "scout" in obs_by_id:
-            px, py = self._world_to_canvas(obs_by_id["planter"].pose.x_m, obs_by_id["planter"].pose.y_m)
-            scx, scy = self._world_to_canvas(obs_by_id["scout"].pose.x_m, obs_by_id["scout"].pose.y_m)
-            recent_gossip = any(
-                abs(self.frame.time_s - pkt.sent_at_s) <= 0.6 for pkt in self.runtime.gossip_history
-            )
-            if recent_gossip:
-                c.create_line(px, py, scx, scy, fill="#22d3ee", width=3, dash=(5, 3))
-                c.create_text(
-                    0.5 * (px + scx),
-                    0.5 * (py + scy) - 9,
-                    text="UWB+HaLow GOSSIP",
-                    fill="#fef08a",
-                    font=("Consolas", 8, "bold"),
-                )
+        seen_pairs_2d: set[tuple[str, str]] = set()
+        for pkt in self.runtime.gossip_history[-15:]:
+            if abs(self.frame.time_s - pkt.sent_at_s) <= 0.6:
+                pair = (min(pkt.sender_id, pkt.receiver_id), max(pkt.sender_id, pkt.receiver_id))
+                if pair not in seen_pairs_2d and pair[0] in obs_by_id and pair[1] in obs_by_id:
+                    seen_pairs_2d.add(pair)
+                    p1x, p1y = self._world_to_canvas(obs_by_id[pair[0]].pose.x_m, obs_by_id[pair[0]].pose.y_m)
+                    p2x, p2y = self._world_to_canvas(obs_by_id[pair[1]].pose.x_m, obs_by_id[pair[1]].pose.y_m)
+                    c.create_line(p1x, p1y, p2x, p2y, fill="#22d3ee", width=2, dash=(5, 3))
+                    c.create_text(
+                        0.5 * (p1x + p2x),
+                        0.5 * (p1y + p2y) - 8,
+                        text="UWB+HaLow GOSSIP",
+                        fill="#fef08a",
+                        font=("Consolas", 7, "bold"),
+                    )
 
-        # 6. Draw Rover Trajectories & Clickable Rover Icons
+        # 6. Draw Rover Trajectories, Forward Camera FOV Cones & Clickable Rover Icons
         intents_by_rid = {i.robot_id: i for i in self.decision.intents}
         for rid, r_obs in obs_by_id.items():
+            rover_col = _robot_hex_color(rid)
             pts = self.trajectories.get(rid, [])
             if len(pts) >= 2:
                 flat_coords: list[float] = []
@@ -1952,12 +2375,28 @@ class LiveSwarmDashboardApp:
                     flat_coords.extend([cx, cy])
                 c.create_line(
                     *flat_coords,
-                    fill="#38bdf8" if rid == "planter" else "#4ade80",
+                    fill=rover_col,
                     width=2,
                 )
 
             rx, ry = self._world_to_canvas(r_obs.pose.x_m, r_obs.pose.y_m)
             is_selected = rid == self.selected_robot_var.get()
+
+            # Forward optical camera FOV cone wedge (62 deg, 0.95m range)
+            cone_pts: list[float] = [rx, ry]
+            for frac in (-1.0, -0.5, 0.0, 0.5, 1.0):
+                ang = r_obs.pose.yaw_rad + frac * CAMERA_HALF_FOV_RAD
+                wx = r_obs.pose.x_m + CAMERA_RANGE_M * cos(ang)
+                wy = r_obs.pose.y_m + CAMERA_RANGE_M * sin(ang)
+                cx_w, cy_w = self._world_to_canvas(wx, wy)
+                cone_pts.extend([cx_w, cy_w])
+            c.create_polygon(
+                *cone_pts,
+                fill="",
+                outline="#fef08a" if is_selected else rover_col,
+                width=1,
+                dash=(3, 3),
+            )
 
             if is_selected:
                 c.create_oval(
@@ -2000,14 +2439,14 @@ class LiveSwarmDashboardApp:
             12,
             13,
             anchor="w",
-            text=f"View: {view_mode.upper()}  |  Layer: {layer_title} [{vmin:.2f} .. {vmax:.2f}]  (Click robot on map to inspect)",
+            text=f"View: {view_mode.upper()}  |  Layer: {layer_title} [{vmin:.2f} .. {vmax:.2f}]  (Click any of the {len(obs_by_id)} rovers on map to inspect)",
             fill="#38bdf8",
             font=("Consolas", 8, "bold"),
         )
 
     def _update_inspector_and_logs(self) -> None:
         sel_rid = self.selected_robot_var.get()
-        node = self.runtime.nodes.get(sel_rid, self.runtime.nodes["planter"])
+        node = self.runtime.nodes.get(sel_rid, next(iter(self.runtime.nodes.values())))
         obs_by_id = {r.robot_id: r for r in self.frame.robots}
         r_obs = obs_by_id.get(sel_rid)
         intents_by_id = {i.robot_id: i for i in self.decision.intents}
@@ -2123,16 +2562,21 @@ class LiveSwarmDashboardApp:
 
         lines.append(f"\n--- {sel_rid.upper()}'S PRIVATE GAUSSIAN SITE BELIEFS ---")
         envelope = SoilSafetyEnvelope()
-        for sid in ("patch_a", "patch_b", "patch_c", "patch_d"):
+        permitted_sids = [sid for sid, st in sorted(self.sim.sites.items()) if st.permitted]
+        probed_sids = set(getattr(node.local_map, "probed_sites", set()))
+        disc_sids = set(getattr(node.local_map, "discovered_sites", set())) | self.visually_discovered_sites.get(
+            sel_rid, set()
+        )
+        for sid in permitted_sids:
             est = node.local_map.estimate(sid)
             ch = node.local_map._beliefs[sid]
             mean_unc = sum(b.uncertainty for b in ch.values()) / max(1, len(ch))
-            if not est.complete:
-                status = "UNEXPLORED"
-            elif envelope.eligible(est):
-                status = "VIABLE ✓"
+            if (sid in probed_sids) or est.complete:
+                status = "VIABLE ✓" if envelope.eligible(est) else "MUD REJECT ✗"
+            elif sid in disc_sids:
+                status = "CAMERA VIS"
             else:
-                status = "MUD REJECT ✗"
+                status = "UNEXPLORED"
             m_str = f"{est.moisture:.2f}" if est.moisture is not None else " ?  "
             f_str = f"{est.firmness:.2f}" if est.firmness is not None else " ?  "
             g_str = f"{est.stand_gap:.2f}" if est.stand_gap is not None else " ?  "
@@ -2155,7 +2599,7 @@ class LiveSwarmDashboardApp:
             lines.append(
                 f"• RF Comms: N/A for {self.session.config.effective_policy_label} (uses shared MeasuredFieldMap)"
             )
-        for sid in ("patch_a", "patch_b", "patch_c", "patch_d"):
+        for sid in permitted_sids:
             tr = self.hidden_truth.get(sid, {})
             tm = tr.get(SensorKind.MOISTURE, 0.5)
             tf = tr.get(SensorKind.FIRMNESS, 0.5)
@@ -2179,14 +2623,14 @@ class LiveSwarmDashboardApp:
         self.inspector_text.insert(tk.END, "\n".join(lines))
 
         card_lines: list[str] = []
-        for rid in ("planter", "scout"):
+        for rid in [r.robot_id for r in self.frame.robots]:
             s_st = self.sim.latest_terramechanics.get(rid)
             t_pt = self.sim.latest_terrain_points.get(rid)
             slp = self.sim.latest_slip_ratios.get(rid, 0.08)
             ro = obs_by_id.get(rid)
             if s_st and t_pt:
                 card_lines.append(
-                    f"{rid.upper():7s} (m={s_st.mass_kg:4.1f}kg, r={s_st.wheel_radius_m*1000:2.0f}mm) | "
+                    f"{rid.upper():9s} (m={s_st.mass_kg:4.1f}kg, r={s_st.wheel_radius_m*1000:2.0f}mm) | "
                     f"Topo z={t_pt.elevation_m*1000:+5.1f}mm | Sink z={s_st.sinkage_z_m*1000:5.1f}mm | "
                     f"Clr={s_st.belly_clearance_m*1000:+5.1f}mm | Slip={slp*100:2.0f}% | "
                     f"Drag={s_st.compaction_resistance_n:4.1f}N | "
