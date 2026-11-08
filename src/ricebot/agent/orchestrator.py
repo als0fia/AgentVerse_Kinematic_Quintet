@@ -457,6 +457,13 @@ class LLMBackend(Protocol):
     def call(self, prompt: str) -> str | None: ...
 
 
+class OfflineLLMBackend:
+    """Explicit no-network backend for shadow policies and paid-call-free tests."""
+
+    def call(self, prompt: str) -> None:
+        return None
+
+
 class GeminiRESTBackend:
     """Stdlib-only REST caller for Google Gemini (zero extra pip packages)."""
 
