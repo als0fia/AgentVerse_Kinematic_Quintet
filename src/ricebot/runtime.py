@@ -699,7 +699,7 @@ def create_mujoco_episode_session(
         field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
         planner = SimpleMissionPlanner(caps)
         controller = LocalController(
-            ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.26)
+            ControlLimits(speed_m_s=0.42, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.26)
         )
         policy_runtime = MissionCore(field_map, planner, controller)
 
