@@ -472,7 +472,11 @@ class GeminiRESTBackend:
         model: str = "gemini-2.5-flash",
         api_key_env: str = "GEMINI_API_KEY",
         timeout_s: float = 2.5,
+        max_calls: int = 8,
     ):
+        if max_calls < 1:
+            raise ValueError("model call budget must be positive")
+        self.max_calls = int(max_calls)
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", model):
             raise ValueError("model identifier contains unsupported characters")
         if timeout_s <= 0:
@@ -488,7 +492,7 @@ class GeminiRESTBackend:
 
     def call(self, prompt: str) -> str | None:
         api_key = os.environ.get(self.api_key_env)
-        if not api_key:
+        if not api_key or self.total_calls >= self.max_calls:
             self.unavailable_calls += 1
             return None
         self.total_calls += 1
