@@ -17,11 +17,20 @@ from ricebot.agent import (
     OrchestratorDecision,
     OrchestratorSafetyGate,
     OrchestratorToolBelt,
+    RecoveryAction,
     RescueVerdict,
     ResidualRecoveryLearner,
     SwarmOrchestratorAgent,
 )
-from ricebot.contracts import Pose2D, RecoveryFeedback, TaskMode
+from ricebot.contracts import (
+    Pose2D,
+    RecoveryFeedback,
+    RobotCapability,
+    RobotObservation,
+    TaskIntent,
+    TaskMode,
+)
+from ricebot.control import LocalController
 
 
 class MockLLMBackend:
@@ -395,7 +404,30 @@ class OrchestratorAgentTests(unittest.TestCase):
         self.assertEqual(exhausted.verdict, RescueVerdict.ABANDON_ESCALATE)
         self.assertEqual(exhausted.chosen_technique, MechanicalRescueTechnique.NONE)
 
-        # Successful extraction clears the aborted technique history for that robot
+        # A new independent incident (or new episode) must not inherit stale aborted techniques
+        later_incident = IncidentReport(
+            incident_id="inc-independent-02",
+            time_s=60.0,
+            stranded_robot_id="rover-2",
+            failure_mode=FailureMode.CONTAGIOUS_MUD_TRAP,
+            stalled_window_s=3.0,
+            slip_ratio=0.82,
+            imu_pitch_deg=4.0,
+            imu_roll_deg=1.0,
+            front_range_m=0.25,
+            local_moisture=0.65,
+            local_firmness=0.45,
+            seeds_remaining=1,
+            available_helpers=(
+                HelperStatus("rover-3", Pose2D(1.2, 0.8, 0.0), seeds_remaining=0, battery_ratio=0.95),
+            ),
+        )
+        fresh = self.agent.orchestrate(later_incident)
+        self.assertEqual(fresh.verdict, RescueVerdict.RESCUE_NOW)
+        self.assertEqual(fresh.chosen_technique, MechanicalRescueTechnique.DIRECT_PRY_AND_PULL)
+
+        # Successful extraction also clears the aborted technique history for that robot
+        self.agent.aborted_techniques_by_robot["rover-2"] = {"direct_pry_and_pull"}
         self.agent.record_recovery_feedback(
             RecoveryFeedback(
                 helper_robot_id="rover-3",
@@ -404,7 +436,7 @@ class OrchestratorAgentTests(unittest.TestCase):
                 latched=True,
                 extracted=True,
                 victim_displacement_m=0.20,
-                observed_at_s=40.0,
+                observed_at_s=75.0,
                 phase="extracted_and_unlatched",
                 peak_constraint_force_n=45.0,
                 helper_pitch_rad=0.05,
@@ -413,6 +445,209 @@ class OrchestratorAgentTests(unittest.TestCase):
             )
         )
         self.assertNotIn("rover-2", self.agent.aborted_techniques_by_robot)
+
+    def test_rollover_stabilization_vs_pitch_match_extraction_action_semantics(self):
+        """Verify TIP_OVER_OR_TRENCH commands victim self-stabilization (ABANDON_ESCALATE) while PITCH_NOSE_DOWN_STALL authorizes physical peer extraction."""
+        controller = LocalController()
+
+        # 1. Severe rollover / trench incident (TIP_OVER_OR_TRENCH):
+        # SPADE_ANCHOR_ROLLOVER_HOLD stops wheels, deploys spades (0.85 rad), and leaves latch open (0.0 rad).
+        # It is a victim self-stabilization hold, NOT a peer towing action.
+        trench_incident = IncidentReport(
+            incident_id="inc-trench-rollover-01",
+            time_s=70.0,
+            stranded_robot_id="rover-2",
+            failure_mode=FailureMode.TIP_OVER_OR_TRENCH,
+            stalled_window_s=4.0,
+            slip_ratio=0.75,
+            imu_pitch_deg=34.0,
+            imu_roll_deg=24.0,
+            front_range_m=0.30,
+            local_moisture=0.60,
+            local_firmness=0.50,
+            seeds_remaining=1,
+            available_helpers=(
+                HelperStatus("rover-3", Pose2D(1.0, 0.8, 0.0), seeds_remaining=0, battery_ratio=0.95),
+            ),
+            hazard_risk=0.4,
+        )
+        trench_decision = self.agent.orchestrate(trench_incident)
+        self.assertEqual(trench_decision.verdict, RescueVerdict.ABANDON_ESCALATE)
+        self.assertEqual(trench_decision.chosen_technique, MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD)
+        self.assertIsNone(trench_decision.helper_robot_id)
+        self.assertIsNone(trench_decision.mechanical_setpoint)
+
+        trench_assessment = self.agent.to_rescue_assessment(trench_incident, trench_decision)
+        self.assertEqual(trench_assessment.verdict, RescueVerdict.ABANDON_ESCALATE)
+        self.assertEqual(trench_assessment.recovery_action, RecoveryAction.SAFE_ABSTAIN_DEFER_HUMAN)
+        self.assertEqual(trench_assessment.mechanical_technique, MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD)
+        self.assertIsNone(trench_assessment.helper_robot_id)
+
+        # Verify actual low-level controller semantics for the stranded victim in HOLD with spade_anchor_rollover_hold
+        victim_obs = RobotObservation(
+            robot_id="rover-2",
+            pose=Pose2D(0.0, 0.0, 0.0),
+            time_s=70.0,
+            front_range_m=0.30,
+            seeds_remaining=1,
+            roll_rad=0.42,
+            is_bogged=True,
+        )
+        victim_hold_cmd = controller.command(
+            victim_obs,
+            TaskIntent(
+                task_id="hold-rover-2",
+                robot_id="rover-2",
+                mode=TaskMode.HOLD,
+                issued_at_s=70.0,
+                expires_at_s=71.0,
+                target_site_id=None,
+                reason="rollover self-stabilization",
+                recovery_technique=trench_decision.chosen_technique.value,
+            ),
+            {},
+            RobotCapability("rover-2", can_sample=True, can_plant=True),
+        )
+        self.assertEqual(victim_hold_cmd.linear_m_s, 0.0)
+        self.assertEqual(victim_hold_cmd.angular_rad_s, 0.0)
+        self.assertAlmostEqual(victim_hold_cmd.spade_rad, 0.85, places=3)
+        self.assertAlmostEqual(victim_hold_cmd.latch_rad, 0.0, places=3)
+
+        # Tool belt must reject spade_anchor_rollover_hold as a peer extraction skill
+        auth_err = self.tool_belt.authorize_recovery_skill(
+            trench_incident,
+            technique_str="spade_anchor_rollover_hold",
+            helper_id="rover-3",
+        )
+        self.assertIn("error", auth_err)
+
+        # 2. LLM attempting RESCUE_NOW with SPADE_ANCHOR_ROLLOVER_HOLD or on TIP_OVER_OR_TRENCH must be vetoed
+        rollover_llm = MockLLMBackend([
+            json.dumps({
+                "thought": "Misinterpreting rollover stabilization hold as peer extraction.",
+                "verdict": "rescue_now",
+                "chosen_technique": "spade_anchor_rollover_hold",
+                "helper_robot_id": "rover-3",
+                "rationale": "Dispatching helper with rollover hold.",
+            })
+        ])
+        vetoed_trench = SwarmOrchestratorAgent(
+            backend=rollover_llm, tool_belt=self.tool_belt
+        ).orchestrate(trench_incident)
+        self.assertTrue(vetoed_trench.safety_veto_applied)
+        self.assertEqual(vetoed_trench.verdict, RescueVerdict.ABANDON_ESCALATE)
+        self.assertEqual(vetoed_trench.chosen_technique, MechanicalRescueTechnique.SPADE_ANCHOR_ROLLOVER_HOLD)
+        self.assertIsNone(vetoed_trench.helper_robot_id)
+        self.assertIsNone(vetoed_trench.mechanical_setpoint)
+
+        # Even on a mud-trap incident, LLM attempting RESCUE_NOW with a non-extraction skill (spade_anchor_rollover_hold / self_oscillate_dibber) is vetoed
+        mud_incident = IncidentReport(
+            incident_id="inc-mud-non-extraction-veto",
+            time_s=72.0,
+            stranded_robot_id="rover-2",
+            failure_mode=FailureMode.CONTAGIOUS_MUD_TRAP,
+            stalled_window_s=4.0,
+            slip_ratio=0.82,
+            imu_pitch_deg=5.0,
+            imu_roll_deg=2.0,
+            front_range_m=0.25,
+            local_moisture=0.65,
+            local_firmness=0.45,
+            seeds_remaining=1,
+            available_helpers=(
+                HelperStatus("rover-3", Pose2D(1.0, 0.8, 0.0), seeds_remaining=0, battery_ratio=0.95),
+            ),
+        )
+        for non_peer_tech in ("spade_anchor_rollover_hold", "self_oscillate_dibber"):
+            bad_llm = MockLLMBackend([
+                json.dumps({
+                    "thought": "Using self-only skill for peer rescue.",
+                    "verdict": "rescue_now",
+                    "chosen_technique": non_peer_tech,
+                    "helper_robot_id": "rover-3",
+                    "rationale": "Invalid peer technique.",
+                })
+            ])
+            vetoed_non_peer = SwarmOrchestratorAgent(
+                backend=bad_llm, tool_belt=self.tool_belt
+            ).orchestrate(mud_incident)
+            self.assertTrue(vetoed_non_peer.safety_veto_applied)
+            self.assertEqual(vetoed_non_peer.verdict, RescueVerdict.ABANDON_ESCALATE)
+            self.assertEqual(vetoed_non_peer.chosen_technique, MechanicalRescueTechnique.NONE)
+            self.assertIsNone(vetoed_non_peer.helper_robot_id)
+            self.assertIsNone(vetoed_non_peer.mechanical_setpoint)
+
+        # 3. Recoverable moderate nose-down pitch stall (PITCH_NOSE_DOWN_STALL):
+        # Supported by PITCH_MATCH_NOSE_DOWN_RECOVERY with engaged cam-latch and reverse wheel traction.
+        pitch_incident = IncidentReport(
+            incident_id="inc-pitch-nose-down-01",
+            time_s=80.0,
+            stranded_robot_id="rover-2",
+            failure_mode=FailureMode.PITCH_NOSE_DOWN_STALL,
+            stalled_window_s=4.0,
+            slip_ratio=0.80,
+            imu_pitch_deg=-22.0,
+            imu_roll_deg=3.0,
+            front_range_m=0.28,
+            local_moisture=0.60,
+            local_firmness=0.48,
+            seeds_remaining=1,
+            available_helpers=(
+                HelperStatus("rover-3", Pose2D(0.55, 0.0, 0.0), seeds_remaining=0, battery_ratio=0.95),
+            ),
+            hazard_risk=0.4,
+        )
+        pitch_decision = self.agent.orchestrate(pitch_incident)
+        self.assertEqual(pitch_decision.verdict, RescueVerdict.RESCUE_NOW)
+        self.assertFalse(pitch_decision.safety_veto_applied)
+        self.assertEqual(pitch_decision.helper_robot_id, "rover-3")
+        self.assertEqual(
+            pitch_decision.chosen_technique,
+            MechanicalRescueTechnique.PITCH_MATCH_NOSE_DOWN_RECOVERY,
+        )
+        self.assertIsNotNone(pitch_decision.mechanical_setpoint)
+        setpoint = pitch_decision.mechanical_setpoint
+        assert setpoint is not None
+        self.assertLess(setpoint.dock_pitch_rad, 0.0)
+        self.assertGreater(setpoint.latch_rad, 0.30)
+        self.assertGreater(setpoint.spade_rad, 0.0)
+        self.assertTrue(all(w < 0.0 for w in setpoint.wheel_vel_rad_s))
+
+        clamped_pitch, clamped_latch, clamped_spade = (
+            self.agent.translate_setpoint_to_command_bounds(setpoint)
+        )
+        self.assertAlmostEqual(clamped_pitch, -0.10, places=3)
+        self.assertGreater(clamped_latch, 0.30)
+        self.assertAlmostEqual(clamped_spade, 0.35, places=3)
+
+        helper_obs = RobotObservation(
+            robot_id="rover-3",
+            pose=Pose2D(0.25, 0.0, 3.14159),
+            time_s=80.0,
+            front_range_m=0.25,
+            seeds_remaining=0,
+        )
+        rescue_cmd = controller.command(
+            helper_obs,
+            TaskIntent(
+                task_id="rescue-rover-3",
+                robot_id="rover-3",
+                mode=TaskMode.RESCUE,
+                issued_at_s=80.0,
+                expires_at_s=81.0,
+                target_site_id="s-1",
+                target_robot_id="rover-2",
+                reason="pitch-matched peer extraction",
+                recovery_technique=pitch_decision.chosen_technique.value,
+            ),
+            {},
+            RobotCapability("rover-3", can_sample=True, can_plant=False),
+            peer_pose=Pose2D(0.0, 0.0, 0.0),
+        )
+        self.assertGreater(rescue_cmd.linear_m_s, 0.0)
+        self.assertAlmostEqual(rescue_cmd.dock_pitch_rad, 0.14, places=3)
+        self.assertGreater(rescue_cmd.latch_rad, 0.30)
+        self.assertAlmostEqual(rescue_cmd.spade_rad, 0.25, places=3)
 
 
 if __name__ == "__main__":
