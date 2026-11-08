@@ -42,7 +42,11 @@ from ..control import ControlLimits, LocalController
 from ..mission import MeasuredFieldMap, SimpleMissionPlanner
 from ..mujoco_sim.adapter import DEFAULT_CAPABILITIES, DEFAULT_SITES, MujocoPaddySimulation
 from ..runtime import EpisodeConfig, EpisodeSession, MissionCore, create_mujoco_episode_session
-from ..world import generate_hidden_soil_truth
+from ..world import (
+    RandomizedEpisodeSpec,
+    generate_hidden_soil_truth,
+    generate_randomized_episode_spec,
+)
 
 
 def _rgb_array_to_tk_ppm(rgb: np.ndarray) -> bytes:
@@ -161,6 +165,7 @@ class LiveSwarmDashboardApp:
 
         self.seed = int(seed)
         self.seed_var = tk.IntVar(value=self.seed)
+        self.seed_entry_var = tk.StringVar(value=str(self.seed))
         self.scenario_var = tk.StringVar(value=initial_scenario)
         self.policy_var = tk.StringVar(value=initial_policy)
         self.rescue_policy_var = tk.StringVar(value=initial_rescue_policy)
@@ -187,6 +192,8 @@ class LiveSwarmDashboardApp:
         self._gl_viewer: Any = None
         self._central_core: MissionCore | None = None
         self._central_samples_count: int = 0
+        self.randomized_spec: RandomizedEpisodeSpec | None = None
+        self._comms_radios: list[tk.Radiobutton] = []
         self.session: EpisodeSession
 
         self.trajectories: dict[str, list[tuple[float, float]]] = {"planter": [], "scout": []}
@@ -195,12 +202,38 @@ class LiveSwarmDashboardApp:
         self._bind_teleop_keys()
         self._refresh_all_views()
 
+    @property
+    def comms_applies(self) -> bool:
+        """Return True only when the active policy runtime actually uses wireless RF comms settings."""
+        return self._central_core is None and not (
+            self.policy_var.get() == "single_rover" or self.session.config.single_rover_only
+        )
+
+    def apply_custom_seed(self, _event: Any = None) -> None:
+        """Apply an arbitrary non-negative integer seed typed into the seed entry box."""
+        raw = self.seed_entry_var.get().strip()
+        try:
+            val = int(raw)
+        except ValueError:
+            self.seed_entry_var.set(str(self.seed))
+            return
+        if val < 0:
+            self.seed_entry_var.set(str(self.seed))
+            return
+        self.seed_var.set(val)
+        self.reset_episode()
+
     def _init_simulation(self) -> None:
         self.seed = int(self.seed_var.get())
+        if hasattr(self, "seed_entry_var"):
+            self.seed_entry_var.set(str(self.seed))
         scen = self.scenario_var.get()
         pol = self.policy_var.get()
         rescue_pol = self.rescue_policy_var.get()
         comms = self.comms_var.get()
+        self.randomized_spec = (
+            generate_randomized_episode_spec(self.seed) if scen == "randomized" else None
+        )
         self.hidden_truth = generate_hidden_soil_truth(scen, self.seed)
 
         cfg = EpisodeConfig(
@@ -208,7 +241,7 @@ class LiveSwarmDashboardApp:
             policy=pol,
             comms=comms,
             seed=self.seed,
-            steps=195 if scen in ("golden_rescue", "high_risk_abstain") else 160,
+            steps=195 if scen in ("golden_rescue", "high_risk_abstain", "randomized") else 160,
             single_rover_only=(pol == "single_rover"),
             rescue_policy=rescue_pol,
             include_shadow_mycelial=True,
@@ -331,7 +364,7 @@ class LiveSwarmDashboardApp:
 
         tk.Button(
             toolbar,
-            text="🎲 Random Scenario",
+            text="🎲 Randomized Episode",
             command=self.trigger_random_scenario,
             bg="#0f766e",
             fg="#f0fdfa",
@@ -385,7 +418,7 @@ class LiveSwarmDashboardApp:
         )
         self.human_ctrl_btn.pack(side=tk.LEFT, padx=4, pady=4)
 
-        # Multi-Seed Selector (Seeds 1..5 + 7 from sim/benchmark_harness.py)
+        # Multi-Seed Selector (Seeds 1..5 + 7 + custom seed entry for exact reproducibility)
         tk.Label(toolbar, text="| Seed:", bg="#111d2c", fg="#fbbf24", font=("Segoe UI", 9, "bold")).pack(
             side=tk.LEFT, padx=(6, 2)
         )
@@ -402,8 +435,20 @@ class LiveSwarmDashboardApp:
                 activebackground="#111d2c",
                 font=("Consolas", 8, "bold"),
             ).pack(side=tk.LEFT, padx=1)
+        self.seed_entry = tk.Entry(
+            toolbar,
+            textvariable=self.seed_entry_var,
+            width=4,
+            bg="#0f172a",
+            fg="#fbbf24",
+            insertbackground="#fbbf24",
+            font=("Consolas", 8, "bold"),
+            justify="center",
+        )
+        self.seed_entry.pack(side=tk.LEFT, padx=(2, 2))
+        self.seed_entry.bind("<Return>", self.apply_custom_seed)
 
-        # Scenario Selector (3 Core Presets + Existing Scenario Variations)
+        # Scenario Selector (3 Core Presets + Randomized Episode + Existing Scenario Variations)
         tk.Label(toolbar, text="| Scenario:", bg="#111d2c", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(
             side=tk.LEFT, padx=(6, 2)
         )
@@ -411,12 +456,13 @@ class LiveSwarmDashboardApp:
             ("golden_rescue", "★ 1. Rescue"),
             ("high_risk_abstain", "★ 2. Refusal"),
             ("sensor_degraded", "★ 3. Sensor/Comms Fail"),
+            ("randomized", "🎲 Randomized"),
             ("nominal", "Nominal"),
             ("bad_soil", "Bad Soil"),
             ("shifted_moisture", "Shifted Moisture"),
             ("obstacle", "Obstacle"),
         ):
-            is_preset = scen_id in ("golden_rescue", "high_risk_abstain", "sensor_degraded")
+            is_preset = scen_id in ("golden_rescue", "high_risk_abstain", "sensor_degraded", "randomized")
             tk.Radiobutton(
                 toolbar,
                 text=scen_lbl,
@@ -454,15 +500,15 @@ class LiveSwarmDashboardApp:
             ).pack(side=tk.LEFT, padx=1)
 
         # Comms Selector
-        tk.Label(toolbar, text="| RF:", bg="#111d2c", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(
-            side=tk.LEFT, padx=(6, 2)
-        )
+        self.rf_label = tk.Label(toolbar, text="| RF:", bg="#111d2c", fg="#94a3b8", font=("Segoe UI", 9, "bold"))
+        self.rf_label.pack(side=tk.LEFT, padx=(6, 2))
+        self._comms_radios = []
         for c_id, c_lbl in (
             ("normal", "Normal"),
             ("intermittent", "Intermittent"),
             ("isolated", "Isolated"),
         ):
-            tk.Radiobutton(
+            rb = tk.Radiobutton(
                 toolbar,
                 text=c_lbl,
                 variable=self.comms_var,
@@ -470,10 +516,13 @@ class LiveSwarmDashboardApp:
                 command=self.reset_episode,
                 bg="#111d2c",
                 fg="#e2e8f0",
+                disabledforeground="#475569",
                 selectcolor="#0284c7",
                 activebackground="#111d2c",
                 font=("Segoe UI", 8),
-            ).pack(side=tk.LEFT, padx=1)
+            )
+            rb.pack(side=tk.LEFT, padx=1)
+            self._comms_radios.append(rb)
 
         self.status_lbl = tk.Label(
             toolbar,
@@ -1299,36 +1348,48 @@ class LiveSwarmDashboardApp:
             self._gl_viewer.sync()
         self._refresh_all_views()
 
+    def _update_comms_applicability_ui(self) -> None:
+        """Disable RF controls and annotate label when communication settings do not apply to the active policy."""
+        applies = self.comms_applies
+        if hasattr(self, "rf_label"):
+            self.rf_label.configure(
+                text="| RF:" if applies else "| RF (N/A: Shared Map):",
+                fg="#94a3b8" if applies else "#64748b",
+            )
+        for rb in getattr(self, "_comms_radios", ()):
+            rb.configure(state=tk.NORMAL if applies else tk.DISABLED)
+
     def reset_episode(self) -> None:
         was_playing = self.playing
         if was_playing:
             self.toggle_play()
         self._init_simulation()
         self._refresh_all_views()
+        if was_playing and not self.playing:
+            self.toggle_play()
 
     def trigger_random_scenario(self) -> None:
-        """Select a random (seed, scenario, comms) variation from the existing presets and reset."""
-        seeds = (1, 2, 3, 4, 5, 7)
-        scenarios = (
-            "golden_rescue",
-            "high_risk_abstain",
-            "sensor_degraded",
-            "nominal",
-            "bad_soil",
-            "shifted_moisture",
-            "obstacle",
-        )
-        comms_choices = ("normal", "intermittent", "isolated")
-        chosen_seed = random.choice(seeds)
-        chosen_scen = random.choice(scenarios)
-        chosen_comms = "isolated" if chosen_scen == "sensor_degraded" and random.random() < 0.5 else random.choice(comms_choices)
+        """Generate and launch a new reproducible Randomized Episode with a fresh seed."""
+        candidates = [s for s in range(1, 250) if s != self.seed]
+        chosen_seed = random.choice(candidates)
         self.seed_var.set(chosen_seed)
-        self.scenario_var.set(chosen_scen)
-        self.comms_var.set(chosen_comms)
+        if hasattr(self, "seed_entry_var"):
+            self.seed_entry_var.set(str(chosen_seed))
+        self.scenario_var.set("randomized")
         self.reset_episode()
-        self.status_lbl.configure(
-            text=f"🎲 Random Selected -> Seed={chosen_seed}, Scenario={chosen_scen}, Comms={chosen_comms}"
-        )
+        spec = self.randomized_spec
+        comms_note = self.comms_var.get() if self.comms_applies else "N/A (Shared Map)"
+        if spec is not None:
+            self.status_lbl.configure(
+                text=(
+                    f"🎲 Seed={chosen_seed} | Viable={','.join(s[-1].upper() for s in spec.viable_sites)} | "
+                    f"Trap={spec.trap_site_id}({spec.mud_severity}) | RF={comms_note}"
+                )
+            )
+        else:
+            self.status_lbl.configure(
+                text=f"🎲 Randomized Episode -> Seed={chosen_seed} | RF={comms_note}"
+            )
 
     # ------------------------------------------------------------------
     # Independent Benchmark Grader & D-0010 Comm Metrics Calculation
@@ -1418,19 +1479,32 @@ class LiveSwarmDashboardApp:
     # ------------------------------------------------------------------
 
     def _refresh_all_views(self) -> None:
+        self._update_comms_applicability_ui()
         planted_sites = [
             d.target_site_id for d in self.sim.completed_drops if d.contact_observed_at_s is not None
         ]
         bm = self._compute_live_benchmark_metrics()
-        self.status_lbl.configure(
-            text=(
-                f"Seed {self.seed} | Step {self.step_count:03d} (t={self.frame.time_s:4.1f}s) | "
-                f"Compute: {self.last_compute_ms:4.2f}ms"
+        comms_tag = self.comms_var.get() if self.comms_applies else "N/A(Shared)"
+        if self.randomized_spec is not None:
+            sp = self.randomized_spec
+            obs_tag = f"obs@{sp.inject_obstacle_at_s:.1f}s" if sp.inject_obstacle_at_s is not None else "no-obs"
+            self.status_lbl.configure(
+                text=(
+                    f"Seed {self.seed} [Viable:{','.join(s[-1].upper() for s in sp.viable_sites)} "
+                    f"Trap:{sp.trap_site_id[-1].upper()}({sp.mud_severity[:5]}) {obs_tag}] | "
+                    f"Step {self.step_count:03d} (t={self.frame.time_s:4.1f}s)"
+                )
             )
-        )
+        else:
+            self.status_lbl.configure(
+                text=(
+                    f"Seed {self.seed} | Step {self.step_count:03d} (t={self.frame.time_s:4.1f}s) | "
+                    f"RF: {comms_tag} | Compute: {self.last_compute_ms:4.2f}ms"
+                )
+            )
         self.bench_metrics_lbl.configure(
             text=(
-                f"📊 Independent Grader [Seed={self.seed}, Scen={self.scenario_var.get()}, Pol={self.policy_var.get().upper()}]:  "
+                f"📊 Independent Grader [Seed={self.seed}, Scen={self.scenario_var.get()}, Pol={self.session.config.effective_policy_label.upper()}, RF={comms_tag}]:  "
                 f"Viable Seeds: {bm['viable_planted']}/{bm['viable_target']} ({100.0*bm['viable_planted']/bm['viable_target']:.0f}%)  |  "
                 f"Wasted Drops: {bm['wasted_drops']}  |  "
                 f"Recoveries: {len(self.sim.completed_recoveries)}  |  "
@@ -2067,6 +2141,20 @@ class LiveSwarmDashboardApp:
             )
 
         lines.append(f"\n--- HIDDEN GROUND TRUTH (SEED {self.seed}) ---")
+        if self.randomized_spec is not None:
+            sp = self.randomized_spec
+            lines.append(
+                f"• Spawns : P=({sp.planter_spawn.x_m:.2f}, {sp.planter_spawn.y_m:.2f}, yaw={sp.planter_spawn.yaw_rad:+.2f}) "
+                f"S=({sp.scout_spawn.x_m:.2f}, {sp.scout_spawn.y_m:.2f}, yaw={sp.scout_spawn.yaw_rad:+.2f})"
+            )
+            lines.append(
+                f"• Hazard : trap={sp.trap_site_id} ({sp.mud_severity}, robot={sp.trap_robot_id or 'none'}) | "
+                f"obs={f'{sp.obstacle_xy} @ {sp.inject_obstacle_at_s:.1f}s' if sp.inject_obstacle_at_s is not None else 'none'}"
+            )
+        if not self.comms_applies:
+            lines.append(
+                f"• RF Comms: N/A for {self.session.config.effective_policy_label} (uses shared MeasuredFieldMap)"
+            )
         for sid in ("patch_a", "patch_b", "patch_c", "patch_d"):
             tr = self.hidden_truth.get(sid, {})
             tm = tr.get(SensorKind.MOISTURE, 0.5)

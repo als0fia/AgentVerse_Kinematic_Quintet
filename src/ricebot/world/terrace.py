@@ -85,6 +85,150 @@ UNEXPECTED_BAD_SOIL_TRUTH: dict[str, dict[SensorKind, float]] = {
 }
 
 
+@dataclass(frozen=True)
+class RandomizedEpisodeSpec:
+    """Deterministic per-seed episode configuration for `scenario='randomized'`."""
+
+    seed: int
+    planter_spawn: Pose2D
+    scout_spawn: Pose2D
+    hidden_truth: dict[str, dict[SensorKind, float]]
+    viable_sites: tuple[str, ...]
+    mud_sites: tuple[str, ...]
+    trap_site_id: str
+    trap_robot_id: str | None
+    trap_radius_m: float
+    mud_severity: str  # "recoverable" | "severe" | "moderate"
+    obstacle_xy: tuple[float, float]
+    inject_obstacle_at_s: float | None
+
+
+# Safe staging archetypes (planter_base_xy_yaw, scout_base_xy_yaw) inside the bunded terrace.
+# Every archetype maintains >= 0.45 m inter-rover clearance, >= 0.42 m clearance from all 6 sites,
+# and unobstructed straight-line sightlines to all 4 permitted patches (never crossing crop_nw/crop_ne).
+_RANDOMIZED_SPAWN_ARCHETYPES: tuple[
+    tuple[tuple[float, float, float], tuple[float, float, float]], ...
+] = (
+    # 0: West Planter / Central-West Scout (Planter near patch_a, Scout near patch_b -> p:a, s:b)
+    ((0.14, -0.54, 0.04), (0.92, -0.02, -0.55)),
+    # 1: West swapped (Planter lower-west near patch_a, Scout upper-west -> p:a, s:b)
+    ((0.18, -0.54, 0.06), (0.96, 0.04, -0.45)),
+    # 2: North-Central Scout / West Planter (Scout near patch_d, Planter near patch_a -> s:d, p:a)
+    ((0.18, -0.54, 0.06), (1.58, 0.04, 1.50)),
+    # 3: Central-South Planter / West Scout (Planter near patch_b, Scout west -> p:b, s:a)
+    ((1.22, -0.48, 0.04), (0.12, -0.54, 0.04)),
+    # 4: East-Central Scout / West Planter (Planter near patch_a, Scout near patch_c -> p:a, s:c)
+    ((0.20, -0.52, 0.05), (1.98, -0.10, -0.65)),
+    # 5: Central-North Planter / East-South Scout (Planter near patch_d, Scout near patch_c -> p:d, s:c)
+    ((1.58, 0.06, 1.50), (2.14, -0.46, 0.10)),
+)
+
+
+def generate_randomized_episode_spec(seed: int) -> RandomizedEpisodeSpec:
+    """Deterministically generate initial poses, hidden soil truth, and hazard config from `seed`."""
+    rng = random.Random(int(seed))
+    patch_ids = ["patch_a", "patch_b", "patch_c", "patch_d"]
+
+    # 1. Select spawn archetype and apply bounded safe jitter
+    arch_idx = (int(seed) + rng.randrange(len(_RANDOMIZED_SPAWN_ARCHETYPES))) % len(
+        _RANDOMIZED_SPAWN_ARCHETYPES
+    )
+    p_base, s_base = _RANDOMIZED_SPAWN_ARCHETYPES[arch_idx]
+    planter_spawn = Pose2D(
+        round(p_base[0] + rng.uniform(-0.04, 0.04), 3),
+        round(p_base[1] + rng.uniform(-0.03, 0.03), 3),
+        round(p_base[2] + rng.uniform(-0.18, 0.18), 3),
+    )
+    scout_spawn = Pose2D(
+        round(s_base[0] + rng.uniform(-0.04, 0.04), 3),
+        round(s_base[1] + rng.uniform(-0.03, 0.03), 3),
+        round(s_base[2] + rng.uniform(-0.18, 0.18), 3),
+    )
+
+    # 2. Select which 2 of the 4 permitted patches are viable vs mud hazards
+    viable_list = sorted(rng.sample(patch_ids, 2))
+    mud_list = [pid for pid in patch_ids if pid not in viable_list]
+    trap_site_id = rng.choice(mud_list)
+    secondary_mud_id = mud_list[0] if mud_list[1] == trap_site_id else mud_list[1]
+
+    # 3. Choose hazard severity regime:
+    #    - "recoverable": deep mud trap (firmness 0.18..0.19) where an unladen peer can extract
+    #      a seed-carrying rover, or refuse if the unladen scout is the one trapped.
+    #    - "severe": extreme mud pan (firmness 0.14..0.16) where perimeter risk triggers refusal.
+    #    - "moderate": high-moisture soft mud (firmness 0.21..0.24) rejected for planting without trapping.
+    severity_Roll = (int(seed) * 7 + rng.randrange(10)) % 10
+    if severity_Roll in (0, 1, 2, 3, 4):
+        mud_severity = "recoverable"
+    elif severity_Roll in (5, 6, 7):
+        mud_severity = "severe"
+    else:
+        mud_severity = "moderate"
+
+    truth: dict[str, dict[SensorKind, float]] = {}
+    for pid in viable_list:
+        truth[pid] = {
+            SensorKind.MOISTURE: round(rng.uniform(0.45, 0.63), 2),
+            SensorKind.FIRMNESS: round(rng.uniform(0.62, 0.78), 2),
+            SensorKind.STAND_GAP: round(rng.uniform(0.79, 0.93), 2),
+        }
+
+    if mud_severity == "recoverable":
+        truth[trap_site_id] = {
+            SensorKind.MOISTURE: round(rng.uniform(0.86, 0.90), 2),
+            SensorKind.FIRMNESS: round(rng.uniform(0.18, 0.19), 2),
+            SensorKind.STAND_GAP: round(rng.uniform(0.75, 0.87), 2),
+        }
+        trap_robot_id: str | None = "any"
+        trap_radius_m = 0.28
+    elif mud_severity == "severe":
+        truth[trap_site_id] = {
+            SensorKind.MOISTURE: round(rng.uniform(0.92, 0.96), 2),
+            SensorKind.FIRMNESS: round(rng.uniform(0.14, 0.16), 2),
+            SensorKind.STAND_GAP: round(rng.uniform(0.74, 0.86), 2),
+        }
+        trap_robot_id = "any"
+        trap_radius_m = 0.28
+    else:
+        truth[trap_site_id] = {
+            SensorKind.MOISTURE: round(rng.uniform(0.83, 0.88), 2),
+            SensorKind.FIRMNESS: round(rng.uniform(0.21, 0.24), 2),
+            SensorKind.STAND_GAP: round(rng.uniform(0.74, 0.86), 2),
+        }
+        trap_robot_id = None
+        trap_radius_m = 0.28
+
+    truth[secondary_mud_id] = {
+        SensorKind.MOISTURE: round(rng.uniform(0.83, 0.89), 2),
+        SensorKind.FIRMNESS: round(rng.uniform(0.21, 0.24), 2),
+        SensorKind.STAND_GAP: round(rng.uniform(0.73, 0.86), 2),
+    }
+
+    # 4. Optional mid-episode obstacle on a subset of moderate/varied seeds
+    obstacle_candidates = (
+        (0.75, -0.25),
+        (1.22, -0.48),
+        (1.96, -0.48),
+        (1.22, 0.12),
+    )
+    obstacle_xy = obstacle_candidates[(int(seed) + rng.randrange(len(obstacle_candidates))) % len(obstacle_candidates)]
+    inject_obstacle_at_s = round(rng.uniform(1.4, 2.0), 2) if mud_severity == "moderate" else None
+
+    return RandomizedEpisodeSpec(
+        seed=int(seed),
+        planter_spawn=planter_spawn,
+        scout_spawn=scout_spawn,
+        hidden_truth=truth,
+        viable_sites=tuple(viable_list),
+        mud_sites=tuple(mud_list),
+        trap_site_id=trap_site_id,
+        trap_robot_id=trap_robot_id,
+        trap_radius_m=trap_radius_m,
+        mud_severity=mud_severity,
+        obstacle_xy=obstacle_xy,
+        inject_obstacle_at_s=inject_obstacle_at_s,
+    )
+
+
 def generate_hidden_soil_truth(
     scenario: str,
     seed: int,
@@ -97,7 +241,10 @@ def generate_hidden_soil_truth(
     - `shifted_moisture`: deterministically permutes which 2 of the 4 permitted patches
       (`patch_a..patch_d`) are viable stand gaps vs. waterlogged *Lannitian* mud hazards
       using `random.Random(seed)`.
+    - `randomized`: returns the deterministic per-seed soil truth from `generate_randomized_episode_spec(seed)`.
     """
+    if scenario == "randomized":
+        return {k: dict(v) for k, v in generate_randomized_episode_spec(seed).hidden_truth.items()}
     if scenario == "bad_soil":
         return {k: dict(v) for k, v in UNEXPECTED_BAD_SOIL_TRUTH.items()}
     if scenario != "shifted_moisture":

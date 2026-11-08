@@ -12,6 +12,7 @@ from .contracts import (
     ObservationFrame,
     OperatorCommandKind,
     OperatorRequest,
+    Pose2D,
     RescueAssessment,
     RobotCapability,
     RobotCommand,
@@ -129,14 +130,39 @@ class EpisodeConfig:
     expose_bogged_flag: bool = False
     comm_range_m: float = 2.15
     include_shadow_mycelial: bool = False
+    planter_spawn: Pose2D | None = None
+    scout_spawn: Pose2D | None = None
+    inject_obstacle_at_s: float | None = None
 
     def __post_init__(self) -> None:
         if self.seed < 0 or isinstance(self.seed, bool) or self.steps < 1:
             raise ValueError("seed must be non-negative int and steps >= 1")
-        if self.scenario in {"golden_rescue", "high_risk_abstain"} and self.steps == 140:
+        if self.scenario == "randomized":
+            from .world import generate_randomized_episode_spec
+
+            spec = generate_randomized_episode_spec(self.seed)
+            if self.steps == 140:
+                object.__setattr__(self, "steps", 195)
+            if self.planter_spawn is None:
+                object.__setattr__(self, "planter_spawn", spec.planter_spawn)
+            if self.scout_spawn is None:
+                object.__setattr__(self, "scout_spawn", spec.scout_spawn)
+            if self.trap_robot_id is None and spec.trap_robot_id is not None:
+                object.__setattr__(self, "trap_robot_id", spec.trap_robot_id)
+                object.__setattr__(self, "trap_site_id", spec.trap_site_id or "patch_d")
+                object.__setattr__(self, "trap_radius_m", spec.trap_radius_m)
+            elif self.trap_robot_id is None and spec.trap_site_id is not None:
+                object.__setattr__(self, "trap_site_id", spec.trap_site_id)
+            if self.inject_obstacle_at_s is None and spec.inject_obstacle_at_s is not None:
+                object.__setattr__(self, "inject_obstacle_at_s", spec.inject_obstacle_at_s)
+                object.__setattr__(self, "obstacle_xy", spec.obstacle_xy)
+        elif self.scenario in {"golden_rescue", "high_risk_abstain"} and self.steps == 140:
             object.__setattr__(self, "steps", 195)
         elif self.scenario == "sensor_degraded" and self.steps == 140:
             object.__setattr__(self, "steps", 165)
+
+        if self.scenario == "obstacle" and self.inject_obstacle_at_s is None:
+            object.__setattr__(self, "inject_obstacle_at_s", 1.6)
 
         if self.scenario == "high_risk_abstain" and self.trap_site_id == "patch_d":
             object.__setattr__(self, "trap_site_id", "patch_a")
@@ -159,11 +185,14 @@ class EpisodeConfig:
 
     @property
     def is_rescue_scenario(self) -> bool:
-        return self.scenario in {"golden_rescue", "high_risk_abstain"} or self.trap_robot_id is not None
+        return (
+            self.scenario in {"golden_rescue", "high_risk_abstain", "randomized"}
+            or self.trap_robot_id is not None
+        )
 
     @property
     def effective_policy_label(self) -> str:
-        if self.is_golden_rescue or self.scenario == "high_risk_abstain":
+        if self.is_golden_rescue or self.scenario in {"high_risk_abstain", "randomized"}:
             return "cooperative_swarm_rescue"
         if self.single_rover_only or self.policy == "single_rover":
             return "single_rover"
@@ -504,8 +533,15 @@ def create_mujoco_episode_session(
     cfg = config or EpisodeConfig()
     want_shadow = cfg.include_shadow_mycelial if include_shadow_mycelial is None else bool(include_shadow_mycelial)
     is_single = cfg.single_rover_only or cfg.policy == "single_rover"
-    inject_at = 1.6 if cfg.scenario == "obstacle" else None
+    inject_at = cfg.inject_obstacle_at_s if cfg.inject_obstacle_at_s is not None else (1.6 if cfg.scenario == "obstacle" else None)
     truth = generate_hidden_soil_truth(cfg.scenario, cfg.seed)
+    initial_poses: dict[str, Pose2D] | None = None
+    if cfg.planter_spawn is not None or cfg.scout_spawn is not None:
+        initial_poses = {}
+        if cfg.planter_spawn is not None:
+            initial_poses["planter"] = cfg.planter_spawn
+        if cfg.scout_spawn is not None:
+            initial_poses["scout"] = cfg.scout_spawn
     sim = MujocoPaddySimulation(
         sites=DEFAULT_SITES,
         probe_radius_m=cfg.probe_radius_m,
@@ -519,6 +555,8 @@ def create_mujoco_episode_session(
         sensor_dropout_robot_id=cfg.sensor_dropout_robot_id,
         sensor_dropout_window_s=cfg.sensor_dropout_window_s,
         expose_bogged_flag=cfg.expose_bogged_flag,
+        initial_poses=initial_poses,
+        scenario=cfg.scenario,
     )
     caps = (
         (

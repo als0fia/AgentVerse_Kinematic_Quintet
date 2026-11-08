@@ -451,9 +451,30 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
                 self.assertEqual(app.scenario_var.get(), preset)
                 self.assertEqual(app.step_count, 1)
 
+            # Verify comms applicability indicator is False under cooperative/rescue and True under mycelial nominal
+            self.assertFalse(app.comms_applies)
+            app.scenario_var.set("nominal")
+            app.policy_var.set("mycelial")
+            app.reset_episode()
+            self.assertTrue(app.comms_applies)
+
+            # Verify Randomized Episode launches scenario='randomized', resumes playback if playing, and supports custom seed entry
+            app.policy_var.set("cooperative")
+            app.playing = True
+            prev_seed = app.seed
             app.trigger_random_scenario()
+            self.assertEqual(app.scenario_var.get(), "randomized")
+            self.assertNotEqual(app.seed_var.get(), prev_seed)
+            self.assertIsNotNone(app.randomized_spec)
+            self.assertTrue(app.playing)
+            app.toggle_play()
+            self.assertFalse(app.playing)
+
+            app.seed_entry_var.set("42")
+            app.apply_custom_seed()
+            self.assertEqual(app.seed, 42)
+            self.assertEqual(app.session.seed, 42)
             app.step_once()
-            self.assertIn(app.seed_var.get(), (1, 2, 3, 4, 5, 7))
             self.assertEqual(app.step_count, 1)
         finally:
             try:
@@ -462,6 +483,78 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
             except Exception:
                 pass
             root.destroy()
+
+    def test_randomized_episode_12_seed_variation_and_reproducibility(self) -> None:
+        """Verify Randomized Episode mode is deterministic per seed and produces genuine multi-seed behavioural variation."""
+        from ricebot.world import generate_randomized_episode_spec
+
+        # 1. Same seed and configuration must always reproduce the exact same episode and trace
+        for check_seed in (2, 8):
+            cfg_a = EpisodeConfig(scenario="randomized", policy="cooperative", seed=check_seed)
+            cfg_b = EpisodeConfig(scenario="randomized", policy="cooperative", seed=check_seed)
+            self.assertEqual(cfg_a, cfg_b)
+            self.assertFalse(cfg_a.expose_bogged_flag)
+
+            sess_a = create_mujoco_episode_session(cfg_a)
+            sess_b = create_mujoco_episode_session(cfg_b)
+            sess_a.run(seed=check_seed, steps=cfg_a.steps)
+            sess_b.run(seed=check_seed, steps=cfg_b.steps)
+
+            trace_a = sess_a.export_trace()
+            trace_b = sess_b.export_trace()
+            self.assertTrue(trace_a.matches_parity(trace_b))
+            self.assertEqual(
+                [d.target_site_id for d in sess_a.sim.completed_drops],
+                [d.target_site_id for d in sess_b.sim.completed_drops],
+            )
+            self.assertEqual(
+                [(r.helper_robot_id, r.target_robot_id, r.extracted) for r in sess_a.sim.completed_recoveries],
+                [(r.helper_robot_id, r.target_robot_id, r.extracted) for r in sess_b.sim.completed_recoveries],
+            )
+
+        # 2. Evaluate 12 different seeds (1..12) through authoritative EpisodeSession
+        visited_sequences: set[tuple[str, ...]] = set()
+        viable_sets: set[tuple[str, ...]] = set()
+        spawn_pairs: set[tuple[tuple[float, float], tuple[float, float]]] = set()
+        outcome_classes: set[str] = set()
+
+        for s in range(1, 13):
+            spec = generate_randomized_episode_spec(s)
+            viable_sets.add(spec.viable_sites)
+            spawn_pairs.add(
+                (
+                    (spec.planter_spawn.x_m, spec.planter_spawn.y_m),
+                    (spec.scout_spawn.x_m, spec.scout_spawn.y_m),
+                )
+            )
+            cfg = EpisodeConfig(scenario="randomized", policy="cooperative", seed=s)
+            sess = create_mujoco_episode_session(cfg)
+            sess.reset(s)
+            sampled_order: list[str] = []
+            seen_sites: set[str] = set()
+            for _ in range(cfg.steps):
+                t = sess.step_once()
+                for r in t.frame.robots:
+                    for sam in r.samples:
+                        if sam.site_id not in seen_sites:
+                            seen_sites.add(sam.site_id)
+                            sampled_order.append(f"{r.robot_id}:{sam.site_id}")
+            visited_sequences.add(tuple(sampled_order))
+
+            verdicts = {od.verdict for od in sess.orchestrator_decisions.values()}
+            if sess.sim.completed_recoveries and any(r.extracted for r in sess.sim.completed_recoveries):
+                outcome_classes.add("rescue_extracted")
+            elif RescueVerdict.ABANDON_ESCALATE in verdicts:
+                outcome_classes.add("refusal_abandon_escalate")
+            elif not verdicts and len(sess.sim.completed_drops) >= 1:
+                outcome_classes.add("nominal_continue_working")
+
+        self.assertGreaterEqual(len(spawn_pairs), 6)
+        self.assertGreaterEqual(len(viable_sets), 4)
+        self.assertGreaterEqual(len(visited_sequences), 3)
+        self.assertGreaterEqual(len(outcome_classes), 2)
+        self.assertIn("rescue_extracted", outcome_classes)
+        self.assertIn("refusal_abandon_escalate", outcome_classes)
 
 
 if __name__ == "__main__":

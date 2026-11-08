@@ -46,6 +46,7 @@ from ..world import (
     DEFAULT_SITES,
     PaddyTerraceWorld,
     build_world_terrain_xml,
+    generate_randomized_episode_spec,
 )
 
 
@@ -180,6 +181,8 @@ class MujocoPaddySimulation:
         sensor_dropout_robot_id: str | None = None,
         sensor_dropout_window_s: tuple[float, float] | None = None,
         expose_bogged_flag: bool = False,
+        initial_poses: dict[str, Pose2D] | None = None,
+        scenario: str = "nominal",
     ) -> None:
         self.world = PaddyTerraceWorld(
             sites=sites, probe_radius_m=probe_radius_m, hidden_truth=hidden_truth
@@ -195,6 +198,8 @@ class MujocoPaddySimulation:
         self.sensor_dropout_robot_id = sensor_dropout_robot_id
         self.sensor_dropout_window_s = sensor_dropout_window_s
         self.expose_bogged_flag = expose_bogged_flag
+        self.initial_poses: dict[str, Pose2D] | None = dict(initial_poses) if initial_poses else None
+        self.scenario = scenario
 
         mjcf_xml = compose_paddypatch_mjcf(obstacle_xy=obstacle_xy)
         self.model = mujoco.MjModel.from_xml_string(mjcf_xml)
@@ -223,8 +228,13 @@ class MujocoPaddySimulation:
         }
         self._wheel_geom_ids: dict[str, list[int]] = {
             rid: [
-                mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{rid}_wheel_{w}")
+                gid
                 for w in ("fl", "fr", "rl", "rr")
+                for gid in (
+                    mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{rid}_w_{w}"),
+                    mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{rid}_wheel_{w}"),
+                )
+                if gid >= 0
             ]
             for rid in ("planter", "scout")
         }
@@ -402,6 +412,20 @@ class MujocoPaddySimulation:
     def reset(self, seed: int) -> ObservationFrame:
         self._seed = int(seed)
         self._episode_id = f"mujoco-ep-{self._seed}"
+        if self.scenario == "randomized":
+            rand_spec = generate_randomized_episode_spec(self._seed)
+            self.world._hidden_site_truth = {
+                site_id: dict(vals) for site_id, vals in rand_spec.hidden_truth.items()
+            }
+            self.initial_poses = {
+                "planter": rand_spec.planter_spawn,
+                "scout": rand_spec.scout_spawn,
+            }
+            self.trap_robot_id = rand_spec.trap_robot_id
+            self.trap_site_id = rand_spec.trap_site_id or "patch_d"
+            self.trap_radius_m = rand_spec.trap_radius_m
+            self.obstacle_xy = rand_spec.obstacle_xy
+            self.inject_obstacle_at_s = rand_spec.inject_obstacle_at_s
         self.world.reset(self._seed)
         self._populate_hfield_from_continuous_terrain()
         self._seeds_remaining = {
@@ -430,11 +454,22 @@ class MujocoPaddySimulation:
         mujoco.mj_resetData(self.model, self.data)
         px, py, pz = PLANTER_SPEC.initial_xyz
         sx, sy, sz = SCOUT_SPEC.initial_xyz
+        p_quat = [1.0, 0.0, 0.0, 0.0]
+        s_quat = [1.0, 0.0, 0.0, 0.0]
+        if self.initial_poses:
+            if "planter" in self.initial_poses:
+                p_pose = self.initial_poses["planter"]
+                px, py = p_pose.x_m, p_pose.y_m
+                p_quat = _rpy_to_quat(0.0, 0.0, p_pose.yaw_rad)
+            if "scout" in self.initial_poses:
+                s_pose = self.initial_poses["scout"]
+                sx, sy = s_pose.x_m, s_pose.y_m
+                s_quat = _rpy_to_quat(0.0, 0.0, s_pose.yaw_rad)
         self.data.qpos[self._planter_qpos_adr : self._planter_qpos_adr + 7] = [
-            px, py, pz, 1.0, 0.0, 0.0, 0.0
+            px, py, pz, *p_quat
         ]
         self.data.qpos[self._scout_qpos_adr : self._scout_qpos_adr + 7] = [
-            sx, sy, sz, 1.0, 0.0, 0.0, 0.0
+            sx, sy, sz, *s_quat
         ]
         self.data.mocap_pos[0] = [self.obstacle_xy[0], self.obstacle_xy[1], -5.0]
         self._sync_carried_seeds()
@@ -475,22 +510,25 @@ class MujocoPaddySimulation:
         if self.trap_robot_id is None or self.trap_site_id not in self.sites:
             return
         site = self.sites[self.trap_site_id]
-        if (
-            self.trap_robot_id not in self._bogged_origins
-            and self.trap_robot_id not in self._rescued_robots
-        ):
-            r_xyz = self.data.sensor(f"{self.trap_robot_id}_pos").data
-            rx, ry = float(r_xyz[0]), float(r_xyz[1])
-            if hypot(rx - site.center.x_m, ry - site.center.y_m) <= self.trap_radius_m:
-                self._bogged_origins[self.trap_robot_id] = (rx, ry)
+        candidates = ("planter", "scout") if self.trap_robot_id == "any" else (self.trap_robot_id,)
+        if not self._bogged_origins:
+            for cand_id in candidates:
+                if cand_id not in ("planter", "scout") or cand_id in self._rescued_robots:
+                    continue
+                r_xyz = self.data.sensor(f"{cand_id}_pos").data
+                rx, ry = float(r_xyz[0]), float(r_xyz[1])
+                if hypot(rx - site.center.x_m, ry - site.center.y_m) <= self.trap_radius_m:
+                    self._bogged_origins[cand_id] = (rx, ry)
+                    break
 
-        if self.trap_robot_id in self._bogged_origins:
+        if self._bogged_origins:
+            primary_victim = next(iter(self._bogged_origins.keys()))
             site_pt = self.world.evaluate_continuous_point(site.center.x_m, site.center.y_m)
             if site_pt.firmness < 0.18:
-                victim_origin = self._bogged_origins[self.trap_robot_id]
+                victim_origin = self._bogged_origins[primary_victim]
                 for other_id in ("planter", "scout"):
                     if (
-                        other_id == self.trap_robot_id
+                        other_id == primary_victim
                         or other_id in self._bogged_origins
                         or other_id in self._rescued_robots
                         or self._seeds_remaining.get(other_id, 0) <= 0
@@ -674,8 +712,7 @@ class MujocoPaddySimulation:
                     bid = self._body_ids[bog_id]
                     self.data.xfrc_applied[bid, 0] = -35.0 * float(self.data.qvel[vadr])
                     self.data.xfrc_applied[bid, 1] = -35.0 * float(self.data.qvel[vadr + 1])
-                    self.data.qvel[vadr : vadr + 2] *= 0.04
-                    self.data.qvel[vadr + 5] *= 0.04
+                    self.data.qvel[vadr : vadr + 6] *= 0.02
 
             # Execute closed-loop physical rigid-docking & tandem extraction if a RESCUE command is active
             if active_rescue_cmd is not None and active_rescue_cmd.recovery_target_id is not None:
@@ -709,7 +746,38 @@ class MujocoPaddySimulation:
 
                 if not latched:
                     # Phase 1: SE(2) Terminal Funnel Alignment toward victim's rear strike bar (until <= 22 mm)
-                    heading_err = _wrap_angle(atan2(dy, dx) - h_yaw)
+                    t_quat = self.data.sensor(f"{target_id}_quat").data
+                    t_yaw = _quat_to_yaw(t_quat)
+                    t_fx, t_fy = cos(t_yaw), sin(t_yaw)
+                    rel_x = float(front_pos[0] - rear_pos[0])
+                    rel_y = float(front_pos[1] - rear_pos[1])
+                    along_fwd = rel_x * t_fx + rel_y * t_fy
+                    t_lx, t_ly = -t_fy, t_fx
+                    lat_proj = rel_x * t_lx + rel_y * t_ly
+                    # Choose the lateral pass side (+1 or -1) that stays inside the open central terrace corridor
+                    cand_pos_y = float(rear_pos[1]) + 0.44 * t_ly
+                    cand_neg_y = float(rear_pos[1]) - 0.44 * t_ly
+                    if abs(cand_pos_y - (-0.05)) + 0.12 < abs(cand_neg_y - (-0.05)):
+                        lat_sign = 1.0
+                    elif abs(cand_neg_y - (-0.05)) + 0.12 < abs(cand_pos_y - (-0.05)):
+                        lat_sign = -1.0
+                    else:
+                        lat_sign = 1.0 if lat_proj >= 0.0 else -1.0
+                    if along_fwd > 0.02 and dock_dist > 0.14:
+                        # Helper is in the front hemisphere of victim; pass wide laterally (>= 0.44 m) to clear wheels
+                        stage_x = float(rear_pos[0]) - 0.04 * t_fx + 0.44 * lat_sign * t_lx
+                        stage_y = float(rear_pos[1]) - 0.04 * t_fy + 0.44 * lat_sign * t_ly
+                        aim_dx = stage_x - float(front_pos[0])
+                        aim_dy = stage_y - float(front_pos[1])
+                    elif along_fwd > -0.20 and abs(lat_proj) > 0.09 and dock_dist > 0.10:
+                        # Helper has cleared the victim's side; line up behind the rear strike bar before closing in
+                        stage_x = float(rear_pos[0]) - 0.30 * t_fx
+                        stage_y = float(rear_pos[1]) - 0.30 * t_fy
+                        aim_dx = stage_x - float(front_pos[0])
+                        aim_dy = stage_y - float(front_pos[1])
+                    else:
+                        aim_dx, aim_dy = dx, dy
+                    heading_err = _wrap_angle(atan2(aim_dy, aim_dx) - h_yaw)
                     ang_cmd = max(-1.35, min(1.35, heading_err * 2.6))
                     lin_cmd = min(0.35, max(0.10, dock_dist * 0.90)) if abs(heading_err) < 0.45 else 0.02
                     self.data.ctrl[h_pitch_id] = 0.0
@@ -822,8 +890,7 @@ class MujocoPaddySimulation:
             for bog_id in list(self._bogged_origins.keys()):
                 if self._active_latched_pair is None:
                     vadr = self._planter_qvel_adr if bog_id == "planter" else self._scout_qvel_adr
-                    self.data.qvel[vadr : vadr + 2] *= 0.04
-                    self.data.qvel[vadr + 5] *= 0.04
+                    self.data.qvel[vadr : vadr + 6] *= 0.02
             step_t = round(float(self.data.time), 4)
             self._update_mud_trap_state()
             still_falling: list[SeedDropEvent] = []

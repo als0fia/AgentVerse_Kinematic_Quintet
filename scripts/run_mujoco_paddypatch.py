@@ -591,6 +591,7 @@ def main() -> int:
             "sensor_degraded",
             "golden_rescue",
             "high_risk_abstain",
+            "randomized",
         ),
         default="nominal",
     )
