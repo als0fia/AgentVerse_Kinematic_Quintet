@@ -68,10 +68,10 @@ ROBOT_RGBA_COLORS: dict[str, list[float]] = {
 }
 
 FLEET_SIZE_OPTIONS: tuple[tuple[int, str], ...] = (
-    (2, "2 Rovers (1P + 1S)"),
-    (3, "3 Rovers (2P + 1S)"),
-    (4, "4 Rovers (2P + 2S)"),
-    (6, "6 Rovers (3P + 3S)"),
+    (2, "2 Rovers"),
+    (3, "3 Rovers"),
+    (4, "4 Rovers"),
+    (6, "6 Rovers"),
 )
 
 MAP_SCALE_OPTIONS: tuple[tuple[float, str], ...] = (
@@ -456,10 +456,12 @@ class LiveSwarmDashboardApp:
             include_shadow_mycelial=True,
             num_rovers=getattr(self, "num_rovers", 2),
             map_scale=getattr(self, "map_scale", 1.0),
+            active_mycelial_in_rescue=(pol == "mycelial"),
         )
         t0 = time.perf_counter()
         self.session = create_mujoco_episode_session(cfg, include_shadow_mycelial=True)
         self.sim = self.session.sim  # type: ignore[assignment]
+        self.hidden_truth = {sid: dict(values) for sid, values in self.sim.world._hidden_site_truth.items()}
         if isinstance(self.session.policy, DecentralizedMycelialRuntime):
             self.runtime = self.session.policy
             self._central_core = None
@@ -1777,7 +1779,9 @@ class LiveSwarmDashboardApp:
         # Discrete Site Map RMSE across permitted patches (planter's belief vs hidden_truth)
         p_map = self.runtime.nodes["planter"].local_map
         sq_errs: list[float] = []
-        for sid in ("patch_a", "patch_b", "patch_c", "patch_d"):
+        for sid, site in self.sim.sites.items():
+            if not site.permitted:
+                continue
             est = p_map.estimate(sid)
             truth_ch = self.hidden_truth.get(sid, {})
             for kind, est_v in (
