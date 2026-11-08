@@ -230,6 +230,27 @@ class EpisodeConfig:
             if self.sensor_dropout_window_s is None:
                 object.__setattr__(self, "sensor_dropout_window_s", (1.2, 2.4))
 
+    def with_seed(self, seed: int) -> "EpisodeConfig":
+        """Regenerate seed-derived defaults while retaining experiment settings."""
+        changes: dict[str, Any] = {"seed": seed}
+        if self.scenario == "randomized":
+            from .world import generate_randomized_episode_spec
+            old = generate_randomized_episode_spec(self.seed)
+            defaults = {
+                "planter_spawn": old.planter_spawn, "scout_spawn": old.scout_spawn,
+                "trap_robot_id": old.trap_robot_id,
+                "trap_site_id": old.trap_site_id or "patch_d",
+                "trap_radius_m": old.trap_radius_m,
+                "inject_obstacle_at_s": old.inject_obstacle_at_s,
+                "obstacle_xy": old.obstacle_xy,
+            }
+            new = generate_randomized_episode_spec(seed)
+            for name, value in defaults.items():
+                if getattr(self, name) == value:
+                    changes[name] = getattr(new, name)
+            changes["trap_site_id"] = changes.get("trap_site_id") or self.trap_site_id
+        return replace(self, **changes)
+
     @property
     def is_golden_rescue(self) -> bool:
         return self.scenario == "golden_rescue"
@@ -243,10 +264,12 @@ class EpisodeConfig:
 
     @property
     def effective_policy_label(self) -> str:
-        if self.is_golden_rescue or self.scenario in {"high_risk_abstain", "randomized"}:
-            return "cooperative_swarm_rescue"
         if self.single_rover_only or self.policy == "single_rover":
             return "single_rover"
+        if self.policy == "mycelial":
+            return "mycelial"
+        if self.is_golden_rescue or self.scenario in {"high_risk_abstain", "randomized"}:
+            return "cooperative_swarm_rescue"
         return self.policy
 
 
@@ -371,11 +394,22 @@ class EpisodeSession:
         if seed is not None:
             if seed < 0 or isinstance(seed, bool):
                 raise ValueError("seed must be a non-negative integer")
+            if seed != self.seed and hasattr(self, "_reseed_factory"):
+                fresh = self._reseed_factory(self.config.with_seed(seed))
+                self.sim, self.policy = fresh.sim, fresh.policy
+                self.shadow_policy, self.config = fresh.shadow_policy, fresh.config
+                self.policy_name = fresh.policy_name
+                for view in self.views:
+                    if hasattr(view, "runtime"):
+                        view.runtime = self.shadow_policy or self.policy
             self.seed = seed
         self._reset_policy_runtime(self.policy)
         if self.shadow_policy is not None and self.shadow_policy is not self.policy:
             self._reset_policy_runtime(self.shadow_policy)
         self.current_frame = self.sim.reset(self.seed)
+        for view in self.views:
+            if hasattr(view, "terrain") and hasattr(self.sim, "world"):
+                view.terrain = self.sim.world.continuous_terrain
         self.last_decision = None
         self.tick_index = 0
         self.paused = False
@@ -688,10 +722,7 @@ def create_mujoco_episode_session(
         )
     )
 
-    if cfg.policy == "mycelial" and not is_single and (
-        not cfg.is_rescue_scenario or cfg.active_mycelial_in_rescue
-        or cfg.num_rovers > 2 or cfg.map_scale > 1.0 + 1e-6
-    ):
+    if cfg.policy == "mycelial" and not is_single:
         policy_runtime = DecentralizedMycelialRuntime(
             sites=sites_tuple,
             capabilities=caps,
@@ -737,7 +768,7 @@ def create_mujoco_episode_session(
             orchestrator=SwarmOrchestratorAgent(backend=OfflineLLMBackend()),
         )
 
-    return EpisodeSession(
+    session = EpisodeSession(
         sim=sim,
         policy=policy_runtime,
         views=views,
@@ -750,6 +781,10 @@ def create_mujoco_episode_session(
         operator_handler=_default_mujoco_operator_handler,
         config=cfg,
     )
+    session._reseed_factory = lambda next_config: create_mujoco_episode_session(
+        next_config, advisor=advisor, include_shadow_mycelial=want_shadow
+    )
+    return session
 
 
 class EpisodeRunner:

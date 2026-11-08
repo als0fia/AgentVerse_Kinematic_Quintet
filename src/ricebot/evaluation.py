@@ -181,13 +181,39 @@ class EpisodeEvaluationRecord:
             "case_id": self.case_id,
             "seed": self.seed,
             "success": bool(self.success),
-            "elapsed_ms": round(float(self.episode_decision_elapsed_ms), 3),
+            "elapsed_ms": round(float(self.episode_wall_elapsed_ms), 3),
             "failure_reason": self.failure_reason,
         }
 
     def to_full_dict(self) -> dict[str, Any]:
         """Export complete dictionary for detailed JSON reporting."""
         return asdict(self)
+
+
+def _verified_post_recovery_mobility(ticks: Any, recoveries: Any) -> set[str]:
+    """Require observed displacement after extraction and renewed own drive commands."""
+    mobile: set[str] = set()
+    for recovery in recoveries:
+        if not recovery.extracted:
+            continue
+        origin = None
+        own_drive = False
+        for tick in ticks:
+            if tick.frame.time_s <= recovery.observed_at_s:
+                continue
+            obs = next((r for r in tick.frame.robots if r.robot_id == recovery.target_robot_id), None)
+            if obs is None:
+                continue
+            if origin is None:
+                origin = obs.pose
+            own_drive = own_drive or any(
+                c.robot_id == recovery.target_robot_id and abs(c.linear_m_s) >= 0.04
+                for c in tick.decision.commands
+            )
+            if own_drive and hypot(obs.pose.x_m - origin.x_m, obs.pose.y_m - origin.y_m) >= 0.08:
+                mobile.add(recovery.target_robot_id)
+                break
+    return mobile
 
 
 def run_canonical_episode(
@@ -267,8 +293,8 @@ def run_canonical_episode(
         raise RuntimeError("Evaluation configuration does not match the actual MuJoCo fleet and field")
 
     # Optional residual learner configuration for Ablation 3
-    planner_obj = getattr(session.policy, "planner", None)
-    orch_obj = getattr(planner_obj, "orchestrator", None) if planner_obj is not None else None
+    planner_obj = getattr(session.policy, "planner", session.policy)
+    orch_obj = getattr(planner_obj, "orchestrator", None)
     if orch_obj is not None and hasattr(orch_obj, "tool_belt"):
         if shared_learner is not None:
             orch_obj.tool_belt.learner = shared_learner
@@ -373,13 +399,13 @@ def run_canonical_episode(
         and 0.20 <= truth[sid].get(SensorKind.FIRMNESS, 0.0) <= 0.90
         and truth[sid].get(SensorKind.STAND_GAP, 0.0) >= 0.60
     }
-    non_viable_sites = set(sites_dict.keys()) - viable_sites
+    non_viable_sites = set(permitted_sites) - viable_sites
 
     completed_drops = list(getattr(raw_sim, "completed_drops", ()))
     completed_recoveries = list(getattr(raw_sim, "completed_recoveries", ()))
     for rec in completed_recoveries:
         ever_bogged.add(rec.target_robot_id)
-        latched_ever = True
+        latched_ever = latched_ever or rec.latched
 
     currently_bogged = sorted(getattr(raw_sim, "_bogged_origins", {}).keys())
     ever_bogged_sorted = sorted(ever_bogged)
@@ -451,8 +477,6 @@ def run_canonical_episode(
         max_disp = max(max_disp, float(rec.victim_displacement_m))
     for entry in mon_history:
         max_disp = max(max_disp, float(entry.get("victim_displacement_m", 0.0)))
-    if int(diag_summary["event_counts"].get("robot_contact_during_rescue", 0)) > 0:
-        latched_ever = True
 
     # Secondary casualties: helper robot bogged after issuing rescue OR >=2 robots bogged
     secondary_casualties = 0
@@ -528,10 +552,10 @@ def run_canonical_episode(
     rescue_contacts = int(event_counts.get("robot_contact_during_rescue", 0))
     no_progress_events = int(event_counts.get("commanded_no_progress", 0))
     unanswered_stalls = int(event_counts.get("stall_without_rescue_response", 0))
-    mobility_resumed_events = int(event_counts.get("mobility_resumed", 0))
-    if physical_extractions_verified > 0 and mobility_resumed_events == 0:
-        # Verify whether extracted robot subsequently moved clear of trap
-        mobility_resumed_events = physical_extractions_verified
+    mobility_resumed_events = max(
+        int(event_counts.get("mobility_resumed", 0)),
+        len(_verified_post_recovery_mobility(session.ticks, completed_recoveries)),
+    )
 
     # Fleet-scale outcomes from the exact observed action trace; robot bodies
     # existing in the scene are not counted as participating in fieldwork.
@@ -840,6 +864,7 @@ def run_residual_learner_ablation_study() -> dict[str, Any]:
     for ep_idx in range(1, 4):
         cfg = EpisodeConfig(
             scenario="golden_rescue",
+            policy="cooperative",
             seed=7,
             steps=220,
             rescue_policy="react_orchestrator",

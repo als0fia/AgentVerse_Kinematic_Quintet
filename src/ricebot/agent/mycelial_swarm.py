@@ -787,10 +787,12 @@ class DecentralizedRobotNode:
         self.last_pose: Pose2D | None = None
         self.last_time_s: float | None = None
         self.last_commanded_linear_m_s: float = 0.0
+        self.last_commanded_angular_rad_s: float = 0.0
         self.pending_plant_task: tuple[str, str, float] | None = None
         self.active_distress: DistressSignal | None = None
         self.peer_distress_signals: dict[str, DistressSignal] = {}
         self.rescue_engine: RescueEngine = RescueEngine()
+        self.has_live_peer_link: bool = False
 
     def reset(self) -> None:
         """Reset node-local belief map and internal state for a fresh episode."""
@@ -798,10 +800,12 @@ class DecentralizedRobotNode:
         self.last_pose = None
         self.last_time_s = None
         self.last_commanded_linear_m_s = 0.0
+        self.last_commanded_angular_rad_s = 0.0
         self.pending_plant_task = None
         self.active_distress = None
         self.peer_distress_signals.clear()
         self.rescue_engine = RescueEngine()
+        self.has_live_peer_link = False
 
     def process_local_sensors(
         self,
@@ -809,6 +813,7 @@ class DecentralizedRobotNode:
         peer_poses: dict[str, Pose2D],
     ) -> tuple[OnboardSensorTelemetry, int, list[SlamHazardCell]]:
         """Process raw onboard sensor readings into local SLAM & two-tier soil belief updates."""
+        self.has_live_peer_link = len(peer_poses) > 1
         v_true = 0.0
         if self.last_pose is not None and self.last_time_s is not None and obs.time_s > self.last_time_s:
             dt = obs.time_s - self.last_time_s
@@ -1058,6 +1063,7 @@ class DecentralizedRobotNode:
 
         if self.pending_plant_task is not None:
             self.last_commanded_linear_m_s = 0.0
+            self.last_commanded_angular_rad_s = 0.0
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1067,8 +1073,27 @@ class DecentralizedRobotNode:
                 angular_rad_s=0.0,
             )
 
+        if (
+            abs(obs.pitch_rad) > self.limits.max_pitch_roll_rad
+            or abs(obs.roll_rad) > self.limits.max_pitch_roll_rad
+        ):
+            self.last_commanded_linear_m_s = 0.0
+            self.last_commanded_angular_rad_s = 0.0
+            spade = 0.85 if intent.recovery_technique == "spade_anchor_rollover_hold" else 0.0
+            return RobotCommand(
+                robot_id=obs.robot_id,
+                issued_at_s=issued_at_s,
+                expires_at_s=expires_at_s,
+                task_id=intent.task_id,
+                linear_m_s=0.0,
+                angular_rad_s=0.0,
+                spade_rad=spade,
+                recovery_technique=intent.recovery_technique,
+            )
+
         if not obs.link_ok or obs.front_range_m is None or intent.mode is TaskMode.HOLD or intent.target_site_id is None:
             self.last_commanded_linear_m_s = 0.0
+            self.last_commanded_angular_rad_s = 0.0
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1081,13 +1106,29 @@ class DecentralizedRobotNode:
         target_site = self.local_map.sites[intent.target_site_id]
         if intent.mode is TaskMode.RESCUE and intent.target_robot_id is not None:
             peer_pose = peer_poses.get(intent.target_robot_id, target_site.center)
-            dx_r = peer_pose.x_m - obs.pose.x_m
-            dy_r = peer_pose.y_m - obs.pose.y_m
-            dist_r = max(1e-4, hypot(dx_r, dy_r))
+            wp_r = self._select_waypoint_around_slam_obstacles(obs.pose, peer_pose)
+            dx_r = wp_r.x_m - obs.pose.x_m
+            dy_r = wp_r.y_m - obs.pose.y_m
+            dist_r = max(1e-4, hypot(peer_pose.x_m - obs.pose.x_m, peer_pose.y_m - obs.pose.y_m))
             heading_err_r = _wrap_angle(atan2(dy_r, dx_r) - obs.pose.yaw_rad)
-            angular_r = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, heading_err_r * 1.55))
-            linear_r = min(self.limits.speed_m_s, dist_r * 0.65) if abs(heading_err_r) < 0.65 else 0.0
+            angular_r = max(-self.limits.turn_rad_s, min(self.limits.turn_rad_s, heading_err_r * 1.8))
+            linear_r = min(self.limits.speed_m_s, max(0.08, dist_r * 0.65)) if abs(heading_err_r) < 0.7 else 0.0
+            technique = intent.recovery_technique or "direct_pry_and_pull"
+            if technique == "dynamic_yaw_shear_and_pitch_pump":
+                raw_pitch = 0.12 if dist_r <= 0.36 else 0.0
+                raw_latch = 0.58
+                raw_spade = 0.35 if dist_r <= 0.30 else 0.0
+            elif technique == "pitch_match_nose_down_recovery":
+                raw_pitch = 0.14 if dist_r <= 0.36 else 0.06
+                raw_latch = 0.58
+                raw_spade = 0.25 if dist_r <= 0.30 else 0.0
+            else:
+                raw_pitch = 0.08 if dist_r <= 0.36 else 0.0
+                raw_latch = 0.55
+                raw_spade = 0.0
+            dock_pitch, latch_rad, spade_rad = clamp_recovery_actuators(raw_pitch, raw_latch, raw_spade)
             self.last_commanded_linear_m_s = round(linear_r, 3)
+            self.last_commanded_angular_rad_s = round(angular_r, 3)
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1097,9 +1138,10 @@ class DecentralizedRobotNode:
                 angular_rad_s=round(angular_r, 3),
                 target_site_id=target_site.site_id,
                 recovery_target_id=intent.target_robot_id,
-                dock_pitch_rad=0.08,
-                latch_rad=0.58,
-                spade_rad=0.25,
+                dock_pitch_rad=dock_pitch,
+                latch_rad=latch_rad,
+                spade_rad=spade_rad,
+                recovery_technique=technique,
             )
         dx = target_site.center.x_m - obs.pose.x_m
         dy = target_site.center.y_m - obs.pose.y_m
@@ -1115,6 +1157,7 @@ class DecentralizedRobotNode:
             if release:
                 self.pending_plant_task = (target_site.site_id, intent.task_id, obs.time_s)
             self.last_commanded_linear_m_s = 0.0
+            self.last_commanded_angular_rad_s = 0.0
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1181,6 +1224,7 @@ class DecentralizedRobotNode:
         if obs.front_range_m <= self.limits.stop_range_m:
             if not self.local_map.slam.cells:
                 self.last_commanded_linear_m_s = 0.0
+                self.last_commanded_angular_rad_s = 0.0
                 return RobotCommand(
                     robot_id=obs.robot_id,
                     issued_at_s=issued_at_s,
@@ -1193,6 +1237,7 @@ class DecentralizedRobotNode:
             pivot_w = round(pivot_dir * min(self.limits.turn_rad_s, max(0.65, abs(heading_error) * 1.6)), 3)
             creep_v = 0.18 if (obs.front_range_m > 0.19 and abs(heading_error) < 0.65) else 0.0
             self.last_commanded_linear_m_s = creep_v
+            self.last_commanded_angular_rad_s = pivot_w
             return RobotCommand(
                 robot_id=obs.robot_id,
                 issued_at_s=issued_at_s,
@@ -1208,6 +1253,7 @@ class DecentralizedRobotNode:
         )
         linear = min(self.limits.speed_m_s, dist_to_target * 0.55) if abs(heading_error) < 0.55 else 0.0
         self.last_commanded_linear_m_s = round(linear, 3)
+        self.last_commanded_angular_rad_s = round(angular, 3)
         return RobotCommand(
             robot_id=obs.robot_id,
             issued_at_s=issued_at_s,
@@ -1418,14 +1464,27 @@ class DecentralizedMycelialRuntime:
         for robot_id, obs in obs_by_robot.items():
             node = self.nodes[robot_id]
             prev_cmd_lin = node.last_commanded_linear_m_s
+            prev_cmd_ang = node.last_commanded_angular_rad_s
+            prev_pose = node.last_pose
+            yaw_delta = (
+                abs((obs.pose.yaw_rad - prev_pose.yaw_rad + pi) % (2 * pi) - pi)
+                if prev_pose is not None
+                else 0.0
+            )
             telemetry, count, _ = node.process_local_sensors(
                 obs, visible_peer_poses_for_robot[robot_id]
             )
             self.latest_sensor_telemetry[robot_id] = telemetry
             total_ingested += count
-            actively_cmd = abs(prev_cmd_lin) >= 0.04
+            actively_cmd = abs(prev_cmd_lin) >= 0.04 or abs(prev_cmd_ang) >= 0.10
             clear_rng = obs.front_range_m is not None and obs.front_range_m > self.limits.stop_range_m
-            is_stall = bool(actively_cmd and clear_rng and obs.link_ok and telemetry.true_ground_speed_m_s < 0.025)
+            is_stall = bool(
+                actively_cmd
+                and clear_rng
+                and obs.link_ok
+                and telemetry.true_ground_speed_m_s < 0.025
+                and yaw_delta < 0.02
+            )
             extracted_now = any(
                 rf.target_robot_id == robot_id and rf.extracted
                 for rf in frame.recovery_feedback
@@ -1434,7 +1493,11 @@ class DecentralizedMycelialRuntime:
                 rf.target_robot_id == robot_id and rf.latched and not rf.extracted
                 for rf in frame.recovery_feedback
             )
-            if extracted_now or (not being_pulled_now and telemetry.true_ground_speed_m_s >= 0.03):
+            if extracted_now or (
+                not being_pulled_now
+                and prev_pose is not None
+                and (telemetry.true_ground_speed_m_s >= 0.03 or yaw_delta >= 0.02)
+            ):
                 self._stuck_counts[robot_id] = 0
             elif is_stall:
                 self._stuck_counts[robot_id] = self._stuck_counts.get(robot_id, 0) + 1
@@ -1445,9 +1508,9 @@ class DecentralizedMycelialRuntime:
                 robot_id=robot_id,
                 observed_at_s=obs.time_s,
                 commanded_linear_m_s=prev_cmd_lin,
-                commanded_angular_rad_s=0.0,
+                commanded_angular_rad_s=prev_cmd_ang,
                 observed_displacement_m=round(telemetry.true_ground_speed_m_s * 0.1, 5),
-                observed_yaw_delta_rad=0.0,
+                observed_yaw_delta_rad=round(yaw_delta, 5),
                 observed_speed_m_s=obs.true_speed_m_s,
                 slip_ratio=0.90 if stalled_ticks_now >= 2 else telemetry.slip_ratio,
                 pitch_rad=obs.pitch_rad,

@@ -325,7 +325,7 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         """Phase 5 (E): Dashboard recorder, HTML renderer, and operator commands reflect authoritative EpisodeSession."""
         cfg = EpisodeConfig(
             scenario="golden_rescue",
-            policy="mycelial",
+            policy="cooperative",
             seed=7,
             steps=110,
             rescue_policy="react_orchestrator",

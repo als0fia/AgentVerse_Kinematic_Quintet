@@ -33,6 +33,7 @@ class ScientificAblationTest(unittest.TestCase):
     def test_golden_rescue_physical_extraction_vs_no_rescue_and_session_isolation(self) -> None:
         cfg_react = EpisodeConfig(
             scenario="golden_rescue",
+            policy="cooperative",
             seed=7,
             steps=220,
             rescue_policy="react_orchestrator",
@@ -51,6 +52,7 @@ class ScientificAblationTest(unittest.TestCase):
         # Run no_rescue immediately afterward to verify fresh session isolation (Issue #71)
         cfg_no = EpisodeConfig(
             scenario="golden_rescue",
+            policy="cooperative",
             seed=7,
             steps=220,
             rescue_policy="no_rescue",
@@ -66,6 +68,7 @@ class ScientificAblationTest(unittest.TestCase):
     def test_high_risk_abstain_distinguishes_commanded_rescue_from_physical_extraction(self) -> None:
         cfg_always = EpisodeConfig(
             scenario="high_risk_abstain",
+            policy="cooperative",
             seed=7,
             steps=220,
             rescue_policy="always_rescue",
@@ -80,6 +83,7 @@ class ScientificAblationTest(unittest.TestCase):
 
         cfg_react = EpisodeConfig(
             scenario="high_risk_abstain",
+            policy="cooperative",
             seed=7,
             steps=220,
             rescue_policy="react_orchestrator",
@@ -96,6 +100,7 @@ class ScientificAblationTest(unittest.TestCase):
         # whereas calibrated_triage blindly dispatches helper into severe mud.
         cfg_react = EpisodeConfig(
             scenario="randomized",
+            policy="cooperative",
             seed=5,
             steps=220,
             rescue_policy="react_orchestrator",
@@ -109,6 +114,7 @@ class ScientificAblationTest(unittest.TestCase):
 
         cfg_cal = EpisodeConfig(
             scenario="randomized",
+            policy="cooperative",
             seed=5,
             steps=220,
             rescue_policy="calibrated_triage",
@@ -172,10 +178,10 @@ class ScientificAblationTest(unittest.TestCase):
         import sys
 
         rec_cand = run_canonical_episode(
-            EpisodeConfig(scenario="golden_rescue", seed=7, steps=220, rescue_policy="react_orchestrator")
+            EpisodeConfig(scenario="golden_rescue", policy="cooperative", seed=7, steps=220, rescue_policy="react_orchestrator")
         )
         rec_base = run_canonical_episode(
-            EpisodeConfig(scenario="golden_rescue", seed=7, steps=220, rescue_policy="no_rescue")
+            EpisodeConfig(scenario="golden_rescue", policy="cooperative", seed=7, steps=220, rescue_policy="no_rescue")
         )
         with tempfile.TemporaryDirectory() as td:
             cand_p = Path(td) / "cand.jsonl"

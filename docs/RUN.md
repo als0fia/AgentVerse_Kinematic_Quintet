@@ -1,5 +1,23 @@
 # Reproducible setup, run and recovery
 
+## Release candidate: explicit policy selection (8 November 2026)
+
+On `fix/antenna-final-codex-verification`, `--policy mycelial` always runs the active decentralized controller, including two-rover rescue scenarios. Use `--policy cooperative` explicitly for the controlled golden rescue/refusal fixtures. The previous silent fallback is removed; `active_mycelial_in_rescue` remains for configuration compatibility. Historical automatic-selection descriptions below are superseded here.
+
+```powershell
+python -m pip install -r requirements-mujoco.txt
+python -m unittest discover -s tests -v
+python scripts/run_mujoco_paddypatch.py --dashboard --scenario golden_rescue --policy cooperative --seed 7
+python scripts/run_mujoco_paddypatch.py --scenario golden_rescue --policy cooperative --seed 7 --steps 220 --headless
+python scripts/run_mujoco_paddypatch.py --scenario high_risk_abstain --policy cooperative --seed 7 --steps 220 --headless
+python scripts/run_scaled_field_study.py --seeds 3 8 --fleets 2 4 6 --scales 1.6 --policies mycelial cooperative --comms normal isolated --rescue-policies react_orchestrator --steps 240 --out artifacts/release-study.json
+```
+
+Use the dashboard fleet/map controls and Apply button for interactive expanded-field runs. Expanded fields give every rover the same sampling/planting capabilities and two seeds; standard two-rover reference fixtures retain historical loadouts. Windows verification used Python 3.13.14 and MuJoCo 4.0.0. In restricted environments, set process-local `TEMP` and `TMP` to a writable directory if the default temporary directory is denied.
+
+A changed-seed canonical session rebuilds its seeded scene and controller. Consumers retaining direct simulator/model references must rebind them after reset; the desktop already rebuilds its renderer. Same-seed reset retains the model and is checked for identical frames and commands.
+
+
 ## Current integrated launch paths and limits (8 November 2026)
 
 Use the canonical `EpisodeSession`/MuJoCo runtime from `main` after PRs #62, #63, #69 and #70. The older PR #48 status below is historical. With Python 3.11+ and `requirements-mujoco.txt` installed:
