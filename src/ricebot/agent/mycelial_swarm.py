@@ -931,21 +931,11 @@ class DecentralizedRobotNode:
             if self.capability.can_sample and (
                 not est.complete or self.local_map.needs_remeasurement(site_id, self.envelope)
             ):
-                # Role-aware spatial spread bonus so multiple scouts/planters naturally fan out
-                # across different planting rows rather than clustering on the same site.
+                # Identity-neutral task bidding: spatial separation emerges from each
+                # rover's own estimated travel cost, information gain and the
+                # cross-fleet conflict auction below. Do not encode permanent
+                # planter/scout zones in robot names.
                 sector_bonus = 0.0
-                if self.capability.can_plant:
-                    if self.robot_id.endswith("_2"):
-                        if site_id in ("patch_d", "patch_c", "patch_e"):
-                            sector_bonus = 0.34
-                    elif site_id in ("patch_b", "patch_c"):
-                        sector_bonus = 0.32
-                else:
-                    if self.robot_id.endswith("_2"):
-                        if site_id in ("patch_c", "patch_d", "patch_f"):
-                            sector_bonus = 0.42
-                    elif site_id in ("patch_a", "patch_d"):
-                        sector_bonus = 0.45
 
                 # Normalize Shannon/Gaussian EIG (unvisited site EIG_0 ≈ 3.8468 -> eig_norm ≈ 1.0)
                 eig_norm = min(1.15, eig / 3.8468)
