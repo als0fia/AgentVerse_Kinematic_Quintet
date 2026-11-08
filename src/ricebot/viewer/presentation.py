@@ -30,18 +30,29 @@ def presentation_cue(frame: Any, decision: Any, *, fault_evidence: Any,
         victim, helper = feedback.target_robot_id, feedback.helper_robot_id
     if completed_recoveries:
         recovery = completed_recoveries[-1]
-        victim, helper = recovery.target_robot_id, recovery.helper_robot_id
-        resumed = (
-            victim in robots and not robots[victim].is_bogged
-            and any(i.robot_id == victim
-                    and getattr(i.mode, "value", i.mode) in ("sample", "plant")
-                    for i in decision.intents)
+        # A past recovery must never conceal a newly observed fault elsewhere,
+        # or a new post-recovery incident on the same robot.
+        new_fault = any(
+            r.is_bogged and (
+                r.robot_id != recovery.target_robot_id
+                or getattr(fault_evidence.get(r.robot_id), "observed_at_s", -1.0)
+                > recovery.observed_at_s
+            )
+            for r in frame.robots
         )
-        if resumed:
-            return PresentationCue("Fieldwork resumed", f"{victim.upper()} returned to task",
-                                   victim, helper, "resumed")
-        return PresentationCue("Extraction verified", "Physical recovery completed",
-                               victim, helper, "extracted")
+        if not new_fault:
+            victim, helper = recovery.target_robot_id, recovery.helper_robot_id
+            resumed = (
+                victim in robots and not robots[victim].is_bogged
+                and any(i.robot_id == victim
+                        and getattr(i.mode, "value", i.mode) in ("sample", "plant")
+                        for i in decision.intents)
+            )
+            if resumed:
+                return PresentationCue("Fieldwork resumed", f"{victim.upper()} returned to task",
+                                       victim, helper, "resumed")
+            return PresentationCue("Extraction verified", "Physical recovery completed",
+                                   victim, helper, "extracted")
     if feedback is not None:
         phase = str(getattr(feedback, "phase", "")).lower()
         if feedback.extracted:
