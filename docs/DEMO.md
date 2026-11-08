@@ -1,92 +1,78 @@
-# Demonstration and submission gate
+# Live demonstration — Antenna
 
-**Post-merge evidence (7 Nov 2026):** [PR #48](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/48) brought the typed, bounded MuJoCo rescue path and `golden_rescue` test into `main` at [`16768dc`](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/commit/16768dc6d8f7d5edd3dd5e34c9ec23454dcfbd29). [GitHub Actions](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/actions/runs/42418413738) passed **78 tests** including force/pitch constraints and resumed planting. This is automated **simulated-fixture** evidence only; independent rescue refusal/second-casualty sweeps, sensor-truth isolation, local GUI/video, model-vs-deterministic ablations and submission delivery are still open.
+**Current authoritative recording and portal checklist:** [SUBMISSION.md](SUBMISSION.md). This document is the operator-facing walkthrough of the actual release application; older speculative hackathon storyboards are retained in Git history, not treated as product evidence.
 
-**Current user-directed product scope — Antenna, rescue-first (7 Nov 2026):** The point of the system is **risk-aware robot-to-robot physical recovery** while robots carry out useful rice-field sensing, mapping and planting. The earlier planting-first/rescue-optional instructions below record existing work, not the current primary research question. [D-0008](DECISIONS.md) remains the canonical **naming** decision; new [D-0009](DECISIONS.md) records the **scope** correction. The merged rigid-docking MJCF and `test_mujoco_rigid_docking_cam_latch_and_tandem_extraction` show a **scripted physics extraction test** (victim moves >0.08 m), but not an autonomous sensed-fault→rescue→mission-continuation episode, learned policy or live Jetson inference. [SWARM_EDGE_PLAN](SWARM_EDGE_PLAN.md) / [RESCUE_EDGE_RESEARCH](RESCUE_EDGE_RESEARCH.md).
+## What the audience must understand
 
-**Status:** Robotics deliverables are now specified by organiser slides; no submission or tested product demo has been verified.
+**Beneficiary:** someone supervising small agricultural robots working in soft or irregular ground.
 
-## Rescue-first judge story
+**Problem:** one rover becomes stranded; rescue can save useful work, but sending a helper into dangerous mud can turn one immobilised rover into two. Human remote intervention may be slow or disruptive.
 
-Antenna robots visibly do useful rice-field work, a rover experiences a **real physical fault**, the system uses local observations and mission/terrain uncertainty to decide whether to assist, and the helper either executes a bounded **physical** rigid-docking extraction or safely refuses. Grade actual contact/displacement, second-robot risk and post-rescue fieldwork in the same continuous ≤60-second episode. Today's rigid-docking unit test is scripted physics, **not yet** an integrated recovery policy, learned skill or cloud-free distributed LLM. If it is not integrated before submission, show the actual agricultural physics and scripted extraction honestly, without implying autonomy. [Current PRODUCT](PRODUCT.md).
+**Product action:** Antenna continuously simulates sensing, mission work and risk assessment; it can send another rover to dock and physically recover its peer or refuse a dangerous dispatch while continuing other tasks.
 
-## Proof-first demonstration
+**Evidence:** MuJoCo contact, latch, measured displacement, seed contact, helper survival, private belief maps and recorded baseline comparisons. The result is a **simulation**, with synthetic soils and configured hazards.
 
-1. **Human problem (one sentence):** who needs the action, in what real situation, and what happens without this solution?
-2. **Challenge:** show the real scene, sensor trace, training failure or request. No fabricated user study.
-3. **AI decision:** point to the ambiguous judgement; say why an ordinary algorithm or controller isn't equivalent.
-4. **Actual change:** show the robot/simulator/system **perform** a useful action, not merely answer in chat.
-5. **Independent result:** measured success/failure, baseline comparison and one honest hard case.
-6. **Limits:** distinguish simulation, mock, replay and hardware. State real latency/expense only when measured.
+## Choose one complete continuous episode for the recording
 
-## DeepMind presentation guidance — not the official judging rubric
+Use a known-good commit and graphics host. From the repository root:
 
-**Source:** attendee photographs of the Google DeepMind AgentVerse presentation, 7 November 2026. Presenter described a 10-second first impression and an effective **30-second working moment**. Practical application to a Robotics entry:
+~~~powershell
+python scripts/run_mujoco_paddypatch.py --presentation --scenario golden_rescue --policy cooperative --rescue-policy react_orchestrator --seed 7
+~~~
 
-- Lead with a **real user and an observable problem**, then immediately show a live sensor stream, robot/simulation episode or genuinely variable input; do not begin with several slides.
-- Demonstrate the **closed loop**: perception → AI judgement / experiment design → deterministic/simulated action → **independent measurement** → human intervention/approval when physical or high-stakes.
-- If meaningful, use more than one modality and a richer interface than a plain chat box; **do not add webcam, speech or 3D for decoration** or hide an incomplete core behind polished media.
-- The presenter recommended proof in code (such as Python / optimiser verification), authentic SDK calls and a short fallback recording. Never dress up hard-coded results, fake a model call, or call a narrated animation a real agent.
-- Treat the advertised “Best Use of Gemini” named prize as **slide information**, not a verified, complete award rubric. Participation in that award or using Gemini cannot replace the Robotics success criteria.
+The seeded golden scenario is the **best verified end-to-end physical rescue fixture**. It is reproducible and automatically operates the real MuJoCo model; it is not a pre-rendered video. Demonstrate the disturbance and response using live sensor readings and commands in the 3D/2D view.
 
-**Working pace suggested by the speaker:** Saturday morning reduce to one user/pain and one 30-second capability; Saturday afternoon prove core loop before styling; Saturday evening layer optional senses and rehearsals; Sunday stop new features roughly **two hours before the verified deadline**, record a short backup and test the demo from a clean checkout. These are suggested *internal timeboxes*, **not organiser schedule changes**. The published latest BuilderBase portal now says **Sunday 8 Nov 13:00 GMT** (older site was 14:00), so use the earlier deadline unless organiser verifies an extension.
+The required video is **≤60 seconds, a single continuous capture**. Show the ongoing simulation rather than switching between independently reset scenarios within the video. If an observed GUI/physics run cannot meet the recording requirement, do not disguise separate runs as continuous. The chosen episode must visibly include a **mid-episode event** and changed behaviour.
 
-## Antenna: rescue-first continuous demonstration target (NOT yet recorded)
+## Operator sequence
 
-**Beneficiary story:** two cooperative agricultural rovers perform real mapped/sampled rice work. One becomes physically immobilised; the other must judge whether intervention is safer and more valuable than continuing its own tasks. The system verifies recovery (or justified abstention) in physical simulation before claiming any benefit. Agricultural yield, farm labour savings and real mud behaviour are *not measured*. See [PRODUCT](PRODUCT.md) and [TESTING](TESTING.md).
+1. Open the known-good Presentation Mode build. Check window scaling, framerate, current seed and selected controller.
+2. Position camera to show both rovers and the relevant field area; keep at least one sensor/perception layer and the acting command/decision visible.
+3. Start recording once the scenario begins. Avoid editing or cutting around a physics reset.
+4. Observe meaningful fieldwork before the hazard is encountered, a measured immobilisation incident, the selected helper decision, bounded approach/coupling/extraction and subsequent motion or planting.
+5. Show the independently observed outcome and clearly state this is a controlled synthetic MuJoCo fixture.
+6. Stop within 60 seconds and check the resulting clip's actual length, legibility, audio policy and upload compatibility.
 
-| Target 60-second segment | What judges should actually observe | Evidence requirement |
-| --- | --- | --- |
-| 0–10 s | Two physical rovers already carrying out a sampled soil/seed task in one MuJoCo scene | live poses, issued motor commands and sensed local task observations |
-| 10–20 s | **Unexpected** stall/traction event affects one rover during active movement | previous commanded motion, subsequent measured displacement/heading, sensor-validity and incident timer; not just a “stuck” toggle or missing front range |
-| 20–32 s | Supervisor weighs crop/mission value, uncertain route risk, rescuer traction and recovery alternatives | typed calculated verdict with alternative baseline including possible **defer/abstain**; model output never drives wheel torques |
-| 32–47 s | If judged feasible, helper approaches, physically couples rigid latch and extracts; otherwise safe refusal, hazard mark and task reassignment | coupling/contact state, bounded actuator events, **measured victim displacement and helper safety**; isolated scripted docking test alone is insufficient |
-| 47–55 s | Recovered rover or remaining helper returns to meaningful sensing/seed task | new *actual* probe/seed-contact feedback after incident, or an explicit safe abort |
-| 55–60 s | Independent result and clear limitations | timestamps, success/failure, second casualty, time/energy/crop risk, comparison baseline using the same scenario seed |
+**Do not invent a screen recording path or claim one exists until a team member has actually captured and verified it.**
 
-**Hard truth gate (updated after PR #48):** the integrated `golden_rescue` MuJoCo scenario and an automated golden-episode test now exist and pass on `main`, but no recorded single continuous demo or independent full safety/sensor-perception validation has been confirmed here. The older PR #24 scripted docking fixture and Policy B unit tests remain *separate* evidence. Do not splice separate recordings or describe a scripted reset as an adaptive uninterrupted run. Preserve the planting-only storyboard as historical Git history. Flood gates, full crop season, multi-GPU model splitting and additional rescue mechanisms are not P0.
+## Alternate live demonstrations (not edits to the same clip)
 
-## Demo card (fill with actual working entry)
+**Safe refusal:**
 
-| Item | Value |
-| --- | --- |
-| Beneficiary and goal | TBD |
-| Entry point and exact command | TBD |
-| Test fixture/scene, seed and reset | TBD |
-| Expected action/effect | TBD |
-| Independent pass signal | TBD |
-| Measured baseline | TBD |
-| One surprising edge case | TBD |
-| Observed live-demo result/commit | TBD |
-| Fallback recording or deterministic replay (clearly labelled) | TBD |
-| Operator and handover | TBD |
+~~~powershell
+python scripts/run_mujoco_paddypatch.py --presentation --scenario high_risk_abstain --policy cooperative --seed 7
+~~~
 
-## Judge-aligned story: real usefulness, not only technical spectacle
+This controlled fixture intentionally withholds a rescue when the helper would face unacceptable risk.
 
-The [confirmed organiser rubric](EVENT.md#confirmed-robotics-judging-rubric--clear-organiser-photograph-7-november-2026) assigns **20% to relevance and impact** and explicitly values handling the **most critical failure mode on screen**. The pitch and one-page PDF must be specific: beneficiary; measured or source-backed need; why the current controller/robot/workflow fails; what useful outcome improves; and how our system behaves in its worst credible scenario. Do not invent interviews, adoption, statistics or simulated safety certification. This user story complements, rather than replaces, the 50% perception/adaptation evidence.
+**Scalable coordination:**
 
-## Robotics track deliverables (7 Nov organiser slides 35–38)
+~~~powershell
+python scripts/run_mujoco_paddypatch.py --dashboard --scenario randomized --policy mycelial --seed 8
+~~~
 
-These **supersede generic demo suggestions** where they differ.
+In the engineering setup select 2, 4 or 6 rovers and a larger physical field. Inspect actual tasks, per-rover belief maps, gossip packet logs, planting, safety incidents and failed tasks. Larger-fleet rescue is not assumed to be as reliable as the controlled two-rover golden recovery.
 
-| Requirement | Content / capture criterion | Owner / status |
-| --- | --- | --- |
-| **Technical summary — one page PDF** | Real user/problem, features, overall perception–decision–action architecture, which model runs where, hardware and measured latency, limitations, key failure mode and safety | **Not yet authored**; PDF creation belongs to the team once product evidence exists |
-| **Simulation video — up to one minute** | Actual simulation stream, sensor/perception data **alongside** agent actions, and one unexpected mid-run scene change in a **single continuous take** | **Not yet recorded**; use genuine episode, not edited transitions or canned path |
-| **Pitch — five minutes if shortlisted** | What problem is solved, how the robot works, demonstrated capabilities, limitations and value to the beneficiary | **Not yet required for every team**; prepare a grounded outline after core behaviour works |
+## Five-minute pitch only if shortlisted
 
-**Suggested storyboards (illustrative only):** start with the user problem and sensor viewpoint; show first action; introduce one unexpected change; show detected state and replan; show task outcome and limitation. This is not permission to fake the event. Record a separately labelled fallback video only if the genuine continuous run cannot be shown live.
+Suggested natural flow, rather than a rigid script:
 
-## Submission preflight (must be human checked)
+- Introduce the stranded-rover dilemma and who benefits.
+- Show the live two-rover event and the physical decision outcome.
+- Explain the observation → coordination → safety gate → bounded actuator architecture.
+- Show one measured matched Mycelial communication comparison and mention the competent deterministic rescue baselines.
+- Close with the failure cases and the necessary real-world validation before deployment.
 
-- [ ] Portal **deadline and timezone** reconfirmed (organiser timetable: **Sunday 8 Nov, 13:00 GMT** according to latest BuilderBase portal (older site said 14:00; confirm with staff), checked 7 Nov).
-- [ ] Current track brief and entry criteria complied with; no unsupported historical MLH rules substituted.
-- [ ] Team is eligible; repository URL and access meet actual requirements.
-- [ ] All required fields/video/images/links confirmed from current portal.
-- [ ] README, exact install and demo commands work on selected commit.
-- [ ] No secrets, private captures, unlicensed assets, undisclosed preexisting work or inaccurate AI attribution.
-- [ ] Metrics/claims are reproducible and simulation vs reality explicit.
-- [ ] Human team owner has approved final content and action.
-- [ ] Submission receipt or portal confirmation has been observed and recorded by authorised team member.
+**No claim of live LLM benefit:** the recorded fleet evaluation made zero provider calls and used the deterministic fallback. A model-name slide or source-code backend is not evidence of live model reasoning.
 
-A ready GitHub repo, a prepared video or a form draft **is not** submission confirmation. Prioritise a known-good executable vertical slice over graphics-only polish. Judging duration and exact scoring must come from current organiser instructions, not assumed conventions.
+## Evidence and hard cases
+
+See [TESTING.md](TESTING.md) and [recorded experiments](../experiments/release_verification_20261108.json) for exact measurements. Six matched gossip pairs show 5 positive and 1 tied placement outcomes; these are not statistically sufficient to generalise to farms. Two four-rover runs had collisions, and one six-rover rescue suffered a helper casualty. These are important safety limitations.
+
+The programme is **not** a physical deployment, crop-yield prediction system, RF throughput validation, or universally successful rescue machine. The current judge-facing rendering does not alter the simulator, and its measured trails must not be presented as proposed obstacle-free path planning.
+
+## Submission separation
+
+The team must separately approve and submit the code link, one-page technical PDF and continuous ≤60-second clip to the actual organiser portal, and retain the receipt. The repo is not the portal; this branch preparation performs no final submission.
+
+Read [SUBMISSION.md](SUBMISSION.md) for the live deadline, deliverable review and human sign-off.
