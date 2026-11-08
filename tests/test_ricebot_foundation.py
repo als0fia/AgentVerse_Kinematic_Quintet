@@ -8,12 +8,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 from ricebot.contracts import (
-    ObservationFrame, PlantFeedback, Pose2D, RobotCapability,
+    FaultEvidence, ObservationFrame, OperatorCommandKind, OperatorRequest,
+    PlantFeedback, Pose2D, RescueAssessment, RescueVerdict, RobotCapability,
     RobotCommand, RobotObservation, SensorKind, Site, SoilSample, TaskIntent, TaskMode,
 )
 from ricebot.control import LocalController
 from ricebot.mission import MeasuredFieldMap, SimpleMissionPlanner
-from ricebot.runtime import EpisodeRunner, MissionCore
+from ricebot.runtime import (
+    EpisodeConfig, EpisodeRunner, EpisodeSession, MissionCore,
+    ReplaySimulationPort, create_mujoco_episode_session,
+)
 
 
 SITES = (
@@ -95,6 +99,78 @@ class ContractTest(unittest.TestCase):
         self.assertEqual({i.mode for i in result}, {TaskMode.SAMPLE})
         self.assertEqual({i.target_site_id for i in result}, {'a', 'b'})
         self.assertNotIn('protected', {i.target_site_id for i in result})
+
+    def test_fault_evidence_contract_and_negative_controls(self):
+        valid_stall = FaultEvidence(
+            robot_id='planter',
+            observed_at_s=4.5,
+            commanded_linear_m_s=0.35,
+            commanded_angular_rad_s=0.0,
+            observed_displacement_m=0.001,
+            observed_yaw_delta_rad=0.001,
+            observed_speed_m_s=0.005,
+            slip_ratio=0.92,
+            front_range_m=2.5,
+            link_ok=True,
+            stalled_ticks=3,
+            is_commanded_motion_stall=True,
+            confidence=0.95,
+        )
+        self.assertTrue(valid_stall.is_commanded_motion_stall)
+        # Negative control 1: intentional HOLD (zero command) cannot claim motion stall
+        with self.assertRaises(ValueError):
+            FaultEvidence(
+                robot_id='planter',
+                observed_at_s=4.5,
+                commanded_linear_m_s=0.0,
+                commanded_angular_rad_s=0.0,
+                is_commanded_motion_stall=True,
+                front_range_m=2.5,
+            )
+        # Negative control 2: missing rangefinder (None) is sensor invalidity, not motion stall
+        with self.assertRaises(ValueError):
+            FaultEvidence(
+                robot_id='planter',
+                observed_at_s=4.5,
+                commanded_linear_m_s=0.30,
+                front_range_m=None,
+                is_commanded_motion_stall=True,
+            )
+
+    def test_rescue_assessment_bidirectional_field_normalization(self):
+        from_policy_a = RescueAssessment(
+            stranded_robot_id='planter',
+            verdict=RescueVerdict.RESCUE_NOW,
+            nearest_site_id='patch_d',
+            rescue_benefit=1.30,
+            opportunity_cost=0.64,
+            hazard_risk=0.0,
+            net_rescue_value=0.66,
+            helper_robot_id='scout',
+            reason='worth saving now',
+        )
+        self.assertEqual(from_policy_a.rescuer_robot_id, 'scout')
+        self.assertAlmostEqual(from_policy_a.expected_saved_benefit, 1.30)
+        self.assertAlmostEqual(from_policy_a.rescue_opportunity_cost, 0.64)
+        self.assertAlmostEqual(from_policy_a.net_rescue_utility, 0.66)
+        self.assertEqual(from_policy_a.rationale, 'worth saving now')
+
+        from_policy_b = RescueAssessment(
+            stranded_robot_id='planter',
+            verdict='rescue_now',  # type: ignore[arg-type]
+            nearest_site_id='patch_d',
+            rescuer_robot_id='scout',
+            expected_saved_benefit=4.50,
+            rescue_opportunity_cost=0.42,
+            net_rescue_utility=4.08,
+            rationale='Peer rescue saves 4.50',
+        )
+        self.assertEqual(from_policy_b.verdict, RescueVerdict.RESCUE_NOW)
+        self.assertEqual(from_policy_b.helper_robot_id, 'scout')
+        self.assertAlmostEqual(from_policy_b.rescue_benefit, 4.50)
+        self.assertAlmostEqual(from_policy_b.opportunity_cost, 0.42)
+        self.assertAlmostEqual(from_policy_b.net_rescue_value, 4.08)
+        self.assertEqual(from_policy_b.reason, 'Peer rescue saves 4.50')
 
 
 class MissionTest(unittest.TestCase):
@@ -191,6 +267,84 @@ class MissionTest(unittest.TestCase):
         self.assertEqual(decisions[0].intents[0].mode, TaskMode.SAMPLE)
         self.assertEqual((decisions[1].commands[0].linear_m_s, decisions[1].commands[0].angular_rad_s), (0, 0))
         self.assertFalse(decisions[1].commands[0].release_seed)
+
+    def test_episode_session_step_once_vs_batch_run_parity_and_replay(self):
+        class ScriptedSim:
+            def __init__(self):
+                self.step_count = 0
+            def reset(self, seed: int):
+                self.step_count = 0
+                return frame(0.0, robot('planter', 0.0, 0.0, 0.0), robot('scout', 0.0, 0.0, 0.0, trio('scout', 'a', 0.0)))
+            def step(self, commands):
+                self.step_count += 1
+                t = round(self.step_count * 0.5, 3)
+                return frame(t, robot('planter', 0.1 * self.step_count, 0.0, t), robot('scout', 0.2 * self.step_count, 0.0, t))
+
+        sim_batch = ScriptedSim()
+        core_batch = MissionCore(MeasuredFieldMap(SITES), SimpleMissionPlanner(CAPS))
+        session_batch = EpisodeSession(sim_batch, core_batch, seed=7, scenario='nominal', policy_name='centralized')
+        decisions_batch = session_batch.run(seed=7, steps=4)
+        trace_batch = session_batch.export_trace()
+
+        sim_interactive = ScriptedSim()
+        core_interactive = MissionCore(MeasuredFieldMap(SITES), SimpleMissionPlanner(CAPS))
+        shadow_core = MissionCore(MeasuredFieldMap(SITES), SimpleMissionPlanner(CAPS))
+        session_interactive = EpisodeSession(
+            sim_interactive,
+            core_interactive,
+            shadow_policy=shadow_core,
+            seed=7,
+            scenario='nominal',
+            policy_name='centralized',
+        )
+        session_interactive.reset(seed=7)
+        req = OperatorRequest('req-1', OperatorCommandKind.SET_COMMS_MODE, 0.0, payload=(('comm_mode', 'intermittent'),))
+        session_interactive.submit_operator_request(req)
+        for _ in range(4):
+            session_interactive.step_once()
+        trace_interactive = session_interactive.export_trace()
+
+        self.assertEqual(sim_batch.step_count, 4)
+        self.assertEqual(sim_interactive.step_count, 4)
+        self.assertEqual(len(decisions_batch), 4)
+        self.assertTrue(trace_batch.matches_parity(trace_interactive))
+        self.assertEqual(len(trace_interactive.ticks[0].operator_requests), 1)
+        self.assertEqual(trace_interactive.ticks[0].operator_requests[0].request_id, 'req-1')
+
+        # Verify ReplaySimulationPort deterministic replay
+        replay_port = ReplaySimulationPort(trace_batch, verify_commands=True)
+        replay_core = MissionCore(MeasuredFieldMap(SITES), SimpleMissionPlanner(CAPS))
+        replay_session = EpisodeSession(replay_port, replay_core, seed=7, scenario='nominal', policy_name='centralized')
+        replay_session.run(seed=7, steps=4)
+        self.assertTrue(trace_batch.matches_parity(replay_session.export_trace()))
+
+    def test_mujoco_session_batch_vs_interactive_step_parity(self):
+        cfg_batch = EpisodeConfig(scenario='golden_rescue', policy='cooperative', seed=7, steps=65)
+        session_batch = create_mujoco_episode_session(cfg_batch)
+        session_batch.run(seed=7, steps=65)
+        trace_batch = session_batch.export_trace()
+
+        cfg_gui = EpisodeConfig(
+            scenario='golden_rescue',
+            policy='cooperative',
+            seed=7,
+            steps=65,
+            include_shadow_mycelial=True,
+        )
+        session_gui = create_mujoco_episode_session(cfg_gui)
+        session_gui.reset(seed=7)
+        for _ in range(65):
+            session_gui.step_once()
+        trace_gui = session_gui.export_trace()
+
+        self.assertEqual(len(trace_batch.ticks), 65)
+        self.assertTrue(trace_batch.matches_parity(trace_gui))
+        self.assertIn('planter', session_gui.rescue_assessments)
+        assessment = session_gui.rescue_assessments['planter']
+        self.assertEqual(assessment.helper_robot_id, 'scout')
+        self.assertEqual(assessment.rescuer_robot_id, 'scout')
+        self.assertGreater(assessment.net_rescue_value, 0.0)
+        self.assertEqual(assessment.net_rescue_value, assessment.net_rescue_utility)
 
 
 if __name__ == '__main__':
