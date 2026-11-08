@@ -425,7 +425,10 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         import tkinter as tk
         from ricebot.viewer.live_app import LiveSwarmDashboardApp
 
-        root = tk.Tk()
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(f"Tkinter display unavailable in headless CI: {exc}")
         root.withdraw()
         try:
             app = LiveSwarmDashboardApp(
