@@ -55,6 +55,41 @@ class MissionCore:
         self._pending_plant: dict[str, tuple[str, str, float]] = {}  # robot -> (site, task_id, sent_at)
         self._attempted_plant_sites: set[str] = set()
 
+    def reset(self) -> None:
+        """Reset MissionCore, MeasuredFieldMap, and planner state for an in-place episode reset."""
+        self._last_time = None
+        self._last_episode = None
+        self._pending_plant.clear()
+        self._attempted_plant_sites.clear()
+        if hasattr(self.field_map, "reset") and callable(self.field_map.reset):
+            self.field_map.reset()
+        elif hasattr(self.field_map, "_samples"):
+            self.field_map._samples.clear()
+        if hasattr(self.planner, "reset") and callable(getattr(self.planner, "reset")):
+            getattr(self.planner, "reset")()
+        else:
+            for dict_or_set_attr in (
+                "_previous_targets",
+                "_previous_eligible",
+                "_blocked_approaches",
+                "_last_pose",
+                "_last_commands",
+                "_stuck_counts",
+                "last_fault_evidence",
+                "last_rescue_assessments",
+                "last_orchestrator_decisions",
+                "recovery_monitoring_history",
+            ):
+                val = getattr(self.planner, dict_or_set_attr, None)
+                if hasattr(val, "clear"):
+                    val.clear()
+            if hasattr(self.planner, "_last_episode"):
+                setattr(self.planner, "_last_episode", None)
+            if hasattr(self.planner, "advisor_calls"):
+                setattr(self.planner, "advisor_calls", 0)
+            if hasattr(self.planner, "advisor_fallbacks"):
+                setattr(self.planner, "advisor_fallbacks", 0)
+
     def decide(self, frame: ObservationFrame) -> Decision:
         if self._last_episode is None:
             self._last_episode = frame.episode_id
@@ -133,10 +168,17 @@ class EpisodeConfig:
     planter_spawn: Pose2D | None = None
     scout_spawn: Pose2D | None = None
     inject_obstacle_at_s: float | None = None
+    num_rovers: int = 2
+    map_scale: float = 1.0
+    gossip_delay_s: float = 0.4
 
     def __post_init__(self) -> None:
         if self.seed < 0 or isinstance(self.seed, bool) or self.steps < 1:
             raise ValueError("seed must be non-negative int and steps >= 1")
+        if self.num_rovers < 2 or self.num_rovers > 6:
+            raise ValueError("num_rovers must be in 2..6")
+        if self.map_scale <= 0.0 or self.gossip_delay_s < 0.0:
+            raise ValueError("map_scale must be > 0 and gossip_delay_s >= 0")
         if self.scenario == "randomized":
             from .world import generate_randomized_episode_spec
 
@@ -273,12 +315,57 @@ class EpisodeSession:
             return
         self._pending_operator_requests.append(request)
 
+    @staticmethod
+    def _reset_policy_runtime(runtime: PolicyRuntime | None) -> None:
+        """Reset stateful policy runtime (MissionCore or DecentralizedMycelialRuntime) in place."""
+        if runtime is None:
+            return
+        if hasattr(runtime, "reset") and callable(getattr(runtime, "reset")):
+            getattr(runtime, "reset")()
+            return
+        if hasattr(runtime, "nodes") and hasattr(runtime, "capabilities") and hasattr(runtime, "sites"):
+            sites_tuple = tuple(getattr(runtime, "sites").values())
+            envelope = getattr(runtime, "envelope", None)
+            limits = getattr(runtime, "limits", None)
+            nodes_dict = getattr(runtime, "nodes")
+            if nodes_dict:
+                first_node = next(iter(nodes_dict.values()))
+                node_cls = type(first_node)
+                for rid, cap in getattr(runtime, "capabilities").items():
+                    nodes_dict[rid] = node_cls(cap, sites=sites_tuple, envelope=envelope, limits=limits)
+            for attr_none in ("_last_time_s", "_last_episode_id", "last_advisor_recommendation"):
+                if hasattr(runtime, attr_none):
+                    setattr(runtime, attr_none, None)
+            for attr_zero in ("total_gossip_bytes", "total_gossip_packets"):
+                if hasattr(runtime, attr_zero):
+                    setattr(runtime, attr_zero, 0)
+            if hasattr(runtime, "latest_gossip_packets"):
+                setattr(runtime, "latest_gossip_packets", ())
+            for attr_clear in (
+                "_negotiated_conflicts",
+                "gossip_history",
+                "latest_sensor_telemetry",
+                "_bogged_since_s",
+                "_stuck_counts",
+                "last_fault_evidence",
+                "last_rescue_assessments",
+                "last_orchestrator_decisions",
+                "recovery_monitoring_history",
+                "_sos_broadcast_sent",
+            ):
+                val = getattr(runtime, attr_clear, None)
+                if hasattr(val, "clear"):
+                    val.clear()
+
     def reset(self, seed: int | None = None) -> ObservationFrame:
-        """Reset simulation and session trace state for a deterministic episode."""
+        """Reset simulation, policy runtime, and session trace state for a deterministic episode."""
         if seed is not None:
             if seed < 0 or isinstance(seed, bool):
                 raise ValueError("seed must be a non-negative integer")
             self.seed = seed
+        self._reset_policy_runtime(self.policy)
+        if self.shadow_policy is not None and self.shadow_policy is not self.policy:
+            self._reset_policy_runtime(self.shadow_policy)
         self.current_frame = self.sim.reset(self.seed)
         self.last_decision = None
         self.tick_index = 0
@@ -508,7 +595,9 @@ def _default_mujoco_operator_handler(
             inject_mud(robot_id)
     elif request.kind == OperatorCommandKind.EXPERIMENT_VEHICLE_SIZING:
         target_robot = str(params.get("robot_id", "all"))
-        targets = ("planter", "scout") if target_robot == "all" else (target_robot,)
+        fleet_specs = getattr(sim, "rover_specs", None)
+        all_rids = tuple(s.robot_id for s in fleet_specs) if fleet_specs else ("planter", "scout")
+        targets = all_rids if target_robot == "all" else (target_robot,)
         for rid in targets:
             if "mass_kg" in params and hasattr(sim, "robot_mass_kg"):
                 getattr(sim, "robot_mass_kg")[rid] = float(params["mass_kg"])
@@ -527,7 +616,8 @@ def create_mujoco_episode_session(
 ) -> EpisodeSession:
     """Canonical factory constructing one authoritative MuJoCo SimulationPort + PolicyRuntime session."""
     from .agent import CooperativeSwarmPlanner, DecentralizedMycelialRuntime
-    from .mujoco_sim.adapter import DEFAULT_CAPABILITIES, DEFAULT_SITES, MujocoPaddySimulation
+    from .mujoco_sim.adapter import DEFAULT_SITES, MujocoPaddySimulation
+    from .robot import make_fleet_specs
     from .world import generate_hidden_soil_truth
 
     cfg = config or EpisodeConfig()
@@ -557,18 +647,23 @@ def create_mujoco_episode_session(
         expose_bogged_flag=cfg.expose_bogged_flag,
         initial_poses=initial_poses,
         scenario=cfg.scenario,
+        num_rovers=cfg.num_rovers,
+        map_scale=cfg.map_scale,
     )
+    fleet_specs = make_fleet_specs(cfg.num_rovers)
     caps = (
-        (
-            RobotCapability("planter", can_sample=True, can_plant=True),
-            RobotCapability("scout", can_sample=False, can_plant=False),
+        tuple(
+            RobotCapability(s.robot_id, can_sample=(idx == 0), can_plant=(idx == 0))
+            for idx, s in enumerate(fleet_specs)
         )
         if is_single
-        else DEFAULT_CAPABILITIES
+        else tuple(s.capability for s in fleet_specs)
     )
 
+    sites_tuple = tuple(sim.sites.values())
+
     if cfg.is_rescue_scenario or cfg.policy == "cooperative":
-        field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
+        field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
         planner: SimpleMissionPlanner = CooperativeSwarmPlanner(
             caps,
             advisor=advisor,
@@ -580,7 +675,7 @@ def create_mujoco_episode_session(
         policy_runtime: PolicyRuntime = MissionCore(field_map, planner, controller)
     elif cfg.policy == "mycelial" and not is_single:
         policy_runtime = DecentralizedMycelialRuntime(
-            sites=DEFAULT_SITES,
+            sites=sites_tuple,
             capabilities=caps,
             comm_range_m=cfg.comm_range_m,
             comm_mode=cfg.comms,
@@ -588,7 +683,7 @@ def create_mujoco_episode_session(
             rescue_policy=cfg.rescue_policy,
         )
     else:
-        field_map = MeasuredFieldMap(DEFAULT_SITES, sample_radius_m=0.6)
+        field_map = MeasuredFieldMap(sites_tuple, sample_radius_m=0.6)
         planner = SimpleMissionPlanner(caps)
         controller = LocalController(
             ControlLimits(speed_m_s=0.38, turn_rad_s=1.15, stop_range_m=0.32, site_reach_m=0.22)
@@ -598,10 +693,10 @@ def create_mujoco_episode_session(
     shadow_policy: PolicyRuntime | None = None
     if want_shadow and not isinstance(policy_runtime, DecentralizedMycelialRuntime):
         shadow_policy = DecentralizedMycelialRuntime(
-            sites=DEFAULT_SITES,
+            sites=sites_tuple,
             capabilities=caps,
-            comm_range_m=0.0 if is_single else 99.0,
-            comm_mode="isolated" if is_single else "normal",
+            comm_range_m=0.0 if is_single else cfg.comm_range_m,
+            comm_mode="isolated" if is_single else cfg.comms,
             advisor=advisor,
             rescue_policy=cfg.rescue_policy,
         )

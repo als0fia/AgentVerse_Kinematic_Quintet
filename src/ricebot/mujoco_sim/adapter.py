@@ -35,10 +35,12 @@ from ..robot import (
     DEFAULT_CAPABILITIES,
     PLANTER_SPEC,
     SCOUT_SPEC,
+    RoverChassisSpec,
     TerramechanicsSinkageState,
     build_rovers_and_seeds_xml,
     compute_4wheel_skid_steer,
     evaluate_bekker_terramechanics,
+    make_fleet_specs,
     update_rigid_dock_latch,
 )
 from ..world import (
@@ -50,10 +52,22 @@ from ..world import (
 )
 
 
-def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) -> str:
+def compose_paddypatch_mjcf(
+    obstacle_xy: tuple[float, float] = (0.75, -0.25),
+    rover_specs: tuple[RoverChassisSpec, ...] | None = None,
+) -> str:
     """Compose the full MJCF XML from `src/ricebot/world/` terrain and `src/ricebot/robot/` Paddy Ant units."""
+    fleet = rover_specs or (PLANTER_SPEC, SCOUT_SPEC)
     world_terrain_xml = build_world_terrain_xml(obstacle_xy=obstacle_xy)
-    rovers_bodies_xml, rovers_actuators_xml, rovers_sensors_xml = build_rovers_and_seeds_xml()
+    rovers_bodies_xml, rovers_actuators_xml, rovers_sensors_xml = build_rovers_and_seeds_xml(specs=fleet)
+    equality_lines = [
+        f'    <connect name="rigid_latch_{a.robot_id}_to_{b.robot_id}" '
+        f'site1="{a.robot_id}_front_dock_site" site2="{b.robot_id}_rear_dock_site" active="false" solref="0.04 1.0"/>'
+        for a in fleet
+        for b in fleet
+        if a.robot_id != b.robot_id
+    ]
+    equality_xml = "\n".join(equality_lines)
     return f"""
 <mujoco model="paddypatch_rice_v1_terrace">
   <option timestep="0.004" gravity="0 0 -9.81" integrator="implicitfast"/>
@@ -81,13 +95,12 @@ def compose_paddypatch_mjcf(obstacle_xy: tuple[float, float] = (0.75, -0.25)) ->
 
   <worldbody>
     {world_terrain_xml}
-    <geom name="paddy_relief_mesh" type="hfield" hfield="paddy_micro_relief" pos="1.35 0.0 -0.016" rgba="0.41 0.33 0.22 0.46" contype="0" conaffinity="0"/>
+    <geom name="paddy_relief_mesh" type="hfield" hfield="paddy_micro_relief" pos="1.35 0.0 -0.016" rgba="0.41 0.33 0.22 0.46" group="2" contype="0" conaffinity="0"/>
     {rovers_bodies_xml}
   </worldbody>
 
   <equality>
-    <connect name="rigid_latch_planter_to_scout" site1="planter_front_dock_site" site2="scout_rear_dock_site" active="false" solref="0.04 1.0"/>
-    <connect name="rigid_latch_scout_to_planter" site1="scout_front_dock_site" site2="planter_rear_dock_site" active="false" solref="0.04 1.0"/>
+{equality_xml}
   </equality>
 
   <actuator>
@@ -183,7 +196,23 @@ class MujocoPaddySimulation:
         expose_bogged_flag: bool = False,
         initial_poses: dict[str, Pose2D] | None = None,
         scenario: str = "nominal",
+        num_rovers: int = 2,
+        map_scale: float = 1.0,
     ) -> None:
+        self.num_rovers = max(2, min(6, int(num_rovers)))
+        self.map_scale = float(map_scale)
+        self.rover_specs: tuple[RoverChassisSpec, ...] = make_fleet_specs(self.num_rovers)
+        self._spec_by_id: dict[str, RoverChassisSpec] = {s.robot_id: s for s in self.rover_specs}
+        self._ctrl_offset_by_id: dict[str, int] = {
+            s.robot_id: 4 * idx for idx, s in enumerate(self.rover_specs)
+        }
+        self._seed_slice_by_id: dict[str, tuple[int, int]] = {}
+        seed_cursor = 0
+        for s in self.rover_specs:
+            self._seed_slice_by_id[s.robot_id] = (seed_cursor, seed_cursor + s.initial_seeds)
+            seed_cursor += s.initial_seeds
+        self._total_seed_proxies = max(2, seed_cursor)
+
         self.world = PaddyTerraceWorld(
             sites=sites,
             probe_radius_m=probe_radius_m,
@@ -204,42 +233,49 @@ class MujocoPaddySimulation:
         self.initial_poses: dict[str, Pose2D] | None = dict(initial_poses) if initial_poses else None
         self.scenario = scenario
 
-        mjcf_xml = compose_paddypatch_mjcf(obstacle_xy=obstacle_xy)
+        mjcf_xml = compose_paddypatch_mjcf(obstacle_xy=obstacle_xy, rover_specs=self.rover_specs)
         self.model = mujoco.MjModel.from_xml_string(mjcf_xml)
         self.data = mujoco.MjData(self.model)
 
         self._ground_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "field_ground")
+        self._hfield_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "paddy_relief_mesh")
+        if self._hfield_geom_id >= 0:
+            self.model.geom_group[self._hfield_geom_id] = 2
         self._seed_geom_ids = [
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"seed_{i}_geom")
-            for i in range(PLANTER_SPEC.initial_seeds)
+            for i in range(self._total_seed_proxies)
         ]
-        self._planter_qpos_adr = int(
-            self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "planter_free")]
-        )
-        self._scout_qpos_adr = int(
-            self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "scout_free")]
-        )
-        self._planter_qvel_adr = int(
-            self.model.jnt_dofadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "planter_free")]
-        )
-        self._scout_qvel_adr = int(
-            self.model.jnt_dofadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "scout_free")]
-        )
+        self._qpos_adrs: dict[str, int] = {
+            s.robot_id: int(
+                self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"{s.robot_id}_free")]
+            )
+            for s in self.rover_specs
+        }
+        self._qvel_adrs: dict[str, int] = {
+            s.robot_id: int(
+                self.model.jnt_dofadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"{s.robot_id}_free")]
+            )
+            for s in self.rover_specs
+        }
+        self._planter_qpos_adr = self._qpos_adrs["planter"]
+        self._scout_qpos_adr = self._qpos_adrs["scout"]
+        self._planter_qvel_adr = self._qvel_adrs["planter"]
+        self._scout_qvel_adr = self._qvel_adrs["scout"]
         self._body_ids: dict[str, int] = {
-            "planter": mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "planter_body"),
-            "scout": mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "scout_body"),
+            s.robot_id: mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, f"{s.robot_id}_body")
+            for s in self.rover_specs
         }
         self._wheel_geom_ids: dict[str, list[int]] = {
-            rid: [
+            s.robot_id: [
                 gid
                 for w in ("fl", "fr", "rl", "rr")
                 for gid in (
-                    mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{rid}_w_{w}"),
-                    mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{rid}_wheel_{w}"),
+                    mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{s.robot_id}_w_{w}"),
+                    mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{s.robot_id}_wheel_{w}"),
                 )
                 if gid >= 0
             ]
-            for rid in ("planter", "scout")
+            for s in self.rover_specs
         }
         for rid, gids in self._wheel_geom_ids.items():
             for gid in gids:
@@ -247,11 +283,11 @@ class MujocoPaddySimulation:
                     self.model.geom_priority[gid] = 1
         self._seed_qpos_adrs = [
             int(self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"seed_{i}_free")])
-            for i in range(PLANTER_SPEC.initial_seeds)
+            for i in range(self._total_seed_proxies)
         ]
         self._seed_qvel_adrs = [
             int(self.model.jnt_dofadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"seed_{i}_free")])
-            for i in range(PLANTER_SPEC.initial_seeds)
+            for i in range(self._total_seed_proxies)
         ]
 
         # Optional active farming end-effector & rigid docking/latching actuator IDs from PR #24
@@ -261,7 +297,8 @@ class MujocoPaddySimulation:
         self._dock_pitch_act_ids: dict[str, int] = {}
         self._latch_act_ids: dict[str, int] = {}
         self._spade_act_ids: dict[str, int] = {}
-        for rid in ("planter", "scout"):
+        for s in self.rover_specs:
+            rid = s.robot_id
             self._dibber_act_ids[rid] = mujoco.mj_name2id(
                 self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{rid}_dibber_act"
             )
@@ -283,27 +320,23 @@ class MujocoPaddySimulation:
 
         # Runtime-configurable vehicle sizing parameters for live Bekker-Wong wheel-mud sinkage physics
         self.robot_mass_kg: dict[str, float] = {
-            PLANTER_SPEC.robot_id: 4.2,
-            SCOUT_SPEC.robot_id: 3.6,
+            s.robot_id: (4.2 if s.can_plant else 3.6) for s in self.rover_specs
         }
         self.robot_wheel_radius_m: dict[str, float] = {
-            PLANTER_SPEC.robot_id: PLANTER_SPEC.wheel_radius_m,
-            SCOUT_SPEC.robot_id: SCOUT_SPEC.wheel_radius_m,
+            s.robot_id: s.wheel_radius_m for s in self.rover_specs
         }
         self.robot_wheel_width_m: dict[str, float] = {
-            PLANTER_SPEC.robot_id: 0.040,
-            SCOUT_SPEC.robot_id: 0.040,
+            s.robot_id: 0.040 for s in self.rover_specs
         }
         self.latest_terrain_points: dict[str, ContinuousTerrainPoint] = {}
         self.latest_terramechanics: dict[str, TerramechanicsSinkageState] = {}
-        self.latest_slip_ratios: dict[str, float] = {"planter": 0.08, "scout": 0.08}
+        self.latest_slip_ratios: dict[str, float] = {s.robot_id: 0.08 for s in self.rover_specs}
         self.mud_rut_history: list[tuple[str, float, float, float, float]] = []
 
         self._seed: int = 7
         self._episode_id: str = "mujoco-episode-7"
         self._seeds_remaining: dict[str, int] = {
-            PLANTER_SPEC.robot_id: PLANTER_SPEC.initial_seeds,
-            SCOUT_SPEC.robot_id: SCOUT_SPEC.initial_seeds,
+            s.robot_id: s.initial_seeds for s in self.rover_specs
         }
         self._active_drops: list[SeedDropEvent] = []
         self._completed_drops: list[SeedDropEvent] = []
@@ -312,10 +345,9 @@ class MujocoPaddySimulation:
         self._populate_hfield_from_continuous_terrain()
         self._bogged_origins: dict[str, tuple[float, float]] = {}
         self._sensed_bogged_robots: set[str] = set()
-        self._wheel_spin_stall_ticks: dict[str, int] = {"planter": 0, "scout": 0}
+        self._wheel_spin_stall_ticks: dict[str, int] = {s.robot_id: 0 for s in self.rover_specs}
         self._last_commanded_drive: dict[str, tuple[float, float]] = {
-            "planter": (0.0, 0.0),
-            "scout": (0.0, 0.0),
+            s.robot_id: (0.0, 0.0) for s in self.rover_specs
         }
         self._rescued_robots: set[str] = set()
         self._active_latched_pair: tuple[str, str] | None = None
@@ -325,7 +357,7 @@ class MujocoPaddySimulation:
 
     def inject_mud_fault(self, robot_id: str) -> None:
         """Trap `robot_id` at its current pose via session-authorized fault injection."""
-        if robot_id not in ("planter", "scout"):
+        if robot_id not in self._spec_by_id:
             return
         self._rescued_robots.discard(robot_id)
         r_xyz = self.data.sensor(f"{robot_id}_pos").data
@@ -373,7 +405,7 @@ class MujocoPaddySimulation:
 
     def _update_rover_terramechanics(self) -> None:
         """Evaluate ContinuousPaddyTerrain and Bekker-Wong wheel-mud sinkage at each rover's live 3D pose."""
-        for spec in (PLANTER_SPEC, SCOUT_SPEC):
+        for spec in self.rover_specs:
             rid = spec.robot_id
             r_xyz = self.data.sensor(f"{rid}_pos").data
             rx, ry = float(r_xyz[0]), float(r_xyz[1])
@@ -405,8 +437,9 @@ class MujocoPaddySimulation:
 
     def _apply_3d_terrain_and_mud_sinkage_pose(self) -> None:
         """Keep physics qpos stable for horizontal LiDAR rays unless rover is bellied out in deep mud."""
-        for spec, qadr in ((PLANTER_SPEC, self._planter_qpos_adr), (SCOUT_SPEC, self._scout_qpos_adr)):
+        for spec in self.rover_specs:
             rid = spec.robot_id
+            qadr = self._qpos_adrs[rid]
             sink = self.latest_terramechanics.get(rid)
             if sink is not None and sink.bellied_out:
                 # Visually sink chassis down into the mud trap when bellied out (S1 immobilized)
@@ -432,8 +465,7 @@ class MujocoPaddySimulation:
         self.world.reset(self._seed)
         self._populate_hfield_from_continuous_terrain()
         self._seeds_remaining = {
-            PLANTER_SPEC.robot_id: PLANTER_SPEC.initial_seeds,
-            SCOUT_SPEC.robot_id: SCOUT_SPEC.initial_seeds,
+            s.robot_id: s.initial_seeds for s in self.rover_specs
         }
         self._active_drops = []
         self._completed_drops = []
@@ -442,8 +474,8 @@ class MujocoPaddySimulation:
         self.mud_rut_history = []
         self._bogged_origins = {}
         self._sensed_bogged_robots = set()
-        self._wheel_spin_stall_ticks = {"planter": 0, "scout": 0}
-        self._last_commanded_drive = {"planter": (0.0, 0.0), "scout": (0.0, 0.0)}
+        self._wheel_spin_stall_ticks = {s.robot_id: 0 for s in self.rover_specs}
+        self._last_commanded_drive = {s.robot_id: (0.0, 0.0) for s in self.rover_specs}
         self._rescued_robots = set()
         self._active_latched_pair = None
         self._detach_backoff_ticks = {}
@@ -455,25 +487,16 @@ class MujocoPaddySimulation:
                     self.model.geom_friction[gid, 0] = 1.4
 
         mujoco.mj_resetData(self.model, self.data)
-        px, py, pz = PLANTER_SPEC.initial_xyz
-        sx, sy, sz = SCOUT_SPEC.initial_xyz
-        p_quat = [1.0, 0.0, 0.0, 0.0]
-        s_quat = [1.0, 0.0, 0.0, 0.0]
-        if self.initial_poses:
-            if "planter" in self.initial_poses:
-                p_pose = self.initial_poses["planter"]
-                px, py = p_pose.x_m, p_pose.y_m
-                p_quat = _rpy_to_quat(0.0, 0.0, p_pose.yaw_rad)
-            if "scout" in self.initial_poses:
-                s_pose = self.initial_poses["scout"]
-                sx, sy = s_pose.x_m, s_pose.y_m
-                s_quat = _rpy_to_quat(0.0, 0.0, s_pose.yaw_rad)
-        self.data.qpos[self._planter_qpos_adr : self._planter_qpos_adr + 7] = [
-            px, py, pz, *p_quat
-        ]
-        self.data.qpos[self._scout_qpos_adr : self._scout_qpos_adr + 7] = [
-            sx, sy, sz, *s_quat
-        ]
+        for spec in self.rover_specs:
+            rid = spec.robot_id
+            rx, ry, rz = spec.initial_xyz
+            r_quat = [1.0, 0.0, 0.0, 0.0]
+            if self.initial_poses and rid in self.initial_poses:
+                pose_override = self.initial_poses[rid]
+                rx, ry = pose_override.x_m, pose_override.y_m
+                r_quat = _rpy_to_quat(0.0, 0.0, pose_override.yaw_rad)
+            qadr = self._qpos_adrs[rid]
+            self.data.qpos[qadr : qadr + 7] = [rx, ry, rz, *r_quat]
         self.data.mocap_pos[0] = [self.obstacle_xy[0], self.obstacle_xy[1], -5.0]
         self._sync_carried_seeds()
         mujoco.mj_forward(self.model, self.data)
@@ -483,26 +506,33 @@ class MujocoPaddySimulation:
         return self._build_observation_frame(plant_feedback=(), recovery_feedback=())
 
     def _sync_carried_seeds(self) -> None:
-        """Keep unreleased seeds inside the planter's hopper frame."""
+        """Keep unreleased seeds inside each planter unit's hopper frame."""
         released_indices = {d.seed_index for d in self._active_drops} | {
             d.seed_index for d in self._completed_drops
         }
-        planter_xyz = self.data.sensor("planter_pos").data
-        px, py, pz = float(planter_xyz[0]), float(planter_xyz[1]), float(planter_xyz[2])
-        for idx in range(PLANTER_SPEC.initial_seeds):
-            if idx not in released_indices:
-                qadr = self._seed_qpos_adrs[idx]
-                vadr = self._seed_qvel_adrs[idx]
-                self.data.qpos[qadr : qadr + 3] = [px, py, pz + 0.12 + 0.05 * idx]
-                self.data.qpos[qadr + 3 : qadr + 7] = [1.0, 0.0, 0.0, 0.0]
-                self.data.qvel[vadr : vadr + 6] = 0.0
+        for spec in self.rover_specs:
+            start_idx, end_idx = self._seed_slice_by_id[spec.robot_id]
+            if end_idx <= start_idx:
+                continue
+            r_xyz = self.data.sensor(f"{spec.robot_id}_pos").data
+            px, py, pz = float(r_xyz[0]), float(r_xyz[1]), float(r_xyz[2])
+            for local_i, idx in enumerate(range(start_idx, end_idx)):
+                if idx not in released_indices:
+                    qadr = self._seed_qpos_adrs[idx]
+                    vadr = self._seed_qvel_adrs[idx]
+                    self.data.qpos[qadr : qadr + 3] = [px, py, pz + 0.12 + 0.05 * local_i]
+                    self.data.qpos[qadr + 3 : qadr + 7] = [1.0, 0.0, 0.0, 0.0]
+                    self.data.qvel[vadr : vadr + 6] = 0.0
 
     def _check_seed_contact(self, seed_index: int) -> Pose2D | None:
-        """Return landing Pose2D if seed_index geom is physically touching field_ground."""
+        """Return landing Pose2D if seed_index geom is physically touching field_ground or paddy_relief_mesh."""
         target_geom = self._seed_geom_ids[seed_index]
+        ground_geoms = {self._ground_geom_id}
+        if self._hfield_geom_id >= 0:
+            ground_geoms.add(self._hfield_geom_id)
         for i in range(self.data.ncon):
             c = self.data.contact[i]
-            if {c.geom1, c.geom2} == {target_geom, self._ground_geom_id}:
+            if target_geom in (c.geom1, c.geom2) and ((c.geom1 in ground_geoms) or (c.geom2 in ground_geoms)):
                 qadr = self._seed_qpos_adrs[seed_index]
                 sx, sy = float(self.data.qpos[qadr]), float(self.data.qpos[qadr + 1])
                 return Pose2D(round(sx, 4), round(sy, 4), 0.0)
@@ -513,10 +543,11 @@ class MujocoPaddySimulation:
         if self.trap_robot_id is None or self.trap_site_id not in self.sites:
             return
         site = self.sites[self.trap_site_id]
-        candidates = ("planter", "scout") if self.trap_robot_id == "any" else (self.trap_robot_id,)
+        all_rids = tuple(s.robot_id for s in self.rover_specs)
+        candidates = all_rids if self.trap_robot_id == "any" else (self.trap_robot_id,)
         if not self._bogged_origins:
             for cand_id in candidates:
-                if cand_id not in ("planter", "scout") or cand_id in self._rescued_robots:
+                if cand_id not in self._spec_by_id or cand_id in self._rescued_robots:
                     continue
                 r_xyz = self.data.sensor(f"{cand_id}_pos").data
                 rx, ry = float(r_xyz[0]), float(r_xyz[1])
@@ -529,7 +560,7 @@ class MujocoPaddySimulation:
             site_pt = self.world.evaluate_continuous_point(site.center.x_m, site.center.y_m)
             if site_pt.firmness < 0.18:
                 victim_origin = self._bogged_origins[primary_victim]
-                for other_id in ("planter", "scout"):
+                for other_id in all_rids:
                     if (
                         other_id == primary_victim
                         or other_id in self._bogged_origins
@@ -564,9 +595,10 @@ class MujocoPaddySimulation:
         self.data.xfrc_applied[:] = 0.0
 
         active_rescue_cmd: RobotCommand | None = None
-        self._last_commanded_drive = {"planter": (0.0, 0.0), "scout": (0.0, 0.0)}
-        for spec, ctrl_offset in ((PLANTER_SPEC, 0), (SCOUT_SPEC, 4)):
+        self._last_commanded_drive = {s.robot_id: (0.0, 0.0) for s in self.rover_specs}
+        for spec in self.rover_specs:
             robot_id = spec.robot_id
+            ctrl_offset = self._ctrl_offset_by_id[robot_id]
             cmd = cmd_by_robot.get(robot_id)
             if cmd is None or not (cmd.issued_at_s <= now_s < cmd.expires_at_s):
                 continue
@@ -585,7 +617,7 @@ class MujocoPaddySimulation:
                 self.data.ctrl[ctrl_offset : ctrl_offset + 4] = w_back
                 continue
 
-            if cmd.recovery_target_id in ("planter", "scout") and cmd.recovery_target_id != robot_id and cmd.recovery_target_id not in self._rescued_robots:
+            if cmd.recovery_target_id in self._spec_by_id and cmd.recovery_target_id != robot_id and cmd.recovery_target_id not in self._rescued_robots:
                 active_rescue_cmd = cmd
                 continue
 
@@ -606,10 +638,11 @@ class MujocoPaddySimulation:
                 ):
                     if dib_id >= 0:
                         self.data.ctrl[dib_id] = -0.048  # Plunge vertical seed dibber into soil
-                    seed_idx = spec.initial_seeds - self._seeds_remaining[robot_id]
+                    start_idx, _ = self._seed_slice_by_id[robot_id]
+                    seed_idx = start_idx + (spec.initial_seeds - self._seeds_remaining[robot_id])
                     self._seeds_remaining[robot_id] -= 1
-                    planter_xyz = self.data.sensor("planter_pos").data
-                    px, py = float(planter_xyz[0]), float(planter_xyz[1])
+                    r_xyz = self.data.sensor(f"{robot_id}_pos").data
+                    px, py = float(r_xyz[0]), float(r_xyz[1])
                     qadr = self._seed_qpos_adrs[seed_idx]
                     vadr = self._seed_qvel_adrs[seed_idx]
                     self.data.qpos[qadr : qadr + 3] = [px, py, spec.hopper_drop_z_m]
@@ -628,8 +661,9 @@ class MujocoPaddySimulation:
                 # Apply analytical Bekker-Wong wheel-mud traction, slip churn & belly-out immobilization physics
                 sink_state = self.latest_terramechanics.get(robot_id)
                 slip_ratio = self.latest_slip_ratios.get(robot_id, 0.08)
+                default_m = 4.2 if spec.can_plant else 3.6
                 is_custom_sizing = (
-                    abs(self.robot_mass_kg.get(robot_id, 4.2 if robot_id == "planter" else 3.6) - (4.2 if robot_id == "planter" else 3.6)) > 0.3
+                    abs(self.robot_mass_kg.get(robot_id, default_m) - default_m) > 0.3
                     or abs(self.robot_wheel_radius_m.get(robot_id, 0.058) - 0.058) > 0.003
                 )
                 is_bogged_now = robot_id in self._bogged_origins and self._active_latched_pair is None
@@ -651,7 +685,7 @@ class MujocoPaddySimulation:
 
                 effective_linear = cmd.linear_m_s * traction_factor
                 mud_fishtail = (
-                    0.15 * slip_ratio * sin(9.5 * now_s + (0.0 if robot_id == "planter" else 2.1))
+                    0.15 * slip_ratio * sin(9.5 * now_s + (0.0 if spec.can_plant else 2.1))
                     if is_custom_sizing and abs(cmd.linear_m_s) > 0.08
                     else 0.0
                 )
@@ -711,7 +745,7 @@ class MujocoPaddySimulation:
                     for gid in self._wheel_geom_ids.get(bog_id, ()):
                         if gid >= 0:
                             self.model.geom_friction[gid, 0] = 0.002
-                    vadr = self._planter_qvel_adr if bog_id == "planter" else self._scout_qvel_adr
+                    vadr = self._qvel_adrs[bog_id]
                     bid = self._body_ids[bog_id]
                     self.data.xfrc_applied[bid, 0] = -35.0 * float(self.data.qvel[vadr])
                     self.data.xfrc_applied[bid, 1] = -35.0 * float(self.data.qvel[vadr + 1])
@@ -721,10 +755,10 @@ class MujocoPaddySimulation:
             if active_rescue_cmd is not None and active_rescue_cmd.recovery_target_id is not None:
                 helper_id = active_rescue_cmd.robot_id
                 target_id = active_rescue_cmd.recovery_target_id
-                helper_spec = PLANTER_SPEC if helper_id == "planter" else SCOUT_SPEC
-                target_spec = PLANTER_SPEC if target_id == "planter" else SCOUT_SPEC
-                h_offset = 0 if helper_id == "planter" else 4
-                t_offset = 0 if target_id == "planter" else 4
+                helper_spec = self._spec_by_id[helper_id]
+                target_spec = self._spec_by_id[target_id]
+                h_offset = self._ctrl_offset_by_id[helper_id]
+                t_offset = self._ctrl_offset_by_id[target_id]
                 h_latch_id = self._latch_act_ids[helper_id]
                 h_pitch_id = self._dock_pitch_act_ids[helper_id]
                 h_spade_id = self._spade_act_ids[helper_id]
@@ -892,7 +926,7 @@ class MujocoPaddySimulation:
             mujoco.mj_step(self.model, self.data)
             for bog_id in list(self._bogged_origins.keys()):
                 if self._active_latched_pair is None:
-                    vadr = self._planter_qvel_adr if bog_id == "planter" else self._scout_qvel_adr
+                    vadr = self._qvel_adrs[bog_id]
                     self.data.qvel[vadr : vadr + 6] *= 0.02
             step_t = round(float(self.data.time), 4)
             self._update_mud_trap_state()
@@ -958,7 +992,9 @@ class MujocoPaddySimulation:
             )
 
         # Update sensor-derived wheel-spin stall state from actual commanded drive vs physical velocity
-        for rid, vadr in (("planter", self._planter_qvel_adr), ("scout", self._scout_qvel_adr)):
+        for spec in self.rover_specs:
+            rid = spec.robot_id
+            vadr = self._qvel_adrs[rid]
             sink = self.latest_terramechanics.get(rid)
             in_mud_trap = rid in self._bogged_origins or (sink is not None and bool(sink.bellied_out))
             cmd_lin, cmd_ang = self._last_commanded_drive.get(rid, (0.0, 0.0))
@@ -978,14 +1014,34 @@ class MujocoPaddySimulation:
         )
 
     def _read_min_front_range_m(self, prefix: str) -> float | None:
-        """Read minimum distance across the 3-ray forward LiDAR fan (center, left, right)."""
+        """Read minimum distance across the 3-ray forward LiDAR fan (center, left, right), excluding group-2 terrain."""
         if self.sensor_dropout_robot_id == prefix and self.sensor_dropout_window_s is not None:
             t_now = float(self.data.time)
             if self.sensor_dropout_window_s[0] <= t_now <= self.sensor_dropout_window_s[1]:
                 return None
         vals: list[float] = []
+        grp = np.array([1, 1, 0, 1, 1, 1], dtype=np.uint8)
+        geomid = np.zeros(1, dtype=np.int32)
         for suffix in ("c", "l", "r"):
-            raw = float(self.data.sensor(f"{prefix}_range_{suffix}").data[0])
+            sname = f"{prefix}_range_{suffix}"
+            sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, sname)
+            if sid >= 0:
+                pnt = self.data.site_xpos[sid]
+                vec = self.data.site_xmat[sid].reshape(3, 3)[:, 2]
+                raw = float(
+                    mujoco.mj_ray(
+                        self.model,
+                        self.data,
+                        pnt,
+                        vec,
+                        grp,
+                        1,
+                        int(self.model.site_bodyid[sid]),
+                        geomid,
+                    )
+                )
+            else:
+                raw = float(self.data.sensor(sname).data[0])
             if raw >= 0.0:
                 vals.append(raw)
         return round(min(vals), 4) if vals else 4.0
@@ -996,45 +1052,26 @@ class MujocoPaddySimulation:
         recovery_feedback: tuple[RecoveryFeedback, ...] = (),
     ) -> ObservationFrame:
         sim_t = round(float(self.data.time), 4)
-        planter_xyz = self.data.sensor("planter_pos").data
-        planter_quat = self.data.sensor("planter_quat").data
-        scout_xyz = self.data.sensor("scout_pos").data
-        scout_quat = self.data.sensor("scout_quat").data
+        poses_by_id: dict[str, Pose2D] = {}
+        rpy_by_id: dict[str, tuple[float, float, float]] = {}
+        speeds_by_id: dict[str, float] = {}
 
-        p_roll, p_pitch, p_yaw = _quat_to_rpy(planter_quat)
-        s_roll, s_pitch, s_yaw = _quat_to_rpy(scout_quat)
-
-        planter_pose = Pose2D(
-            round(float(planter_xyz[0]), 4),
-            round(float(planter_xyz[1]), 4),
-            round(p_yaw, 4),
-        )
-        scout_pose = Pose2D(
-            round(float(scout_xyz[0]), 4),
-            round(float(scout_xyz[1]), 4),
-            round(s_yaw, 4),
-        )
-
-        p_sink = self.latest_terramechanics.get("planter")
-        s_sink = self.latest_terramechanics.get("scout")
-        p_speed = round(
-            hypot(
-                float(self.data.qvel[self._planter_qvel_adr]),
-                float(self.data.qvel[self._planter_qvel_adr + 1]),
-            ),
-            4,
-        )
-        s_speed = round(
-            hypot(
-                float(self.data.qvel[self._scout_qvel_adr]),
-                float(self.data.qvel[self._scout_qvel_adr + 1]),
-            ),
-            4,
-        )
-        inter_dist = round(
-            hypot(planter_pose.x_m - scout_pose.x_m, planter_pose.y_m - scout_pose.y_m),
-            4,
-        )
+        for spec in self.rover_specs:
+            rid = spec.robot_id
+            r_xyz = self.data.sensor(f"{rid}_pos").data
+            r_quat = self.data.sensor(f"{rid}_quat").data
+            roll, pitch, yaw = _quat_to_rpy(r_quat)
+            rpy_by_id[rid] = (roll, pitch, yaw)
+            poses_by_id[rid] = Pose2D(
+                round(float(r_xyz[0]), 4),
+                round(float(r_xyz[1]), 4),
+                round(yaw, 4),
+            )
+            vadr = self._qvel_adrs[rid]
+            speeds_by_id[rid] = round(
+                hypot(float(self.data.qvel[vadr]), float(self.data.qvel[vadr + 1])),
+                4,
+            )
 
         adjusted_feedback = tuple(
             PlantFeedback(
@@ -1064,43 +1101,41 @@ class MujocoPaddySimulation:
             for rf in recovery_feedback
         )
 
-        planter_bogged = self.expose_bogged_flag and ("planter" in self._sensed_bogged_robots)
-        scout_bogged = self.expose_bogged_flag and ("scout" in self._sensed_bogged_robots)
-
-        robots = (
-            RobotObservation(
-                robot_id="planter",
-                pose=planter_pose,
-                time_s=sim_t,
-                front_range_m=self._read_min_front_range_m("planter"),
-                seeds_remaining=self._seeds_remaining["planter"],
-                samples=self.world.sample_local_soil("planter", planter_pose, sim_t),
-                link_ok=True,
-                pitch_rad=round(p_pitch, 4),
-                roll_rad=round(p_roll, 4),
-                true_speed_m_s=p_speed,
-                is_bogged=planter_bogged,
-                peer_distances=(("scout", inter_dist),) if inter_dist <= 2.15 else (),
-            ),
-            RobotObservation(
-                robot_id="scout",
-                pose=scout_pose,
-                time_s=sim_t,
-                front_range_m=self._read_min_front_range_m("scout"),
-                seeds_remaining=self._seeds_remaining["scout"],
-                samples=self.world.sample_local_soil("scout", scout_pose, sim_t),
-                link_ok=True,
-                pitch_rad=round(s_pitch, 4),
-                roll_rad=round(s_roll, 4),
-                true_speed_m_s=s_speed,
-                is_bogged=scout_bogged,
-                peer_distances=(("planter", inter_dist),) if inter_dist <= 2.15 else (),
-            ),
-        )
+        robot_obs_list: list[RobotObservation] = []
+        for spec in self.rover_specs:
+            rid = spec.robot_id
+            pose = poses_by_id[rid]
+            roll, pitch, _ = rpy_by_id[rid]
+            peer_dists: list[tuple[str, float]] = []
+            for other in self.rover_specs:
+                oid = other.robot_id
+                if oid == rid:
+                    continue
+                opose = poses_by_id[oid]
+                d = round(hypot(pose.x_m - opose.x_m, pose.y_m - opose.y_m), 4)
+                if d <= 2.15:
+                    peer_dists.append((oid, d))
+            is_bog = self.expose_bogged_flag and (rid in self._sensed_bogged_robots)
+            robot_obs_list.append(
+                RobotObservation(
+                    robot_id=rid,
+                    pose=pose,
+                    time_s=sim_t,
+                    front_range_m=self._read_min_front_range_m(rid),
+                    seeds_remaining=self._seeds_remaining[rid],
+                    samples=self.world.sample_local_soil(rid, pose, sim_t),
+                    link_ok=True,
+                    pitch_rad=round(pitch, 4),
+                    roll_rad=round(roll, 4),
+                    true_speed_m_s=speeds_by_id[rid],
+                    is_bogged=is_bog,
+                    peer_distances=tuple(peer_dists),
+                )
+            )
         return ObservationFrame(
             episode_id=self._episode_id,
             time_s=sim_t,
-            robots=robots,
+            robots=tuple(robot_obs_list),
             plant_feedback=adjusted_feedback,
             recovery_feedback=adjusted_recovery,
         )

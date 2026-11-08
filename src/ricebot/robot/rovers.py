@@ -123,6 +123,53 @@ DEFAULT_CAPABILITIES: tuple[RobotCapability, ...] = (
     SCOUT_SPEC.capability,
 )
 
+EXTRA_FLEET_SPECS: tuple[RoverChassisSpec, ...] = (
+    make_homogeneous_rover_spec(
+        "planter_2",
+        initial_xyz=(0.10, 0.45, 0.058),
+        can_sample=True,
+        can_plant=True,
+        initial_seeds=2,
+    ),
+    make_homogeneous_rover_spec(
+        "scout_2",
+        initial_xyz=(-0.22, -0.30, 0.058),
+        can_sample=True,
+        can_plant=False,
+        initial_seeds=0,
+    ),
+    make_homogeneous_rover_spec(
+        "planter_3",
+        initial_xyz=(-0.22, 0.20, 0.058),
+        can_sample=True,
+        can_plant=True,
+        initial_seeds=2,
+    ),
+    make_homogeneous_rover_spec(
+        "scout_3",
+        initial_xyz=(-0.22, -0.70, 0.058),
+        can_sample=True,
+        can_plant=False,
+        initial_seeds=0,
+    ),
+)
+
+FLEET_VISUAL_STYLES: dict[str, tuple[str, str, str, int]] = {
+    "planter": ("0.16 0.46 0.86 1", "0.90 0.75 0.15 1", "1 0.2 0.2 1", 2),
+    "scout": ("0.18 0.72 0.36 1", "0.25 0.90 0.50 1", "0.2 1.0 0.4 1", 4),
+    "planter_2": ("0.14 0.68 0.82 1", "0.95 0.82 0.20 1", "0.2 0.85 1.0 1", 2),
+    "scout_2": ("0.86 0.58 0.14 1", "0.98 0.86 0.32 1", "1.0 0.75 0.2 1", 4),
+    "planter_3": ("0.56 0.36 0.86 1", "0.92 0.78 0.98 1", "0.75 0.45 1.0 1", 2),
+    "scout_3": ("0.88 0.36 0.28 1", "0.98 0.72 0.52 1", "1.0 0.45 0.35 1", 4),
+}
+
+
+def make_fleet_specs(num_rovers: int = 2) -> tuple[RoverChassisSpec, ...]:
+    """Return homogeneous fleet specs for `num_rovers` in `2..6` (default 2 = planter, scout)."""
+    count = max(2, min(6, int(num_rovers)))
+    all_specs = (PLANTER_SPEC, SCOUT_SPEC) + EXTRA_FLEET_SPECS
+    return all_specs[:count]
+
 
 def compute_4wheel_skid_steer(
     spec: RoverChassisSpec,
@@ -338,95 +385,107 @@ def _build_homogeneous_ant_rover_xml(
 """
 
 
-def build_rovers_and_seeds_xml() -> tuple[str, str, str]:
+def build_rovers_and_seeds_xml(
+    specs: tuple[RoverChassisSpec, ...] | None = None,
+) -> tuple[str, str, str]:
     """Return `(bodies_xml, actuators_xml, sensors_xml)` for the homogeneous swarm units and seed proxies.
 
     Note:
-    - Wheel velocity actuators for `planter` (indices 0..3) and `scout` (indices 4..7) are placed first
+    - Wheel velocity actuators for each unit in `specs` (`4 * i .. 4 * i + 3`) are placed first
       so `MujocoPaddySimulation` drives them without index shifts.
-    - Rigid docking/latching/spade actuators are placed at indices 8..13.
+    - Rigid docking/latching/spade actuators are placed next.
     - Active farming tool actuators (vertical dibber plunger + counter-rotating underbelly weeders)
-      are placed at indices 14..19.
+      are placed last.
     """
-    planter_body = _build_homogeneous_ant_rover_xml(
-        PLANTER_SPEC,
-        chassis_rgba="0.16 0.46 0.86 1",
-        hub_rgba="0.90 0.75 0.15 1",
-        ray_rgba="1 0.2 0.2 1",
-        contype=2,
+    fleet = specs or (PLANTER_SPEC, SCOUT_SPEC)
+    body_fragments: list[str] = []
+    wheel_act_fragments: list[str] = []
+    dock_act_fragments: list[str] = []
+    tool_act_fragments: list[str] = []
+    sensor_fragments: list[str] = []
+    dock_sensor_fragments: list[str] = []
+
+    for idx, spec in enumerate(fleet):
+        rid = spec.robot_id
+        c_rgba, h_rgba, r_rgba, ctype = FLEET_VISUAL_STYLES.get(
+            rid,
+            ("0.16 0.46 0.86 1", "0.90 0.75 0.15 1", "1 0.2 0.2 1", 2 if idx % 2 == 0 else 4),
+        )
+        body_fragments.append(
+            _build_homogeneous_ant_rover_xml(
+                spec,
+                chassis_rgba=c_rgba,
+                hub_rgba=h_rgba,
+                ray_rgba=r_rgba,
+                contype=ctype,
+            )
+        )
+        wheel_act_fragments.append(
+            f"""    <!-- {rid} 4-Wheel Velocity Servos (rad/s) -->
+    <velocity name="{rid}_act_fl" joint="{rid}_j_fl" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
+    <velocity name="{rid}_act_fr" joint="{rid}_j_fr" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
+    <velocity name="{rid}_act_rl" joint="{rid}_j_rl" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
+    <velocity name="{rid}_act_rr" joint="{rid}_j_rr" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>"""
+        )
+        dock_act_fragments.append(
+            f"""    <position name="{rid}_dock_pitch_act" joint="{rid}_dock_pitch" kp="35.0" ctrllimited="true" ctrlrange="-0.20 0.45"/>
+    <position name="{rid}_latch_act" joint="{rid}_latch_j" kp="15.0" ctrllimited="true" ctrlrange="0.0 0.65"/>
+    <position name="{rid}_spade_act" joint="{rid}_spade_j" kp="20.0" ctrllimited="true" ctrlrange="0.0 0.85"/>"""
+        )
+        tool_act_fragments.append(
+            f"""    <position name="{rid}_dibber_act" joint="{rid}_dibber_j" kp="30.0" ctrllimited="true" ctrlrange="-0.052 0.010"/>
+    <velocity name="{rid}_weeder_l_act" joint="{rid}_weeder_jl" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>
+    <velocity name="{rid}_weeder_r_act" joint="{rid}_weeder_jr" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>"""
+        )
+        sensor_fragments.append(
+            f"""    <rangefinder name="{rid}_range_c" site="{rid}_range_c"/>
+    <rangefinder name="{rid}_range_l" site="{rid}_range_l"/>
+    <rangefinder name="{rid}_range_r" site="{rid}_range_r"/>"""
+        )
+        dock_sensor_fragments.append(
+            f"""    <framepos name="{rid}_pos" objtype="site" objname="{rid}_odom_site"/>
+    <framequat name="{rid}_quat" objtype="site" objname="{rid}_odom_site"/>"""
+        )
+
+    dock_site_sensors = [
+        f"""    <framepos name="{spec.robot_id}_front_dock_pos" objtype="site" objname="{spec.robot_id}_front_dock_site"/>
+    <framepos name="{spec.robot_id}_rear_dock_pos" objtype="site" objname="{spec.robot_id}_rear_dock_site"/>"""
+        for spec in fleet
+    ]
+
+    total_seeds = max(2, sum(spec.initial_seeds for spec in fleet))
+    seed_bodies: list[str] = []
+    for s_idx in range(total_seeds):
+        rgba = "0.98 0.86 0.12 1" if s_idx % 2 == 0 else "0.98 0.76 0.08 1"
+        z_pos = 0.18 + 0.05 * s_idx
+        seed_bodies.append(
+            f"""
+    <!-- Rigid-body Seed Proxy {s_idx} (6-DOF freejoint, carried in hopper until released) -->
+    <body name="seed_proxy_{s_idx}" pos="0.13 -0.05 {z_pos:.2f}">
+      <freejoint name="seed_{s_idx}_free"/>
+      <geom name="seed_{s_idx}_geom" type="sphere" size="0.022" mass="0.03" contype="1" conaffinity="1" rgba="{rgba}"/>
+    </body>"""
+        )
+
+    bodies_xml = "".join(body_fragments) + "".join(seed_bodies) + "\n"
+    actuators_xml = (
+        "\n"
+        + "\n".join(wheel_act_fragments)
+        + "\n\n    <!-- Homogeneous Rigid Docking, Cam-Latching & Anchor Spade Actuators -->\n"
+        + "\n".join(dock_act_fragments)
+        + "\n\n    <!-- Homogeneous Farming Tool Actuators: Vertical Seed/Soil Dibber Plunger & Underbelly Rotary Weeders -->\n"
+        + "\n".join(tool_act_fragments)
+        + "\n"
     )
-    scout_body = _build_homogeneous_ant_rover_xml(
-        SCOUT_SPEC,
-        chassis_rgba="0.18 0.72 0.36 1",
-        hub_rgba="0.25 0.90 0.50 1",
-        ray_rgba="0.2 1.0 0.4 1",
-        contype=4,
+    sensors_xml = (
+        "\n"
+        + "\n".join(sensor_fragments)
+        + "\n"
+        + "\n".join(dock_sensor_fragments)
+        + "\n    <!-- Docking Cone & Rear Receiver Funnel 3D Site Positions for Rigid Latch Verification -->\n"
+        + "\n".join(dock_site_sensors)
+        + "\n"
     )
-
-    bodies_xml = (
-        planter_body
-        + scout_body
-        + """
-    <!-- Rigid-body Seed Proxy 0 (6-DOF freejoint, carried in hopper until released) -->
-    <body name="seed_proxy_0" pos="0.13 -0.05 0.18">
-      <freejoint name="seed_0_free"/>
-      <geom name="seed_0_geom" type="sphere" size="0.022" mass="0.03" contype="1" conaffinity="1" rgba="0.98 0.86 0.12 1"/>
-    </body>
-
-    <!-- Rigid-body Seed Proxy 1 -->
-    <body name="seed_proxy_1" pos="0.13 -0.05 0.23">
-      <freejoint name="seed_1_free"/>
-      <geom name="seed_1_geom" type="sphere" size="0.022" mass="0.03" contype="1" conaffinity="1" rgba="0.98 0.76 0.08 1"/>
-    </body>
-"""
-    )
-
-    actuators_xml = """
-    <!-- Planter 4-Wheel Velocity Servos (ctrl 0..3, rad/s) -->
-    <velocity name="planter_act_fl" joint="planter_j_fl" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
-    <velocity name="planter_act_fr" joint="planter_j_fr" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
-    <velocity name="planter_act_rl" joint="planter_j_rl" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
-    <velocity name="planter_act_rr" joint="planter_j_rr" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
-    <!-- Scout 4-Wheel Velocity Servos (ctrl 4..7, rad/s) -->
-    <velocity name="scout_act_fl" joint="scout_j_fl" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
-    <velocity name="scout_act_fr" joint="scout_j_fr" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
-    <velocity name="scout_act_rl" joint="scout_j_rl" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
-    <velocity name="scout_act_rr" joint="scout_j_rr" kv="1.2" ctrllimited="true" ctrlrange="-14.0 14.0"/>
-
-    <!-- Homogeneous Rigid Docking, Cam-Latching & Anchor Spade Actuators (ctrl 8..13) -->
-    <position name="planter_dock_pitch_act" joint="planter_dock_pitch" kp="35.0" ctrllimited="true" ctrlrange="-0.20 0.45"/>
-    <position name="planter_latch_act" joint="planter_latch_j" kp="15.0" ctrllimited="true" ctrlrange="0.0 0.65"/>
-    <position name="planter_spade_act" joint="planter_spade_j" kp="20.0" ctrllimited="true" ctrlrange="0.0 0.85"/>
-    <position name="scout_dock_pitch_act" joint="scout_dock_pitch" kp="35.0" ctrllimited="true" ctrlrange="-0.20 0.45"/>
-    <position name="scout_latch_act" joint="scout_latch_j" kp="15.0" ctrllimited="true" ctrlrange="0.0 0.65"/>
-    <position name="scout_spade_act" joint="scout_spade_j" kp="20.0" ctrllimited="true" ctrlrange="0.0 0.85"/>
-
-    <!-- Homogeneous Farming Tool Actuators: Vertical Seed/Soil Dibber Plunger & Underbelly Rotary Weeders (ctrl 14..19) -->
-    <position name="planter_dibber_act" joint="planter_dibber_j" kp="30.0" ctrllimited="true" ctrlrange="-0.052 0.010"/>
-    <velocity name="planter_weeder_l_act" joint="planter_weeder_jl" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>
-    <velocity name="planter_weeder_r_act" joint="planter_weeder_jr" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>
-    <position name="scout_dibber_act" joint="scout_dibber_j" kp="30.0" ctrllimited="true" ctrlrange="-0.052 0.010"/>
-    <velocity name="scout_weeder_l_act" joint="scout_weeder_jl" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>
-    <velocity name="scout_weeder_r_act" joint="scout_weeder_jr" kv="0.15" ctrllimited="true" ctrlrange="-18.0 18.0"/>
-"""
-
-    sensors_xml = """
-    <rangefinder name="planter_range_c" site="planter_range_c"/>
-    <rangefinder name="planter_range_l" site="planter_range_l"/>
-    <rangefinder name="planter_range_r" site="planter_range_r"/>
-    <rangefinder name="scout_range_c" site="scout_range_c"/>
-    <rangefinder name="scout_range_l" site="scout_range_l"/>
-    <rangefinder name="scout_range_r" site="scout_range_r"/>
-    <framepos name="planter_pos" objtype="site" objname="planter_odom_site"/>
-    <framequat name="planter_quat" objtype="site" objname="planter_odom_site"/>
-    <framepos name="scout_pos" objtype="site" objname="scout_odom_site"/>
-    <framequat name="scout_quat" objtype="site" objname="scout_odom_site"/>
-    <!-- Docking Cone & Rear Receiver Funnel 3D Site Positions for Rigid Latch Verification -->
-    <framepos name="planter_front_dock_pos" objtype="site" objname="planter_front_dock_site"/>
-    <framepos name="planter_rear_dock_pos" objtype="site" objname="planter_rear_dock_site"/>
-    <framepos name="scout_front_dock_pos" objtype="site" objname="scout_front_dock_site"/>
-    <framepos name="scout_rear_dock_pos" objtype="site" objname="scout_rear_dock_site"/>
-"""
     return bodies_xml, actuators_xml, sensors_xml
 
 

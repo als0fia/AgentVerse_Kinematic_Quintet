@@ -596,6 +596,32 @@ class AbdCanonicalIntegrationTests(unittest.TestCase):
         self.assertIn("refusal_abandon_escalate", outcome_classes)
         self.assertTrue(len(rescued_and_planted_seeds) >= 1)
 
+    def test_in_place_session_reset_and_scalable_fleet_wave0(self) -> None:
+        """Issue #71 + Option A: Verify EpisodeSession.reset(new_seed) and N-rover fleet execution."""
+        for pol in ("cooperative", "mycelial"):
+            cfg = EpisodeConfig(scenario="randomized", policy=pol, seed=2, include_shadow_mycelial=True)
+            session = create_mujoco_episode_session(cfg)
+            session.reset(2)
+            for _ in range(5):
+                session.step_once()
+            session.reset(8)
+            for _ in range(5):
+                tick = session.step_once()
+            self.assertEqual(session.seed, 8)
+            self.assertEqual(len(session.ticks), 5)
+            self.assertEqual(tick.frame.episode_id, "mujoco-ep-8")
+
+        cfg_fleet = EpisodeConfig(scenario="nominal", policy="mycelial", seed=7, num_rovers=4, steps=12)
+        fleet_sess = create_mujoco_episode_session(cfg_fleet)
+        decisions = fleet_sess.run(seed=7, steps=12)
+        self.assertEqual(len(decisions), 12)
+        assert fleet_sess.current_frame is not None
+        self.assertEqual(len(fleet_sess.current_frame.robots), 4)
+        self.assertEqual(
+            [r.robot_id for r in fleet_sess.current_frame.robots],
+            ["planter", "scout", "planter_2", "scout_2"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
