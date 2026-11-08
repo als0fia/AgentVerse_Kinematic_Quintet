@@ -92,3 +92,35 @@ class ReleaseVerificationTests(unittest.TestCase):
             return Obj(frame=Obj(time_s=t,robots=[Obj(robot_id='planter',pose=Pose2D(x,0,0))]),decision=Obj(commands=[Obj(robot_id='planter',linear_m_s=0.2)]))
         self.assertEqual(_verified_post_recovery_mobility([tick(1.1,0),tick(1.2,0)],[rec]),set())
         self.assertEqual(_verified_post_recovery_mobility([tick(1.1,0),tick(1.2,0.1)],[rec]),{'planter'})
+
+    def test_physics_probe_covers_every_rover(self):
+        from ricebot.diagnostics import MujocoPhysicsProbe
+        import mujoco
+        session=create_mujoco_episode_session(EpisodeConfig(policy='mycelial',num_rovers=6,map_scale=1.6))
+        session.reset(7)
+        probe=MujocoPhysicsProbe(session.sim)
+        self.assertEqual(set(probe.snapshot()['robots']),{s.robot_id for s in session.sim.rover_specs})
+        for spec in session.sim.rover_specs:
+            gid=mujoco.mj_name2id(session.sim.model,mujoco.mjtObj.mjOBJ_GEOM,spec.robot_id+'_chassis')
+            self.assertEqual(probe.body_owner[int(session.sim.model.geom_bodyid[gid])],spec.robot_id)
+
+    def test_contact_manifold_is_one_event_and_unrelated_latch_does_not_hide_it(self):
+        from test_diagnostics import FakeSimulation, FakeProbe, DiagnosticTests
+        from ricebot.diagnostics import EpisodeDiagnosticPort
+        import tempfile
+        from pathlib import Path
+        for unrelated_latch in (False,True):
+            sim=FakeSimulation()
+            probe=FakeProbe(sim)
+            original=probe.snapshot
+            if unrelated_latch:
+                def snapshot():
+                    result=original(); result['latched_pair']=['planter_2','scout_2']; return result
+                probe.snapshot=snapshot
+            with tempfile.TemporaryDirectory() as td:
+                audit=EpisodeDiagnosticPort(sim,probe,Path(td)/'trace.jsonl',scenario='nominal',policy='mycelial',scripted_trap=False)
+                audit.reset(7)
+                sim.contacts=[{'actors':['planter','scout'],'geoms':['a','b'],'penetration_m':0.001,'normal_force_n':10.0}]*3
+                DiagnosticTests.tick(self,sim,audit)
+                result=audit.finish()
+                self.assertEqual(result['event_counts'].get('unexpected_robot_collision'),1)

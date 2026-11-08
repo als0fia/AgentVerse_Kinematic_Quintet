@@ -1,5 +1,19 @@
 # Testing, baseline and independent evidence
 
+## Independent release verification (8 November 2026)
+
+Branch: `fix/antenna-final-codex-verification`, derived from `52a31d1ec81a68cf3d3ad4adbbf6e600963798c6`. Local Windows Python 3.13.14 / MuJoCo 4.0.0: **142 tests passed, no skips, 112.231 s**. Repository integrity, native skill parity and whitespace checks also pass. Reproduction and launch commands are at the top of [RUN.md](RUN.md).
+
+The fixes make explicit Mycelial selection authoritative, rebuild seeded scenes on changed-seed reset, apply the evaluator's learner to the acting controller, distinguish turning from immobilization, bound rescue actuator commands, and correct evaluation duration, site denominators, latch/mobility evidence and whole-fleet collision diagnostics. Existing golden tests now request cooperative explicitly; their physical assertions were preserved.
+
+The continuous cooperative golden fixture (seed 7, 220 ticks) verifies latch, extraction displacement >=0.18 m, resumed self-propelled motion and two subsequent viable plantings. The high-risk refusal fixture verifies no rescue dispatch, no secondary casualty and two viable plantings; always-rescue deliberately demonstrates helper loss. Actual Windows GUI rendering, live six-rover playback/planting, pause, manual-to-autonomous control and scenario switching were observed in an isolated application window, which was then closed. Automated GUI/reset tests also passed. No other worker's window or checkout was modified.
+
+[Recorded fleet measurements](../experiments/release_verification_20261108.json) cover 18 continuous 240-tick randomized episodes: seeds 3/8, fleets 2/4/6, scale 1.6, cooperative plus Mycelial normal/isolated communication (six matched gossip pairs). All rovers moved >0.08 m in every run; each run physically planted 3-9 viable seeds. Geometry tests verify enlarged MuJoCo boundary dimensions and identical expanded-fleet sampling/planting capabilities. The record retains actual policy, per-rover motion, extraction, collision and failure evidence.
+
+**Remaining limitations:** two seed-3 four-rover Mycelial runs had collisions (normal and isolated communication); the seed-3 six-rover Mycelial rescue lost a helper. Many runs did not finish all viable work or recover stranded robots. Mycelial extracted victims in three expanded runs, but does not reproduce the controlled two-rover golden rescue: use the explicit cooperative demo command. The existing binary success/failure classifier retains two-rover assumptions; use physical fleet metrics, not its success rate, for expanded-field comparisons. This small study is not statistical validation. Soil/traps and radio traffic are simulated; no live model calls, hardware validation, real agronomic evidence or submission recording were made.
+
+Latest pushed Argon comparison: `430f26e485d8738c0a0f517c48b32e1568547a95`. Only reviewed turn/stall and bounded actuator hunks were adapted; no blind merge, and its unpushed local work was unavailable. Starting upstream remained `52a31d1` at verification.
+
 ## Latest integrated evidence and limitations (8 November 2026)
 
 **Provenance:** integrated ABCDE session/rescue baseline [PR #63](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/63); read-only [MuJoCo diagnostics #62](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/62); orchestrator safety/feedback [#69](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/69); seeded randomization [#70](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/pull/70). The PR #48 / 78-test snapshots below are historical. [Combined `main` CI after #69 + #70](https://github.com/als0fia/AgentVerse_Kinematic_Quintet/actions/runs/42444609370) passed **113 tests (112 passed, one GUI test skipped)** plus static repository/skill checks on commit `56e90e29`.

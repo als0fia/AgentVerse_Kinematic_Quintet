@@ -24,9 +24,11 @@ class MujocoPhysicsProbe:
     Contact records prove solver contact at sample time, not an impact history.
     """
 
-    def __init__(self, sim: Any, robot_ids: tuple[str, ...] = ("planter", "scout")):
+    def __init__(self, sim: Any, robot_ids: tuple[str, ...] | None = None):
         import mujoco
 
+        if robot_ids is None:
+            robot_ids = tuple(spec.robot_id for spec in sim.rover_specs)
         self.sim, self.mj, self.robot_ids = sim, mujoco, robot_ids
         model = sim.model
         roots = {
@@ -93,7 +95,7 @@ class MujocoPhysicsProbe:
                 "normal_force_n": round(max(0.0, float(force[0])), 4),
             })
         # Keep full robot-robot evidence and strongest environment contacts.
-        contacts.sort(key=lambda x: (x["actors"] == ["planter", "scout"],
+        contacts.sort(key=lambda x: ("environment" not in x["actors"],
                                      x["normal_force_n"]), reverse=True)
         return {
             "time_s": round(float(data.time), 5),
@@ -272,15 +274,16 @@ class EpisodeDiagnosticPort:
         contacts_now: set[tuple[str, str]] = set()
         for c in after.get("contacts", []):
             pair = tuple(c["actors"])
+            new_contact = pair not in self.contact_active and pair not in contacts_now
             self.max_contact_force_n = max(self.max_contact_force_n, c["normal_force_n"])
             if "environment" not in pair:
                 contacts_now.add(pair)
                 intended = (
                     any(cmd.recovery_target_id in pair and cmd.robot_id in pair
                         for cmd in commands)
-                    or after.get("latched_pair") is not None
+                    or set(after.get("latched_pair") or ()) == set(pair)
                 )
-                if pair not in self.contact_active:
+                if new_contact:
                     self._event(
                         "robot_contact_during_rescue" if intended else "unexpected_robot_collision",
                         "info" if intended else "error", t, list(pair),
@@ -291,7 +294,7 @@ class EpisodeDiagnosticPort:
             elif c["normal_force_n"] >= 100.0:
                 key = ("environment", pair[1] if pair[0] == "environment" else pair[0])
                 contacts_now.add(key)
-                if key not in self.contact_active:
+                if new_contact:
                     self._event("strong_environment_contact", "warning", t, list(pair),
                                 {"geoms": c["geoms"], "normal_force_n": c["normal_force_n"]},
                                 "Inspect obstacle geometry, impact velocity and wheel/robot clearance.")
