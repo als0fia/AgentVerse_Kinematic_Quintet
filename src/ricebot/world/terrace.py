@@ -166,6 +166,13 @@ def build_scaled_world_terrain_xml(
         return build_world_terrain_xml(obstacle_xy)
     root = ET.fromstring("<worldbody>" + build_world_terrain_xml(obstacle_xy) + "</worldbody>")
     scale = layout.scale
+    # Two historical bed decorations (e/f) had no corresponding Site or task.
+    # Exclude them from expanded fields so every visible bed is real work.
+    for element in list(root):
+        if element.get("name") in {
+            "bed_patch_e", "puddle_patch_e", "bed_patch_f", "puddle_patch_f"
+        }:
+            root.remove(element)
 
     def scaled_pair(x: float, y: float) -> tuple[float, float]:
         return 1.35 + (x - 1.35) * scale, y * scale
