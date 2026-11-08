@@ -1,0 +1,162 @@
+\documentclass[9pt,a4paper]{article}
+
+\usepackage[margin=0.26in, top=0.18in, bottom=0.18in]{geometry}
+\usepackage{times}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multicol}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{microtype}
+\usepackage{float}
+\usepackage[colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue]{hyperref}
+
+\linespread{0.93}
+\setlength{\columnsep}{10pt}
+\setlength{\multicolsep}{1.5pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.8pt}
+\setlength{\intextsep}{2pt}
+\setlength{\abovedisplayskip}{2pt}
+\setlength{\belowdisplayskip}{2pt}
+\setlist[itemize]{leftmargin=*, noitemsep, topsep=0.5pt, parsep=0pt}
+\setlist[enumerate]{leftmargin=*, noitemsep, topsep=0.5pt, parsep=0pt}
+
+\titlespacing*{\section}{0pt}{1.8pt}{0.5pt}
+\titleformat{\section}{\normalsize\bfseries\color{black}}{\thesection}{0.4em}{}[\titlerule]
+
+\begin{document}
+
+% --- SINGLE-COLUMN HEADER ---
+\begin{center}
+  {\Large \textbf{Antenna: Resilient Collective Robotics for Rice Paddies}}\par\vspace{0.5pt}
+  {\normalsize \textbf{The Kinematic Quintet} \quad$\vert$\quad \textbf{Track:} Embodied Robotics \& Autonomous Agents}\par\vspace{0.5pt}
+  {\footnotesize \textbf{Codebase:} \url{https://github.com/als0fia/AgentVerse_Kinematic_Quintet} \quad$\vert$\quad \textbf{Target:} NVIDIA Jetson Orin Nano (10W Edge)}\par\vspace{1pt}
+  \hrule
+\end{center}
+\vspace{-2pt}
+
+% --- TWO-COLUMN CONTENT ---
+\begin{multicols}{2}
+
+% --- 1. ABSTRACT ---
+\section{\textbf{Abstract: Overview \& Purpose}}
+\textbf{Rice} feeds over half the world, yet planting in muddy fields still relies on an aging workforce—harming their health, threatening sustainability, and slowing harvests. \textbf{Antenna} is a team of small robots (\textbf{``Ennas''}) that tests the soil, plants missing rice to maximize yield, and smartly recovers stuck robot units to maximize farm output.
+
+% --- 2. SOCIO-ECONOMIC FACTORS & RURAL CONTEXT ---
+\section{\textbf{Why It Matters: Socio-Economic Need}}
+\begin{itemize}
+    \item \textbf{Labor \& Mechanization Deficit:} Aging farmers and rising wages (\pounds 22--\pounds 40/day) threaten rushed planting windows ($<10\,\text{days}$). While national tillage exceeds 90\%, rice planting mechanization is only \textbf{67.6\%} (MARA 2024/2026; CSAE 2025), with severe shortages in Southern mountainous regions with small, fragmented fields ($<0.15\,\text{ha}$).
+    \item \textbf{Why Current Machines Fail \& Why Antenna Wins:} Heavy transplanters (700--1,000\,kg) sink in 15--50\,cm mud pans, requiring 4--6 workers to pull out while crushing crops. Antenna provides affordable robotic farming services to China's $\approx$80,600 agricultural cooperatives at \textbf{\pounds 6.50--\pounds 10 per mu} (vs.\ \pounds 17--\pounds 25 for manual labor), supported by 30--35\% government hilly-machinery subsidies.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{\textbf{Efficiency and Cost Benefits of Agricultural Automation}}
+\label{tab:automation_benefits}
+\scriptsize
+\renewcommand{\arraystretch}{1.0}
+\vspace{1pt}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Technology} & \textbf{Efficiency Gain} & \textbf{Cost Reduction} \\
+\midrule
+Manual Rice Farming & Baseline & Baseline \\
+Drone Seeding \& Monitoring & 40\% & 20\% \\
+Robotic Rice Planters & 42\% & 30\% \\
+AI-Powered Irrigation & 50\% & 40\% \\
+Automated Plant Growing & 60\% & 35\% \\
+\bottomrule
+\end{tabular}
+\vspace{1.5pt}
+
+\parbox{\linewidth}{
+\centering
+\textbf{UN Sustainable Development Goals met:} 2, 11, 12, 13.
+}
+\end{table}
+
+% --- 3. HARDWARE EMBODIMENT ---
+\section{\textbf{The Robot Hardware: Lightweight ``Enna'' Design}}
+Every swarm unit shares an identical \textbf{``Enna''} architecture: onboard edge computing (Jetson Orin Nano), soil-sensing and planting tools, and a rigid rescue hitch:
+\begin{itemize}
+    \item \textbf{Compact Low-Pressure Hull:} A lightweight (\textbf{4.2\,kg}), waterproof body on gripped paddle wheels that floats over soft mud without sinking, built narrow enough (\textbf{276\,\text{mm}} wide) to drive cleanly inside standard \textbf{300\,\text{mm}} rice rows without crushing plants.
+    \item \textbf{Onboard Tools:} Equipped with a plunging soil probe to test mud quality, a gravity-fed seed dropper, \textbf{3-beam} forward laser distance sensors, and a front lifting hitch that locks onto stuck teammates to pull them free.
+\end{itemize}
+
+% --- 4. SENSORS & ACTUATORS ---
+\section{\textbf{The Hardware: Sensors \& Actuators}}
+\begin{itemize}
+    \item \textbf{Sensors (Perceive):} (1)~\textbf{3-Beam LiDAR} (front obstacles \& terrace walls); (2)~\textbf{Whiskers} (crop stem touch for row centering); (3)~\textbf{RTK + Odometry} (position \& wheel-slip stall detection); (4)~\textbf{Cone Penetrometer} (mud firmness, moisture, \& missing plant gaps); (5)~\textbf{P2P Radio} (local SOS \& map sharing within $2.15\,\text{m}$).
+    \item \textbf{Actuators (Act):} (1)~\textbf{4-Wheel Drive} (skid-steer motion at $\pm 0.45\,\text{m/s}$); (2)~\textbf{Farming Tools} (seed-drop valve \& underbelly weeders); (3)~\textbf{Rescue Tools} (front lifting boom to break mud suction, rotary cam-latch lock, \& rear anchor spades).
+\end{itemize}
+
+% --- 5. PERCEPTION & STALL DETECTION ---
+\section{\textbf{Perceive: Soil Checks \& Stall Detection}}
+Ennas rely strictly on their own onboard sensors:
+\begin{enumerate}
+    \item \textbf{Checking Soil Before Planting:} Each robot probes soil moisture ($0.25\text{--}0.80$), firmness ($0.20\text{--}0.90$), and empty plant spacing ($\geq 0.60$). Validated planting spots are shared directly with nearby teammates over local radio.
+    \item \textbf{Detecting When Stuck in Mud:} If a robot commands its wheels to drive ($\geq 0.04\,\text{m/s}$) with no obstacle ahead ($>0.32\,\text{m}$), yet barely moves forward ($<0.005\,\text{m}$) or turns ($<0.02\,\text{rad}$), it flags that it is bogged down in mud.
+\end{enumerate}
+
+% --- 6. AI AGENT ---
+\section{\textbf{Decide: AI Agent}}
+Our system pairs a Small Language Model with physics learning to recover trapped Ennas:
+\begin{itemize}
+    \item \textbf{SLM Strategist + Residual Neural Learner:} An on-edge Small Language Model (\textbf{Qwen 2.5 0.5B}) acts as the high-level strategist, querying an online \textbf{Residual Neural Learner} to calculate real-world mud friction and wheel sinkage before deciding to self-push or call a teammate for a tow.
+    \item \textbf{Modal GPU Training \& Edge Efficiency:} Fine-tuned on \textbf{Modal's cloud GPUs} in under five minutes, achieving \textbf{97.88\% accuracy} on unseen test scenarios within a \textbf{10-Watt edge power budget}.
+    \item \textbf{Hardcoded Safety Gate \& 2\,ms Fallback:} Every AI decision passes through a \textbf{hardcoded safety gate} that blocks unsafe commands and protects battery limits, backed by an instant \textbf{2-millisecond automatic fallback}.
+\end{itemize}
+
+% --- 7. SMART SWARM RESCUE ---
+\section{\textbf{Act: Smart Swarm Rescue}}
+When a robot gets trapped in soft mud ($<30\,\text{kPa}$), the mud's suction makes it difficult to escape. Sending another robot without assessing the conditions could trap both, causing a \textbf{critical failure} known as cascade entrapment.
+\begin{itemize}
+    \item \textbf{Detecting and Communicating the Problem:} The trapped robot detects its lack of movement, stops its wheels, estimates the mud resistance, and sends an SOS through local P2P radio to nearby teammates without needing internet.
+    \item \textbf{Evaluating Rescue Risks:} The swarm calculates whether rescuing the robot is worth the risk, considering its remaining seeds, the time lost from planting, and the danger of another robot getting stuck:
+    $$\text{Net} = \text{Rescue Benefit} - \text{Opportunity Cost} - \text{Hazard Risk}$$
+    \item \textbf{Making a Safe Decision:} If $\text{Net} > 0$, the nearest available robot attempts a rescue while the others continue planting. If $\text{Net} \le 0$, the swarm refuses rescue to prevent further robots from getting trapped, prioritising the remaining mission.
+\end{itemize}
+
+% --- 8. PHYSICAL RESCUE ---
+\section{\textbf{Physical Rescue: How One Robot Pulls Out Another}}
+\begin{itemize}
+    \item \textbf{Tandem Docking \& Suction Break:} The rescuer aligns into the stuck robot's rear V-funnel and snaps its rotary cam-latch shut to lock both robots into a rigid 8-wheel train. It then tilts its front boom upward ($+Z$) to pry the stuck robot up and break mud suction while dropping rear anchor spades before pulling backward.
+    \item \textbf{MuJoCo Physics Validation:} Verified $>0.08\,\text{m}$ extraction pull within safe force limits ($<250\,\text{N}$, tilt $<0.12\,\text{rad}$), followed by immediate mission resumption.
+\end{itemize}
+
+% --- 9. TIERED ARCHITECTURE & TIMING ---
+\section{\textbf{Control Speeds \& System Timing}}
+\begin{center}
+\scriptsize
+\begin{tabular}{llcc}
+\toprule
+\textbf{Control Layer} & \textbf{Agent / Swarm Responsibility} & \textbf{Hardware} & \textbf{Speed} \\
+\midrule
+\textbf{Tier-0 Safety} & Hardcoded safety gate \& auto fallback & MCU/CPU & $\mathbf{2\,\text{ms}}$ \\
+\textbf{Tier-1 Swarm} & Physics learner, P2P radio, task auction & CPU & 10--15\,ms \\
+\textbf{Tier-2 AI Brain} & Qwen 2.5 0.5B high-level strategist & Jetson (10W) & $<120$\,ms \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% --- 10. OPERATING LIMITS ---
+\section{\textbf{Operating Limits \& Real-World Scope}}
+\begin{itemize}
+    \item \textbf{Mud Depth Limit:} Effective in mud up to $\le 45\,\text{cm}$ deep. Deeper liquid slurry ($>60\,\text{cm}$) exceeds 8-wheel traction, triggering safe refusal for human pickup.
+    \item \textbf{Simulation vs.\ Field Trials:} Multi-body docking and P2P radio are validated in 3D MuJoCo; wet clay slurry and field trials with co-ops are scheduled for Phase-2.
+    \item \textbf{Target Farm Size:} Designed for gap-replanting in small hilly terraces ($<0.15\,\text{ha}$), complementing rather than replacing large tractors on flat plains.
+\end{itemize}
+
+% --- 11. SAFETY & OPERATIONAL RESILIENCE ---
+\section{\textbf{Safety \& Operational Resilience}}
+\begin{itemize}
+    \item \textbf{Operator UI Emergency Stop:} The mission dashboard features a continuous, real-time manual E-Stop that instantly overrides AI policies, cuts motor torque, and locks all chassis brakes in $<2\,\text{ms}$.
+    \item \textbf{Environmental Ingress Protection (IP68):} Sealed waterproof hull with a positive-pressure air cavity protects internal electronics, LiDAR wiring, and batteries across saturated 15--50\,cm flooded paddy mud pans (\textit{Lannitian}), topped by an elevated splash-proof BeiDou RTK dome.
+    \item \textbf{Zero Prompt Injection (Air-Gapped Edge AI):} All models (Qwen 2.5 0.5B and Residual Learner) execute fully on-device on the 10W Jetson chip with zero remote API dependencies or external text interfaces, completely eliminating cyber prompt-injection and cloud-hijacking attack surfaces.
+    \item \textbf{Decentralized Mesh (No Single Point of Failure):} Fully peer-to-peer (P2P) mycelial gossip over $2.15\,\text{m}$ ad-hoc links eliminates central server bottlenecks. If an Enna gets stranded or loses power, surviving peers reallocate tasks autonomously without fleet-wide disruption.
+\end{itemize}
+
+\end{multicols}
+\end{document}
